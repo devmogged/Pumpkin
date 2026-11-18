@@ -193,7 +193,8 @@ pub struct PluginManager {
     pub java_versions: Arc<JavaVersions>,
     pub bedrock_versions: Arc<BedrockVersions>,
     unloaded_files: RwLock<HashSet<PathBuf>>,
-    services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
+    // moddedMC-rust: the content host registers its service before any plugin loads.
+    pub services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
     // Plugin state tracking
     plugin_states: RwLock<HashMap<String, PluginState>>,
     // Notification for plugin state changes
