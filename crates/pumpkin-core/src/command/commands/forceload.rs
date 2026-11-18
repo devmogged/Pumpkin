@@ -71,6 +71,7 @@ impl CommandExecutor for ForceloadAddExecutor {
             ));
         }
 
+        let mut added = Vec::new();
         {
             let mut forced = world
                 .forced_chunks
@@ -78,10 +79,13 @@ impl CommandExecutor for ForceloadAddExecutor {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             for x in min_x..=max_x {
                 for z in min_z..=max_z {
-                    forced.insert(Vector2::new(x, z));
+                    if forced.insert(Vector2::new(x, z)) {
+                        added.push(Vector2::new(x, z));
+                    }
                 }
             }
         }
+        set_force_tickets(world, &added, true);
 
         world.update_active_chunks();
 
@@ -154,6 +158,7 @@ impl CommandExecutor for ForceloadRemoveExecutor {
             ));
         }
 
+        let mut removed = Vec::new();
         {
             let mut forced = world
                 .forced_chunks
@@ -161,10 +166,13 @@ impl CommandExecutor for ForceloadRemoveExecutor {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             for x in min_x..=max_x {
                 for z in min_z..=max_z {
-                    forced.remove(&Vector2::new(x, z));
+                    if forced.remove(&Vector2::new(x, z)) {
+                        removed.push(Vector2::new(x, z));
+                    }
                 }
             }
         }
+        set_force_tickets(world, &removed, false);
 
         world.update_active_chunks();
 
@@ -212,9 +220,10 @@ impl CommandExecutor for ForceloadRemoveAllExecutor {
                 .forced_chunks
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let count = forced.len();
-            forced.clear();
-            count
+            let removed: Vec<_> = forced.drain().collect();
+            drop(forced);
+            set_force_tickets(world, &removed, false);
+            removed.len()
         };
 
         world.update_active_chunks();
@@ -366,4 +375,24 @@ pub fn register(dispatcher: &mut CommandDispatcher, registry: &PermissionRegistr
         );
 
     dispatcher.register(builder);
+}
+
+/// Forced chunks must also hold a load ticket, or they are only marked active and never loaded.
+fn set_force_tickets(world: &crate::world::World, chunks: &[Vector2<i32>], add: bool) {
+    if chunks.is_empty() {
+        return;
+    }
+    let mut chunk_loading = world
+        .level
+        .chunk_loading
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for chunk in chunks {
+        if add {
+            chunk_loading.add_force_ticket(*chunk);
+        } else {
+            chunk_loading.remove_force_ticket(*chunk);
+        }
+    }
+    chunk_loading.send_change();
 }
