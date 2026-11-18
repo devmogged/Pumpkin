@@ -28,6 +28,8 @@ pub struct SClientInformationConfig<'a> {
     pub text_filtering: bool,
     /// Whether the player should appear in the server's online player list
     pub server_listing: bool,
+    /// Particles to render (0: All, 1: Decreased, 2: Minimal), since 1.21.2
+    pub particle_status: VarInt,
 }
 
 impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
@@ -53,6 +55,12 @@ impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
             true
         };
 
+        let particle_status = if version >= &JavaMinecraftVersion::V_1_21_2 {
+            bytebuf.get_var_int()?
+        } else {
+            VarInt(0)
+        };
+
         Ok(Self {
             locale,
             view_distance,
@@ -62,6 +70,7 @@ impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
             main_hand,
             text_filtering,
             server_listing,
+            particle_status,
         })
     }
 }
@@ -86,6 +95,9 @@ impl crate::ClientPacket for SClientInformationConfig<'_> {
         }
         if version >= &JavaMinecraftVersion::V_1_18 {
             write.write_bool(self.server_listing)?;
+        }
+        if version >= &JavaMinecraftVersion::V_1_21_2 {
+            write.write_var_int(&self.particle_status)?;
         }
         Ok(())
     }
