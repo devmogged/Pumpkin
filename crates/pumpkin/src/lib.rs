@@ -27,10 +27,10 @@ use pumpkin_core::{
     data::VanillaData,
     stop_or_exit_server,
 };
-use pumpkin_core::{PumpkinServer, stop_server};
+use pumpkin_core::{PumpkinServer, server::Server, stop_server};
 
 use pumpkin_config::{LoadConfiguration, PumpkinConfig};
-use pumpkin_core::plugin::loader::PluginLoader;
+use pumpkin_core::plugin::{Plugin, PluginMetadata, loader::PluginLoader};
 use pumpkin_util::text::{
     TextComponent,
     color::{Color, NamedColor},
@@ -44,14 +44,54 @@ const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
 
+/// A hook that runs once the server exists, before plugins load.
+pub type ServerHook = Box<dyn FnOnce(&Arc<Server>) + Send>;
+
+/// What an embedding binary adds to a standard server start.
+///
+/// The stock `pumpkin` binary uses the default. A binary that links content into the server
+/// (for example a modpack build) passes hooks that register that content.
+#[derive(Default)]
+pub struct Launch {
+    /// Run in order after the server is created and before any plugin loads.
+    pub on_server_created: Vec<ServerHook>,
+    /// Plugins compiled into this binary. They load in order, before the plugin folder.
+    pub builtin_plugins: Vec<(PluginMetadata, Arc<dyn Plugin>)>,
+}
+
+impl Launch {
+    #[must_use]
+    pub fn on_server_created(mut self, hook: impl FnOnce(&Arc<Server>) + Send + 'static) -> Self {
+        self.on_server_created.push(Box::new(hook));
+        self
+    }
+
+    #[must_use]
+    pub fn builtin_plugin(mut self, metadata: PluginMetadata, plugin: impl Plugin) -> Self {
+        self.builtin_plugins.push((metadata, Arc::new(plugin)));
+        self
+    }
+}
+
+/// Starts the server and runs it until it stops, then exits the process.
+pub fn run(launch: Launch) -> ! {
+    let _ = MAIN_THREAD.set(thread::current().id());
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| {
+            tracing::error!("Unable to start the async runtime: {error}");
+            exit(1);
+        });
+    runtime.block_on(run_server(launch));
+    exit(SERVER_EXIT_CODE.load(Ordering::Acquire));
+}
+
 // WARNING: All rayon calls from the tokio runtime must be non-blocking! This includes things
 // like `par_iter`. These should be spawned in the the rayon pool and then passed to the tokio
 // runtime with a channel! See `Level::fetch_chunks` as an example!
 #[allow(clippy::too_many_lines)]
-#[tokio::main]
-async fn main() {
-    let _ = MAIN_THREAD.set(thread::current().id());
-
+async fn run_server(launch: Launch) {
     // reqwest is built with `rustls-no-provider`, so pick the ring provider (the one
     // wasmtime-wasi-http/rtc already force) before any client can be constructed.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -183,6 +223,20 @@ async fn main() {
         tracing::error!("{error}");
         exit(1);
     });
+    for hook in launch.on_server_created {
+        hook(&pumpkin_server.server);
+    }
+    let server = &pumpkin_server.server;
+    for (metadata, plugin) in launch.builtin_plugins {
+        let name = metadata.name.clone();
+        if let Err(error) = server
+            .plugin_manager
+            .load_builtin_plugin(server, metadata, plugin)
+            .await
+        {
+            tracing::error!("Built-in plugin \"{name}\" failed to load: {error}");
+        }
+    }
     let plugin_wait_time = pumpkin_server.init_plugins().await;
 
     let time_elapsed = time.elapsed().saturating_sub(plugin_wait_time);
@@ -240,8 +294,6 @@ async fn main() {
             .color_named(NamedColor::Red)
             .to_pretty_console()
     );
-
-    exit(SERVER_EXIT_CODE.load(Ordering::Acquire));
 }
 fn print_support_links_and_warning() {
     warn!(
