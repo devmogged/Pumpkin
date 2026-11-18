@@ -8064,6 +8064,39 @@ impl World {
             namespace.into(),
             pumpkin_nbt::tag::NbtTag::Compound(namespace_data),
         );
+        let custom_data = entry.clone();
+        drop(entry);
+        self.write_through_custom_data(pos, custom_data);
+    }
+
+    /// Copies a block entity's custom data into the chunk's saved block entity NBT now.
+    /// The unload path can drop the chunk before `save_block_entities` runs, which would
+    /// lose every custom-data change made since the chunk loaded.
+    fn write_through_custom_data(&self, pos: &BlockPos, custom_data: NbtCompound) {
+        let chunk_pos = pos.chunk_position();
+        let updated = self.level.read_chunk_sync(&chunk_pos, |chunk| {
+            let mut pending = chunk
+                .pending_block_entities
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(nbt) = pending.get_mut(pos) else {
+                return false;
+            };
+            nbt.put_compound("PumpkinCustomData", custom_data.clone());
+            chunk.mark_dirty(true);
+            true
+        });
+        if updated == Some(false)
+            && let Some(block_entity) = self
+                .block_entities
+                .get(&chunk_pos)
+                .and_then(|entities| entities.get(pos).cloned())
+        {
+            let mut nbt = NbtCompound::new();
+            block_entity.write_internal(&mut nbt);
+            nbt.put_compound("PumpkinCustomData", custom_data);
+            self.add_block_entity_nbt(*pos, &nbt);
+        }
     }
 
     pub fn get_block_entity_custom_data(
