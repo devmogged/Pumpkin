@@ -1010,6 +1010,34 @@ impl PluginManager {
             })
     }
 
+    /// Loads a plugin compiled into the server binary and waits for its `on_load`.
+    ///
+    /// Built-in plugins skip the file, signature and permission checks: whoever built the
+    /// binary chose them. They cannot be unloaded.
+    pub async fn load_builtin_plugin(
+        self: &Arc<Self>,
+        server: &Arc<Server>,
+        metadata: PluginMetadata,
+        instance: Arc<dyn Plugin>,
+    ) -> Result<(), ManagerError> {
+        let path = PathBuf::from(format!("<builtin>/{}", metadata.name));
+        self.spawn_plugin_initialization(
+            server.clone(),
+            instance,
+            metadata,
+            Box::new(()),
+            Arc::new(loader::builtin::BuiltinPluginLoader),
+            path,
+        )
+        .await?
+        .await
+        .map_err(|e| {
+            ManagerError::LoaderError(LoaderError::InitializationFailed(format!(
+                "Task join error: {e}"
+            )))
+        })
+    }
+
     /// Wait for a plugin to finish loading
     pub async fn wait_for_plugin(&self, plugin_name: &str) -> Result<(), ManagerError> {
         loop {

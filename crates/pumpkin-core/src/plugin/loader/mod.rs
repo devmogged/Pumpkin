@@ -5,6 +5,7 @@ use crate::{
 use std::{any::Any, path::Path, pin::Pin, sync::Arc};
 use thiserror::Error;
 
+pub mod builtin;
 pub mod native;
 
 pub type PluginLoadFuture<'a> = Pin<
