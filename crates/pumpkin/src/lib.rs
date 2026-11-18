@@ -53,6 +53,8 @@ pub type ServerHook = Box<dyn FnOnce(&Arc<Server>) + Send>;
 /// (for example a modpack build) passes hooks that register that content.
 #[derive(Default)]
 pub struct Launch {
+    /// Run in order before the server creates or loads any worlds.
+    pub before_worlds_loaded: Vec<Box<dyn FnOnce() + Send>>,
     /// Run in order after the server is created and before any plugin loads.
     pub on_server_created: Vec<ServerHook>,
     /// Plugins compiled into this binary. They load in order, before the plugin folder.
@@ -60,6 +62,12 @@ pub struct Launch {
 }
 
 impl Launch {
+    #[must_use]
+    pub fn before_worlds_loaded(mut self, hook: impl FnOnce() + Send + 'static) -> Self {
+        self.before_worlds_loaded.push(Box::new(hook));
+        self
+    }
+
     #[must_use]
     pub fn on_server_created(mut self, hook: impl FnOnce(&Arc<Server>) + Send + 'static) -> Self {
         self.on_server_created.push(Box::new(hook));
@@ -210,6 +218,9 @@ async fn run_server(launch: Launch) {
         config.advanced.plugins.verify_signatures,
     ))];
 
+    for hook in launch.before_worlds_loaded {
+        hook();
+    }
     let pumpkin_server = PumpkinServer::new(
         config.basic,
         config.advanced,
