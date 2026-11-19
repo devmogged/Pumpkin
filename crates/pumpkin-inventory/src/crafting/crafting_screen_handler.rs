@@ -89,7 +89,7 @@ impl RecipeResult {
     #[must_use]
     pub fn from_stack(stack: ItemStack, remaining_items: Option<Vec<Option<ItemStack>>>) -> Self {
         Self {
-            item_id: format!("minecraft:{}", stack.item.registry_key),
+            item_id: stack.item.identifier().into_owned(),
             count: stack.item_count,
             pot_decorations: None,
             components: &[],

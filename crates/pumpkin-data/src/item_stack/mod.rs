@@ -37,6 +37,29 @@ pub enum DamageResult {
     Broken,
 }
 
+impl Item {
+    /// The item's registry id, `namespace:path`. Vanilla registry keys omit `minecraft:`;
+    /// custom ones carry their namespace.
+    #[must_use]
+    pub fn identifier(&self) -> Cow<'static, str> {
+        if self.registry_key.contains(':') {
+            Cow::Borrowed(self.registry_key)
+        } else {
+            Cow::Owned(format!("minecraft:{}", self.registry_key))
+        }
+    }
+
+    /// Whether `id` (`namespace:path`) names this item.
+    #[must_use]
+    pub fn has_id(&self, id: &str) -> bool {
+        if self.registry_key.contains(':') {
+            id == self.registry_key
+        } else {
+            id.strip_prefix("minecraft:") == Some(self.registry_key)
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ItemStack {
     pub item_count: u8,
@@ -950,15 +973,7 @@ impl ItemStack {
             return None;
         }
         let mut compound = NbtCompound::new();
-        let key = self.item.registry_key;
-        compound.put_string(
-            "id",
-            if key.contains(':') {
-                key.to_owned()
-            } else {
-                format!("minecraft:{key}")
-            },
-        );
+        compound.put_string("id", self.item.identifier().into_owned());
         compound.put_int("count", i32::from(self.item_count));
 
         let mut tag = NbtCompound::new();
@@ -1020,7 +1035,7 @@ impl ItemStack {
     #[must_use]
     pub fn write_item_stack_template(&self) -> NbtTag {
         let mut compound = NbtCompound::new();
-        compound.put_string("id", format!("minecraft:{}", self.item.registry_key));
+        compound.put_string("id", self.item.identifier().into_owned());
         if self.item_count != 1 {
             compound.put_int("count", i32::from(self.item_count));
         }

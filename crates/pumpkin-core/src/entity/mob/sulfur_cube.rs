@@ -1115,7 +1115,7 @@ impl Mob for SulfurCubeEntity {
                 let _ = player.damage_item_stack(item_stack, 1);
                 player.trigger_advancement(AdvancementTrigger::PlayerShearedEquipment {
                     entity_type: "minecraft:sulfur_cube".to_string(),
-                    item_id: format!("minecraft:{}", sheared_item.item.registry_key),
+                    item_id: sheared_item.item.identifier().into_owned(),
                 });
                 return true;
             }

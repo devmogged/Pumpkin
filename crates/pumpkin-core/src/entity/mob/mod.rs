@@ -1296,7 +1296,7 @@ pub(crate) fn drop_from_gift_loot_table(
         let mut drop_event =
             crate::plugin::api::events::entity::entity_drop_item::EntityDropItemEvent::new(
                 entity.entity_id,
-                format!("minecraft:{}", stack.item.registry_key),
+                stack.item.identifier().into_owned(),
                 stack.item_count,
             );
         if let Some(server) = world.server.upgrade() {

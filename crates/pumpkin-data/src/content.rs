@@ -334,17 +334,6 @@ pub(crate) fn item_by_name(name: &str) -> Option<&'static Item> {
 }
 
 impl Item {
-    /// Whether `id` (`namespace:path`) names this item. Vanilla registry keys omit `minecraft:`;
-    /// custom ones carry their namespace.
-    #[must_use]
-    pub fn has_id(&self, id: &str) -> bool {
-        if self.registry_key.contains(':') {
-            id == self.registry_key
-        } else {
-            id.strip_prefix("minecraft:") == Some(self.registry_key)
-        }
-    }
-
     /// The vanilla item a stock client sees in place of this one: itself, or a custom item's
     /// carrier.
     #[must_use]

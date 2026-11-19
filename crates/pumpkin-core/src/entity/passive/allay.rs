@@ -239,7 +239,7 @@ impl AllayEntity {
                     "minecraft:{}",
                     world.get_block(&BlockPos::floored_v(target).down()).name
                 ),
-                item_id: format!("minecraft:{}", stack.item.registry_key),
+                item_id: stack.item.identifier().into_owned(),
             });
         }
         let mut rng = self.get_random();

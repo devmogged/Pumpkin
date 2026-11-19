@@ -172,7 +172,7 @@ impl CrafterBlock {
             }
             Self::dispense_item(world, pos, crafter, &mut result_stack, props.orientation);
 
-            let recipe_id = format!("minecraft:{}", result_stack.item.registry_key);
+            let recipe_id = result_stack.item.identifier().into_owned();
             let center_pos = pos.to_centered_f64();
             let players = world.players.load();
             for player in players.iter() {

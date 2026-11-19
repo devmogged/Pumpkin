@@ -118,7 +118,7 @@ impl BlockEntity for DecoratedPotBlockEntity {
                 .map(|side| {
                     let name = side.as_ref().map_or_else(
                         || "minecraft:brick".to_string(),
-                        |s| format!("minecraft:{}", s.item.registry_key),
+                        |s| s.item.identifier().into_owned(),
                     );
                     NbtTag::String(name.into())
                 })

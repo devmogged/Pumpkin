@@ -129,7 +129,7 @@ impl FishingBobberEntity {
                 }
                 player.trigger_advancement(
                     crate::entity::player::advancement::trigger::AdvancementTrigger::FishedItem {
-                        item_id: format!("minecraft:{}", item_stack.item.registry_key),
+                        item_id: item_stack.item.identifier().into_owned(),
                     },
                 );
                 let item_entity = ItemEntity::new_with_velocity(

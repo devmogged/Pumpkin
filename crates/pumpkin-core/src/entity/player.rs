@@ -9542,15 +9542,15 @@ impl InventoryPlayer for Player {
     }
 
     fn on_recipe_crafted(&self, item: &pumpkin_data::item_stack::ItemStack) {
-        let key = item.item.registry_key.to_string();
+        let key = item.item.identifier();
         self.trigger_advancement(
             crate::entity::player::advancement::trigger::AdvancementTrigger::RecipeCrafted {
-                recipe_id: format!("minecraft:{key}"),
+                recipe_id: key.clone().into_owned(),
             },
         );
         self.trigger_advancement(
             crate::entity::player::advancement::trigger::AdvancementTrigger::RecipeUnlocked {
-                recipe_id: format!("minecraft:{key}"),
+                recipe_id: key.into_owned(),
             },
         );
         self.trigger_advancement(
