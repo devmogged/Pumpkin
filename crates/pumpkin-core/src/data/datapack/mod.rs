@@ -17,7 +17,10 @@ pub mod trade_loader;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 use tracing::{info, warn};
 
 use pumpkin_data::damage::DamageType;
@@ -79,6 +82,8 @@ pub enum DatapackEnablePosition {
 
 pub struct DatapackManager {
     loaded_packs: RwLock<Vec<LoadedDatapack>>,
+    /// Bumped after every `load_all`, so content mods can tell their datapack view changed.
+    generation: AtomicU64,
     functions: RwLock<HashMap<String, Arc<[String]>>>,
     function_tags: RwLock<HashMap<String, Vec<String>>>,
     test_instances: RwLock<TestInstanceRegistry>,
@@ -116,6 +121,7 @@ impl DatapackManager {
     pub fn new() -> Self {
         Self {
             loaded_packs: RwLock::new(Vec::new()),
+            generation: AtomicU64::new(0),
             functions: RwLock::new(HashMap::new()),
             function_tags: RwLock::new(HashMap::new()),
             test_instances: RwLock::new(HashMap::new()),
@@ -289,6 +295,7 @@ impl DatapackManager {
             .tags
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = all_tags;
+        self.generation.fetch_add(1, Ordering::Release);
     }
 
     #[must_use]
@@ -424,6 +431,11 @@ impl DatapackManager {
             .keys()
             .cloned()
             .collect()
+    }
+
+    /// Changes after every datapack load, including `/reload`.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     pub fn get_loaded_packs(&self) -> Vec<LoadedDatapack> {
