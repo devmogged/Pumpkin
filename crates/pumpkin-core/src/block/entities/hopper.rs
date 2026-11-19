@@ -260,7 +260,8 @@ impl HopperBlockEntity {
     }
 
     /// Vanilla `HopperBlockEntity.getBlockContainer`.
-    fn get_block_container(world: &Arc<World>, pos: &BlockPos) -> Option<Arc<dyn Inventory>> {
+    #[must_use]
+    pub fn get_block_container(world: &Arc<World>, pos: &BlockPos) -> Option<Arc<dyn Inventory>> {
         let (block, state) = world.get_block_and_state(pos);
         // `WorldlyContainerHolder`: the composter has no block entity.
         if block == &Block::COMPOSTER {
@@ -706,6 +707,11 @@ impl HopperBlockEntity {
             return;
         }
         to.mark_dirty();
+    }
+
+    /// Vanilla `tryMoveInItem` into this hopper while it was empty, from a source that isn't a hopper.
+    pub fn set_cooldown_after_outside_insert(&self) {
+        self.set_cooldown_after_insert(None);
     }
 
     /// The cooldown half of vanilla `tryMoveInItem`, for a hopper that was empty. Called under its
