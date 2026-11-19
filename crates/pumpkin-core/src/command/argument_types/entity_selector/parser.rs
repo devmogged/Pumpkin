@@ -148,11 +148,11 @@ impl<'b, 'a> EntitySelectorParser<'b, 'a> {
         // We finalize our predicates.
         if let Some(x) = self.rotation.x {
             self.predicates
-                .push(EntitySelectorPredicate::Rotation(x, RotationType::Yaw));
+                .push(EntitySelectorPredicate::Rotation(x, RotationType::Pitch));
         }
         if let Some(y) = self.rotation.y {
             self.predicates
-                .push(EntitySelectorPredicate::Rotation(y, RotationType::Pitch));
+                .push(EntitySelectorPredicate::Rotation(y, RotationType::Yaw));
         }
         if let Some(level) = self.experience_level {
             self.predicates
