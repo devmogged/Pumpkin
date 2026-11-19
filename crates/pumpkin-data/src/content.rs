@@ -24,6 +24,15 @@ pub struct BlockDefinition {
     pub states: Vec<StateDefinition>,
 }
 
+/// An item with no block, frozen with the block definitions.
+pub struct ItemDefinition {
+    pub name: String,
+    pub display_name: String,
+    /// The vanilla item it copies components from (stack size, food, tool) and that stock clients
+    /// see, drawn with the item's own model.
+    pub carrier: &'static Item,
+}
+
 pub struct StateDefinition {
     pub properties: BTreeMap<String, String>,
     pub physical: &'static BlockState,
@@ -44,7 +53,7 @@ pub struct StateEntry {
 pub struct ItemEntry {
     pub item: &'static Item,
     pub carrier: &'static Item,
-    pub block: &'static Block,
+    pub block: Option<&'static Block>,
     pub display_name: &'static str,
 }
 
@@ -55,6 +64,7 @@ pub struct Registry {
     names: HashMap<&'static str, &'static Block>,
     states: HashMap<u16, StateEntry>,
     items: HashMap<u16, ItemEntry>,
+    item_names: HashMap<&'static str, &'static Item>,
     entity_names: HashMap<&'static str, &'static str>,
     replacements: HashMap<BlockStateId, BlockStateId>,
 }
@@ -88,7 +98,11 @@ pub(crate) fn replace_carrier(id: BlockStateId) -> BlockStateId {
 
 impl Registry {
     /// Read the world's id map and reserve new ids before any chunks can be loaded.
-    pub fn open(path: &Path, definitions: &[BlockDefinition]) -> io::Result<Self> {
+    pub fn open(
+        path: &Path,
+        definitions: &[BlockDefinition],
+        item_definitions: &[ItemDefinition],
+    ) -> io::Result<Self> {
         let bytes = match fs::read(path) {
             Ok(bytes) => Some(bytes),
             Err(err) if err.kind() == io::ErrorKind::NotFound => None,
@@ -192,12 +206,13 @@ impl Registry {
 
             registry.blocks.insert(block_id, block);
             registry.names.insert(name, block);
+            registry.item_names.insert(name, item);
             registry.items.insert(
                 item_id,
                 ItemEntry {
                     item,
                     carrier: def.item_carrier,
-                    block,
+                    block: Some(block),
                     display_name: Box::leak(def.display_name.clone().into_boxed_str()),
                 },
             );
@@ -216,6 +231,34 @@ impl Registry {
             }
         }
 
+        for def in item_definitions {
+            if !custom_name(&def.name)
+                || registry.item_names.contains_key(def.name.as_str())
+                || def.carrier.id >= Item::VANILLA_COUNT
+                || def.carrier == &Item::AIR
+            {
+                return Err(invalid("invalid custom item definition"));
+            }
+            let item_id = item_ids.reserve(&def.name)?;
+            let name: &'static str = Box::leak(def.name.clone().into_boxed_str());
+            let item = Box::leak(Box::new(Item {
+                id: item_id,
+                registry_key: name,
+                crafting_remainder: None,
+                components: def.carrier.components,
+            }));
+            registry.item_names.insert(name, item);
+            registry.items.insert(
+                item_id,
+                ItemEntry {
+                    item,
+                    carrier: def.carrier,
+                    block: None,
+                    display_name: Box::leak(def.display_name.clone().into_boxed_str()),
+                },
+            );
+        }
+
         if registry
             .replacements
             .values()
@@ -223,7 +266,7 @@ impl Registry {
         {
             return Err(invalid("carrier replacement is itself reserved"));
         }
-        if bytes.is_some() || !definitions.is_empty() {
+        if bytes.is_some() || !definitions.is_empty() || !item_definitions.is_empty() {
             let updated = serde_json::to_vec(&ids).map_err(io::Error::other)?;
             if bytes.as_deref() != Some(updated.as_slice()) {
                 let parent = path
@@ -326,11 +369,11 @@ pub(crate) fn block_by_id(id: u16) -> Option<&'static Block> {
 }
 
 pub(crate) fn block_by_item(id: u16) -> Option<&'static Block> {
-    Some(item(id)?.block)
+    item(id)?.block
 }
 
 pub(crate) fn item_by_name(name: &str) -> Option<&'static Item> {
-    Some(item(block(name)?.item_id)?.item)
+    CONTENT.get()?.item_names.get(name).copied()
 }
 
 impl Item {

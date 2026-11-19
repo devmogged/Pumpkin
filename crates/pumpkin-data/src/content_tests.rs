@@ -1,10 +1,14 @@
-use super::{Block, BlockDefinition, Item, Registry, StateDefinition};
+use super::{Block, BlockDefinition, Item, ItemDefinition, Registry, StateDefinition};
 
 #[test]
 fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::error::Error>> {
     let world = tempfile::tempdir()?;
     let file = world.path().join("moddedmc/registry.dat");
-    let first = Registry::open(&file, &[definition("test:shaft"), definition("test:cog")])?;
+    let first = Registry::open(
+        &file,
+        &[definition("test:shaft"), definition("test:cog")],
+        &[],
+    )?;
     let old_shaft = first
         .block("test:shaft")
         .ok_or("missing shaft")?
@@ -15,7 +19,11 @@ fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::erro
         .ok_or("missing cog")?
         .default_state
         .id;
-    let second = Registry::open(&file, &[definition("test:motor"), definition("test:cog")])?;
+    let second = Registry::open(
+        &file,
+        &[definition("test:motor"), definition("test:cog")],
+        &[],
+    )?;
     assert!(second.state(old_shaft.as_u16()).is_none());
     assert_eq!(
         second.state(old_cog.as_u16()).map(|s| s.state.id),
@@ -29,7 +37,7 @@ fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::erro
             .id
             > old_cog
     );
-    let third = Registry::open(&file, &[definition("test:shaft")])?;
+    let third = Registry::open(&file, &[definition("test:shaft")], &[])?;
     assert_eq!(
         third.state(old_shaft.as_u16()).map(|s| s.state.id),
         Some(old_shaft)
@@ -59,6 +67,7 @@ fn recipe_ids_match_mod_and_vanilla_items() -> Result<(), Box<dyn std::error::Er
     let registry = Registry::open(
         &world.path().join("moddedmc/registry.dat"),
         &[definition("test:stone")],
+        &[],
     )?;
     let block = registry.block("test:stone").ok_or("missing block")?;
     let item = registry
@@ -71,5 +80,48 @@ fn recipe_ids_match_mod_and_vanilla_items() -> Result<(), Box<dyn std::error::Er
     assert!(!Item::STONE.has_id("test:stone"));
     assert!(Item::STONE.has_id("minecraft:stone"));
     assert_eq!(block.loot_table, Some("test:blocks/stone"));
+    Ok(())
+}
+
+#[test]
+fn standalone_items_keep_their_ids_and_carrier_components() -> Result<(), Box<dyn std::error::Error>>
+{
+    let world = tempfile::tempdir()?;
+    let file = world.path().join("moddedmc/registry.dat");
+    let alloy = || ItemDefinition {
+        name: "test:alloy".into(),
+        display_name: "Alloy".into(),
+        carrier: &Item::IRON_INGOT,
+    };
+    let first = Registry::open(&file, &[definition("test:shaft")], &[alloy()])?;
+    let id = first
+        .item_names
+        .get("test:alloy")
+        .ok_or("missing alloy")?
+        .id;
+    let nugget = ItemDefinition {
+        name: "test:nugget".into(),
+        display_name: "Nugget".into(),
+        carrier: &Item::IRON_NUGGET,
+    };
+    let second = Registry::open(&file, &[definition("test:shaft")], &[nugget, alloy()])?;
+    let item = *second.item_names.get("test:alloy").ok_or("missing alloy")?;
+    assert_eq!(item.id, id);
+    let entry = second.items.get(&id).ok_or("missing entry")?;
+    assert!(entry.block.is_none());
+    let ids = |item: &Item| {
+        item.components
+            .iter()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(item), ids(&Item::IRON_INGOT));
+
+    let clash = ItemDefinition {
+        name: "test:shaft".into(),
+        display_name: "Shaft".into(),
+        carrier: &Item::STICK,
+    };
+    assert!(Registry::open(&file, &[definition("test:shaft")], &[clash]).is_err());
     Ok(())
 }

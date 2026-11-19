@@ -926,6 +926,7 @@ mod content_tests {
                     shape: Vec::new(),
                 }],
             }],
+            &[],
         )?;
         let block = registry.block("test:machine").ok_or("missing definition")?;
         registry.install()?;
