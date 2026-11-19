@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use pumpkin_data::Block;
+use pumpkin_data::item::Item;
+use pumpkin_data::tag::{RegistryKey, get_tag_ids};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -42,6 +45,16 @@ pub fn load_tags_from_dir<S1: std::hash::BuildHasher + Default, S2: std::hash::B
         }
 
         let cat_name = entry.file_name().to_string_lossy().to_string();
+        // Packs older than 1.21 use plural folder names.
+        let cat_name = match cat_name.as_str() {
+            "blocks" => "block".to_owned(),
+            "items" => "item".to_owned(),
+            "fluids" => "fluid".to_owned(),
+            "entity_types" => "entity_type".to_owned(),
+            "game_events" => "game_event".to_owned(),
+            "functions" => "function".to_owned(),
+            _ => cat_name,
+        };
         if cat_name == "worldgen" {
             // Worldgen tags are nested, e.g. tags/worldgen/biome
             if let Ok(wg_entries) = fs::read_dir(&path) {
@@ -66,6 +79,75 @@ pub fn load_tags_from_dir<S1: std::hash::BuildHasher + Default, S2: std::hash::B
     }
 
     total_loaded
+}
+
+/// Hands the loaded block and item tag memberships to [`pumpkin_data::tag_overlay`].
+///
+/// Only memberships beyond the generated vanilla tags go there. A generated tag that nests a
+/// loaded one doesn't pick up its additions, because the generated tags are flattened.
+pub fn publish_overlay<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
+    tags: &HashMap<String, HashMap<String, DynamicTagEntry, S1>, S2>,
+) {
+    let registries: [(&str, RegistryKey, IdLookup); 2] = [
+        ("block", RegistryKey::Block, |name| {
+            Block::from_registry_key(name).map(|b| b.id.as_u16())
+        }),
+        ("item", RegistryKey::Item, |name| {
+            Item::from_registry_key(name).map(|i| i.id)
+        }),
+    ];
+    let mut memberships: HashMap<(RegistryKey, u16), Vec<String>> = HashMap::new();
+    for (category, key, lookup) in registries {
+        let Some(category_tags) = tags.get(category) else {
+            continue;
+        };
+        for name in category_tags.keys() {
+            let mut ids = Vec::new();
+            resolve_tag(category_tags, key, lookup, name, 0, &mut ids);
+            let generated = get_tag_ids(key, name).unwrap_or_default();
+            for id in ids {
+                if generated.contains(&id) {
+                    continue;
+                }
+                let joined = memberships.entry((key, id)).or_default();
+                if !joined.contains(name) {
+                    joined.push(name.clone());
+                }
+            }
+        }
+    }
+    pumpkin_data::tag_overlay::set(memberships);
+}
+
+type IdLookup = fn(&str) -> Option<u16>;
+
+/// Vanilla rejects deeper or cyclic references; this only has to stop.
+const MAX_TAG_DEPTH: u8 = 32;
+
+fn resolve_tag<S: std::hash::BuildHasher>(
+    tags: &HashMap<String, DynamicTagEntry, S>,
+    key: RegistryKey,
+    lookup: IdLookup,
+    name: &str,
+    depth: u8,
+    out: &mut Vec<u16>,
+) {
+    if depth > MAX_TAG_DEPTH {
+        return;
+    }
+    if let Some(ids) = get_tag_ids(key, name) {
+        out.extend_from_slice(ids);
+    }
+    let Some(entry) = tags.get(name) else {
+        return;
+    };
+    for value in &entry.values {
+        if let Some(nested) = value.strip_prefix('#') {
+            resolve_tag(tags, key, lookup, nested, depth + 1, out);
+        } else if let Some(id) = lookup(value) {
+            out.push(id);
+        }
+    }
 }
 
 fn load_tag_category_recursive<S: std::hash::BuildHasher>(
@@ -154,5 +236,38 @@ mod tests {
         let block_map = map.get("block").expect("block tags");
         let entry = block_map.get("custom:custom_tag").expect("custom_tag");
         assert_eq!(entry.values, ["minecraft:stone", "minecraft:dirt"]);
+    }
+
+    #[test]
+    fn loaded_tags_reach_gameplay_tag_checks() {
+        use pumpkin_data::tag::Taggable;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let tags_dir = temp.path().join("tags");
+        // A pre-1.21 folder name, nesting a generated tag and a loaded one.
+        let block_tags = tags_dir.join("blocks");
+        fs::create_dir_all(&block_tags).expect("create dir");
+        fs::write(
+            block_tags.join("things.json"),
+            r##"{"values": ["#minecraft:planks", "#custom:more"]}"##,
+        )
+        .expect("write");
+        fs::write(
+            block_tags.join("more.json"),
+            r#"{"values": ["minecraft:dirt"]}"#,
+        )
+        .expect("write");
+
+        let mut map: HashMap<String, HashMap<String, DynamicTagEntry>> = HashMap::new();
+        load_tags_from_dir("custom", &tags_dir, &mut map);
+        publish_overlay(&map);
+
+        assert_eq!(
+            Block::OAK_PLANKS.is_tagged_with("#custom:things"),
+            Some(true)
+        );
+        assert_eq!(Block::DIRT.is_tagged_with("custom:things"), Some(true));
+        assert_eq!(Block::STONE.is_tagged_with("custom:things"), None);
+        assert_eq!(Block::DIRT.is_tagged_with("minecraft:planks"), Some(false));
     }
 }

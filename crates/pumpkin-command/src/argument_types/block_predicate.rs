@@ -73,12 +73,15 @@ impl BlockPredicate {
                 nbt
             }
             Self::Tag {
+                tag_name,
                 block_ids,
                 properties,
                 nbt,
-                ..
             } => {
-                if !block_ids.contains(&block.id.as_u16()) {
+                let id = block.id.as_u16();
+                if !block_ids.contains(&id)
+                    && !pumpkin_data::tag_overlay::contains(RegistryKey::Block, id, tag_name)
+                {
                     return false;
                 }
                 if !properties.is_empty() {

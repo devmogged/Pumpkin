@@ -423,11 +423,12 @@ pub(crate) fn build() -> TokenStream {
 
                 if is_latest {
                     tag_entries.push(quote! {
-                        pub const #tag_const_name: Tag = (&[#(#values),*], &[#(#ids),*]);
+                        pub const #tag_const_name: Tag = (&[#(#values),*], &[#(#ids),*], #tag_name);
                     });
                     tag_map_entries.push(quote! { #tag_name => &#key_pascal::#tag_const_name });
                 } else {
-                    tag_map_entries.push(quote! { #tag_name => &(&[#(#values),*], &[#(#ids),*]) });
+                    tag_map_entries
+                        .push(quote! { #tag_name => &(&[#(#values),*], &[#(#ids),*], #tag_name) });
                 }
             }
 
@@ -490,7 +491,8 @@ pub(crate) fn build() -> TokenStream {
     quote! {
         use pumpkin_util::version::JavaMinecraftVersion;
 
-        pub type Tag = (&'static [&'static str], &'static [u16]);
+        /// Member names, member ids and the tag's own name (`namespace:path`).
+        pub type Tag = (&'static [&'static str], &'static [u16], &'static str);
 
         #registry_key_enum
 
@@ -532,24 +534,27 @@ pub(crate) fn build() -> TokenStream {
             #[must_use]
             fn is_tagged_with(&self, tag: &str) -> Option<bool> {
                 let tag = tag.strip_prefix('#').unwrap_or(tag);
-                let items = get_tag_ids(Self::tag_key(), tag).or_else(|| {
-                    if !tag.contains(':') {
-                        let mut full = String::with_capacity(10 + tag.len());
-                        full.push_str("minecraft:");
-                        full.push_str(tag);
-                        get_tag_ids(Self::tag_key(), &full)
-                    } else if let Some(stripped) = tag.strip_prefix("minecraft:") {
-                        get_tag_ids(Self::tag_key(), stripped)
-                    } else {
-                        None
-                    }
-                })?;
-                Some(items.contains(&self.registry_id()))
+                let full: std::borrow::Cow<'_, str> = if tag.contains(':') {
+                    tag.into()
+                } else {
+                    format!("minecraft:{tag}").into()
+                };
+                let id = self.registry_id();
+                let added = crate::tag_overlay::contains(Self::tag_key(), id, &full);
+                let ids = get_tag_ids(Self::tag_key(), &full).or_else(|| {
+                    full.strip_prefix("minecraft:")
+                        .and_then(|stripped| get_tag_ids(Self::tag_key(), stripped))
+                });
+                match ids {
+                    Some(ids) => Some(added || ids.contains(&id)),
+                    None => added.then_some(true),
+                }
             }
 
             #[must_use]
             fn has_tag(&self, tag: &'static Tag) -> bool {
-                tag.1.contains(&self.registry_id())
+                let id = self.registry_id();
+                tag.1.contains(&id) || crate::tag_overlay::contains(Self::tag_key(), id, tag.2)
             }
 
             #[must_use]

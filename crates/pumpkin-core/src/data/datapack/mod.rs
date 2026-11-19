@@ -284,6 +284,7 @@ impl DatapackManager {
             .slot_sources
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = all_slot_sources;
+        tag_loader::publish_overlay(&all_tags);
         *self
             .tags
             .write()
