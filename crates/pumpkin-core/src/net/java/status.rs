@@ -63,7 +63,20 @@ impl PendingConnection {
             });
         }
 
-        let status_json = serde_json::to_string(&status_response).unwrap_or_default();
+        let status_json = server
+            .java_configuration_extension
+            .get()
+            .and_then(|extension| extension.status.as_ref())
+            .and_then(|(key, extra)| {
+                let serde_json::Value::Object(mut status) =
+                    serde_json::to_value(&status_response).ok()?
+                else {
+                    return None;
+                };
+                status.entry(*key).or_insert_with(|| extra.clone());
+                serde_json::to_string(&status).ok()
+            })
+            .unwrap_or_else(|| serde_json::to_string(&status_response).unwrap_or_default());
         self.send_packet_now(&CStatusResponse::new(status_json))
             .await;
     }

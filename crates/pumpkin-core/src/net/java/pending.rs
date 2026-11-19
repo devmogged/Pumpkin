@@ -53,6 +53,8 @@ pub(super) const CONFIGURATION_EXTENSION_PING: i32 = i32::MIN;
 pub struct JavaConfigurationExtension {
     pub channel: &'static str,
     pub answer: fn(&[u8]) -> Option<Vec<u8>>,
+    /// Optional namespaced metadata for clients discovering this extension through status.
+    pub status: Option<(&'static str, serde_json::Value)>,
 }
 
 /// How long a connection may stay silent before login finishes.
