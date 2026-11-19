@@ -1768,7 +1768,7 @@ pub fn build() -> TokenStream {
 
         #[inline(always)]
         #[must_use]
-        pub const fn is_liquid(id: BlockStateId) -> bool {
+        pub fn is_liquid(id: BlockStateId) -> bool {
             BlockState::from_id(id).is_liquid()
         }
 
@@ -1792,22 +1792,27 @@ pub fn build() -> TokenStream {
             /// If you need access to the block use `BlockState::from_id_with_block` instead.
             #[inline]
             #[must_use]
-            pub const fn from_id(id: BlockStateId) -> &'static Self {
-                // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
+            pub fn from_id(id: BlockStateId) -> &'static Self {
+                #[cfg(feature = "item")]
+                if id.as_u16() >= BlockStateId::COUNT {
+                    return crate::content::state(id.as_u16()).map_or(Block::AIR.default_state, |entry| entry.state);
+                }
+                // SAFETY: Vanilla ids index the generated states, see layout asserts.
                 unsafe { lookup(&mappings::BLOCK_STATES, id.as_u16()) }
             }
 
             #[doc = r" Get a block state from a state id and the corresponding block."]
             #[inline]
             #[must_use]
-            pub const fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
+            pub fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
                 let block = Block::from_state_id(id);
                 let state = Self::from_id(id);
                 (block, state)
             }
 
             #[must_use]
-            pub const fn to_be_network_id(id: BlockStateId) -> u32 {
+            pub fn to_be_network_id(id: BlockStateId) -> u32 {
+                let id = id.vanilla_view();
                 // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
                 unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, id.as_u16()) }
             }
@@ -1909,20 +1914,28 @@ pub fn build() -> TokenStream {
             #[inline]
             #[must_use]
             pub fn from_registry_key(name: &str) -> Option<&'static Self> {
+                let name = name.strip_prefix("minecraft:").unwrap_or(name);
+                #[cfg(feature = "item")]
+                if name.contains(':') {
+                    return crate::content::block(name);
+                }
                 mappings::BLOCK_FROM_NAME_MAP.get(name).map(|id| Self::from_id(*id))
             }
 
             #[doc = r" Try to get a block from a namespace prefixed name."]
             #[must_use]
             pub fn from_name(name: &str) -> Option<&'static Self> {
-                let key = name.strip_prefix("minecraft:").unwrap_or(name);
-                mappings::BLOCK_FROM_NAME_MAP.get(key).map(|id| Self::from_id(*id))
+                Self::from_registry_key(name)
             }
 
             /// Get a [`Block`] from a [`BlockId`]
             #[inline]
             #[must_use]
-            pub const fn from_id(id: BlockId) -> &'static Self {
+            pub fn from_id(id: BlockId) -> &'static Self {
+                #[cfg(feature = "item")]
+                if id.as_u16() >= BlockId::COUNT {
+                    return crate::content::block_by_id(id.as_u16()).unwrap_or(&Self::AIR);
+                }
                 // SAFETY: BlockId < BLOCK_COUNT, see layout asserts.
                 unsafe { lookup(&mappings::BLOCKS, id.as_u16()) }
             }
@@ -1930,13 +1943,17 @@ pub fn build() -> TokenStream {
             /// Get a [`Block`] from a state id
             #[inline]
             #[must_use]
-            pub const fn from_state_id(id: BlockStateId) -> &'static Self {
+            pub fn from_state_id(id: BlockStateId) -> &'static Self {
                 Self::from_id(BlockId::from_state_id(id))
             }
 
             #[doc = r" Try to parse a block from an item id."]
             #[must_use]
-            pub const fn from_item_id(id: u16) -> Option<&'static Self> {
+            pub fn from_item_id(id: u16) -> Option<&'static Self> {
+                #[cfg(feature = "item")]
+                if id >= crate::item::Item::VANILLA_COUNT {
+                    return crate::content::block_by_item(id);
+                }
                 #[allow(unreachable_patterns)]
                 match id {
                     #(#block_from_item_id_arms)*
@@ -1947,6 +1964,10 @@ pub fn build() -> TokenStream {
             #[track_caller]
             #[doc = r" Get the properties of the block."]
             pub fn properties(&self, state_id: BlockStateId) -> Option<Box<dyn BlockProperties>> {
+                #[cfg(feature = "item")]
+                if self.id.as_u16() >= BlockId::COUNT {
+                    return crate::content::properties(self, state_id);
+                }
                 Some(match self.id {
                     #(#block_properties_from_state_and_block_id_arms)*
                     _ => return None,
@@ -1956,6 +1977,10 @@ pub fn build() -> TokenStream {
             #[track_caller]
             #[doc = r" Get the properties of the block."]
             pub fn from_properties(&self, props: &[Property]) -> Box<dyn BlockProperties> {
+                #[cfg(feature = "item")]
+                if self.id.as_u16() >= BlockId::COUNT {
+                    return crate::content::from_properties(self, props);
+                }
                 match self.id {
                     #(#block_properties_from_props_and_name_arms)*
                     _ => panic!("Invalid props")
@@ -1989,7 +2014,11 @@ pub fn build() -> TokenStream {
             /// Get a [`BlockId`] from a [`BlockStateId`]
             #[inline]
             #[must_use]
-            pub const fn from_state_id(id: BlockStateId) -> BlockId {
+            pub fn from_state_id(id: BlockStateId) -> BlockId {
+                #[cfg(feature = "item")]
+                if id.as_u16() >= BlockStateId::COUNT {
+                    return crate::content::state(id.as_u16()).map_or(Self::AIR, |entry| entry.block.id);
+                }
                 // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
                 unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, id.as_u16()) }
             }

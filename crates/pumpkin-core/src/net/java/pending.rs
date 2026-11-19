@@ -80,6 +80,7 @@ pub struct PendingConnection {
     /// Whether `CLoginSuccess` has been sent, mirroring vanilla's
     /// `State::PROTOCOL_SWITCHING`. Login acknowledgement is only valid after it.
     pub login_success_sent: bool,
+    pub(super) pending_pack: Option<uuid::Uuid>,
     /// For the connection packet events.
     server: Weak<Server>,
 }
@@ -129,6 +130,7 @@ impl PendingConnection {
             packet_limiter,
             login_started: false,
             login_success_sent: false,
+            pending_pack: None,
             verify_token: None,
             vine_challenge: None,
             velocity_message_id: None,
@@ -700,42 +702,27 @@ impl PendingConnection {
         server: &Server,
         packet: SConfigResourcePack,
     ) {
-        let resource_config = &server.advanced_config.resource_pack.java;
-        if resource_config.enabled {
-            use pumpkin_protocol::java::server::config::ResourcePackResponseResult;
-            match packet.response_result() {
-                ResourcePackResponseResult::Downloaded
-                | ResourcePackResponseResult::DownloadSuccess
-                | ResourcePackResponseResult::Discarded
-                | ResourcePackResponseResult::Unknown(_) => {
-                    self.start_known_packs(server).await;
-                }
-                ResourcePackResponseResult::Accepted => {}
-                ResourcePackResponseResult::Declined => {
-                    if resource_config.force {
-                        self.kick(TextComponent::text("Required resource pack was declined"))
-                            .await;
-                    } else {
-                        self.start_known_packs(server).await;
-                    }
-                }
-                ResourcePackResponseResult::DownloadFail => {
-                    if resource_config.force {
-                        self.kick(TextComponent::text("Failed to download resource pack"))
-                            .await;
-                    } else {
-                        self.start_known_packs(server).await;
-                    }
-                }
-                ResourcePackResponseResult::InvalidUrl => {
-                    self.kick(TextComponent::text("Invalid resource pack URL"))
-                        .await;
-                }
-                ResourcePackResponseResult::ReloadFailed => {
-                    self.kick(TextComponent::text("Failed to reload resource pack"))
-                        .await;
-                }
-            }
+        use pumpkin_protocol::java::server::config::ResourcePackResponseResult;
+
+        if self.pending_pack != Some(packet.uuid) {
+            return;
+        }
+        let status = packet.response_result();
+        if matches!(
+            status,
+            ResourcePackResponseResult::Accepted | ResourcePackResponseResult::Downloaded
+        ) {
+            return;
+        }
+
+        self.pending_pack = None;
+        if matches!(status, ResourcePackResponseResult::DownloadSuccess)
+            || !server.advanced_config.resource_pack.java.force
+        {
+            self.start_known_packs(server).await;
+        } else {
+            self.kick(TextComponent::text("Required resource pack failed to load"))
+                .await;
         }
     }
 

@@ -473,6 +473,8 @@ pub mod block_rotation;
 pub mod block_state;
 #[cfg(feature = "block")]
 mod blocks;
+#[cfg(all(feature = "block", feature = "item"))]
+pub mod content;
 
 #[cfg(feature = "block")]
 pub use block_direction::{BlockDirection, FacingExt, HorizontalFacingExt};

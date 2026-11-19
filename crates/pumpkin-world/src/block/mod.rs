@@ -52,6 +52,16 @@ impl BlockStateCodec {
             return block.default_state.id;
         };
 
+        if block.id.as_u16() >= pumpkin_data::BlockId::COUNT {
+            return pumpkin_data::content::state_from_properties(
+                block,
+                properties_map
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
+            )
+            .unwrap_or(BlockStateId::AIR);
+        }
+
         let props_iter = properties_map
             .iter()
             .filter_map(|(k, v)| Property::from_str_pair(k, v))
@@ -66,6 +76,17 @@ impl BlockStateCodec {
     pub fn state_to_nbt(state_id: BlockStateId) -> NbtCompound {
         let block = Block::from_state_id(state_id);
         let mut nbt = NbtCompound::new();
+        if let Some(entry) = pumpkin_data::content::state(state_id.as_u16()) {
+            nbt.put_string("Name", block.name.to_owned());
+            if !entry.properties.is_empty() {
+                let mut properties = NbtCompound::new();
+                for (key, value) in &entry.properties {
+                    properties.put_string(key, value.clone());
+                }
+                nbt.put_compound("Properties", properties);
+            }
+            return nbt;
+        }
         nbt.put_string("Name", format!("minecraft:{}", block.name));
         if let Some(properties) = block.properties(state_id) {
             let properties = properties.to_props();
@@ -87,6 +108,15 @@ impl BlockStateCodec {
         let Some(properties) = nbt.get_compound("Properties") else {
             return Some(block.default_state.id);
         };
+        if block.id.as_u16() >= pumpkin_data::BlockId::COUNT {
+            return pumpkin_data::content::state_from_properties(
+                block,
+                properties
+                    .child_tags
+                    .iter()
+                    .filter_map(|(key, value)| Some((key.as_ref(), value.extract_string()?))),
+            );
+        }
         let properties = properties
             .child_tags
             .iter()

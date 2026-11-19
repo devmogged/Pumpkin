@@ -683,7 +683,11 @@ impl BlockDisplayEntity {
         self.block_state.store(block_state, Ordering::Relaxed);
         self.display.entity.set_synced_data(
             pumpkin_data::tracked_data::block_display::BLOCK_STATE,
-            VarInt(block_state),
+            VarInt(i32::from(
+                pumpkin_data::BlockStateId::runtime_or_air(block_state as u16)
+                    .vanilla_view()
+                    .as_u16(),
+            )),
         );
     }
 }
@@ -707,7 +711,13 @@ impl EntityBase for BlockDisplayEntity {
         self.display.init_display_data_tracker();
         self.display.entity.set_synced_data(
             pumpkin_data::tracked_data::block_display::BLOCK_STATE,
-            VarInt(self.block_state.load(Ordering::Relaxed)),
+            VarInt(i32::from(
+                pumpkin_data::BlockStateId::runtime_or_air(
+                    self.block_state.load(Ordering::Relaxed) as u16,
+                )
+                .vanilla_view()
+                .as_u16(),
+            )),
         );
     }
 
@@ -756,12 +766,22 @@ pub struct ItemDisplayEntity {
     pub display: DisplayEntity,
     pub item_stack: Mutex<ItemStack>,
     pub item_display: AtomicU8,
+    transient: bool,
 }
 
 impl ItemDisplayEntity {
     pub fn new(entity: Entity) -> Arc<Self> {
+        Self::with_transience(entity, false)
+    }
+
+    pub fn transient(entity: Entity) -> Arc<Self> {
+        Self::with_transience(entity, true)
+    }
+
+    fn with_transience(entity: Entity, transient: bool) -> Arc<Self> {
         Arc::new(Self {
             display: DisplayEntity::new(entity),
+            transient,
             item_stack: Mutex::new(ItemStack::new(0, &pumpkin_data::item::Item::AIR)),
             item_display: AtomicU8::new(0),
         })
@@ -798,6 +818,10 @@ impl ItemDisplayEntity {
 }
 
 impl EntityBase for ItemDisplayEntity {
+    fn saves_with_chunk(&self) -> bool {
+        !self.transient
+    }
+
     fn write_custom_nbt(&self, nbt: &mut NbtCompound) {
         self.display.write_display_nbt(nbt);
         let display_mode_str = match self.item_display.load(Ordering::Relaxed) {

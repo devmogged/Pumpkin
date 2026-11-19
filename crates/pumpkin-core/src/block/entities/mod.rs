@@ -45,6 +45,7 @@ pub mod brushable_block;
 pub mod calibrated_sculk_sensor;
 pub mod campfire;
 pub mod conduit;
+pub mod content;
 pub mod copper_golem_statue;
 pub mod crafter;
 pub mod creaking_heart;
@@ -347,6 +348,11 @@ pub fn block_entity_from_nbt(nbt: &NbtCompound) -> Option<Arc<dyn BlockEntity>> 
     let y = nbt.get_int("y")?;
     let z = nbt.get_int("z")?;
     let pos = BlockPos::new(x, y, z);
+    if let Some(name) = pumpkin_data::content::entity_name(id) {
+        return Some(Arc::new(content::ContentBlockEntity::from_saved(
+            name, nbt, pos,
+        )));
+    }
     match id {
         barrel::BarrelBlockEntity::ID => {
             Some(Arc::new(barrel::BarrelBlockEntity::from_nbt(nbt, pos)))
@@ -503,6 +509,11 @@ pub fn create_block_entity_for_state(
     use pumpkin_data::block_properties::StructureblockMode;
 
     let state = BlockState::from_id(state_id);
+    if let Some(entry) = pumpkin_data::content::state(state_id.as_u16()) {
+        return entry.entity.map(|id| {
+            Arc::new(content::ContentBlockEntity::new(id, position)) as Arc<dyn BlockEntity>
+        });
+    }
     if state.block_entity_type == u16::MAX {
         return None;
     }

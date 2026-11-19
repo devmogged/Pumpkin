@@ -1313,6 +1313,10 @@ pub trait EntityBase: Send + Sync + std::any::Any {
         0
     }
 
+    fn saves_with_chunk(&self) -> bool {
+        true
+    }
+
     fn should_drop_loot(&self) -> bool {
         self.get_living_entity()
             .is_none_or(LivingEntity::should_drop_loot)
@@ -4034,6 +4038,16 @@ impl Entity {
 
     pub fn create_spawn_packet(&self) -> CSpawnEntity {
         let spawn = self.spawn_state();
+        let data = self.data.load(Relaxed);
+        let data = if self.entity_type == &EntityType::FALLING_BLOCK {
+            i32::from(
+                pumpkin_data::BlockStateId::runtime_or_air(data as u16)
+                    .vanilla_view()
+                    .as_u16(),
+            )
+        } else {
+            data
+        };
         CSpawnEntity::new_packed(
             VarInt(self.entity_id),
             self.entity_uuid,
@@ -4042,7 +4056,7 @@ impl Entity {
             spawn.pitch,
             spawn.yaw,
             spawn.head_yaw, // todo: head_yaw and yaw are swapped, find out why
-            self.data.load(Relaxed).into(),
+            data.into(),
             spawn.velocity,
         )
     }

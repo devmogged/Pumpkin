@@ -2206,6 +2206,7 @@ pub fn build() -> TokenStream {
 
     let mut all_java_items = Vec::new();
     let mut all_java_item_ids = Vec::new();
+    let vanilla_count = items.values().map(|item| item.id).max().unwrap_or_default() + 1;
 
     for (name, item) in &items {
         let const_ident = format_ident!("{}", name.to_shouty_snake_case());
@@ -2484,13 +2485,26 @@ pub fn build() -> TokenStream {
                 let name = name.strip_prefix("minecraft:").unwrap_or(name);
                 match name {
                     #type_from_name
+                    #[cfg(feature = "block")]
+                    _ if name.contains(':') => crate::content::item_by_name(name),
                     _ => None
                 }
             }
 
             #[doc = "Try to parse an item from a raw id."]
             #[must_use]
-            pub const fn from_id(id: u16) -> Option<&'static Self> {
+            pub fn from_id(id: u16) -> Option<&'static Self> {
+                #[cfg(feature = "block")]
+                if id >= Self::VANILLA_COUNT {
+                    return crate::content::item(id).map(|entry| entry.item);
+                }
+                Self::from_vanilla_id(id)
+            }
+
+            pub const VANILLA_COUNT: u16 = #vanilla_count;
+
+            #[must_use]
+            pub const fn from_vanilla_id(id: u16) -> Option<&'static Self> {
                 match id {
                     #type_from_raw_id_arms
                     _ => None

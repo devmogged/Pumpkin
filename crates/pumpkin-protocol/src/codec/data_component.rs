@@ -1319,7 +1319,7 @@ fn deserialize_item_stack_template(
     const MAX_COMPONENTS: i32 = 256;
 
     let item_id = seq.get_var_int()?.0 as u16;
-    let item = pumpkin_data::item::Item::from_id(item_id)
+    let item = pumpkin_data::item::Item::from_vanilla_id(item_id)
         .ok_or_else(|| ReadingError::Message(format!("Unknown item ID: {item_id}")))?;
     if item == &pumpkin_data::item::Item::AIR {
         return Err(ReadingError::Message(
@@ -1374,8 +1374,8 @@ fn deserialize_item_stack_template(
         patch.push((id, None));
     }
 
-    Ok(pumpkin_data::item_stack::ItemStack::new_with_component(
-        count, item, patch,
+    Ok(super::item_stack_seralizer::restore_content_item(
+        pumpkin_data::item_stack::ItemStack::new_with_component(count, item, patch),
     ))
 }
 
@@ -1383,6 +1383,7 @@ fn serialize_item_stack_template(
     stack: &pumpkin_data::item_stack::ItemStack,
     seq: &mut impl NetworkWriteExt,
 ) -> Result<(), WritingError> {
+    let stack = super::item_stack_seralizer::vanilla_stack(stack);
     seq.write_var_int(&VarInt::from(stack.item.id))?;
     seq.write_var_int(&VarInt::from(stack.item_count))?;
 
@@ -3743,7 +3744,7 @@ mod tests {
     #[test]
     fn all_default_item_components_serialize_and_deserialize() {
         for id in 0..=2000 {
-            let Some(item) = pumpkin_data::item::Item::from_id(id) else {
+            let Some(item) = pumpkin_data::item::Item::from_vanilla_id(id) else {
                 continue;
             };
             for (comp, val) in item.components {

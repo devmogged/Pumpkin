@@ -185,6 +185,7 @@ serde = {workspace = true, features = ["rc"]}
 crc32c.workspace = true
 rand.workspace = true
 tracing.workspace = true
+serde_json.workspace = true
 
 [build-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }
@@ -195,6 +196,7 @@ flate2.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+tempfile.workspace = true
 
 [[bench]]
 name = "has_random_ticks"

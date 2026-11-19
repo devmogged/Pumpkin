@@ -37,7 +37,9 @@ impl ClientPacket for CBlockUpdate {
     ) -> Result<(), WritingError> {
         let mut write = write;
         write.write_block_pos(&self.location, version)?;
-        write.write_var_int(&self.state_id)?;
+        let state =
+            pumpkin_data::BlockStateId::runtime_or_air(self.state_id.0 as u16).vanilla_view();
+        write.write_var_int(&VarInt::from(state.as_u16()))?;
 
         Ok(())
     }

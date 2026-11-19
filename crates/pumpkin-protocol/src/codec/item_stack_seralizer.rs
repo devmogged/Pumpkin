@@ -3,7 +3,7 @@ use crate::codec::data_component::{DataComponentCodec, deserialize, serialize};
 use crate::ser::{NetworkReadExt, NetworkWriteExt, ReadingError, WritingError};
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_impl::{
-    CustomDataImpl, CustomNameImpl, DataComponentImpl, ItemNameImpl,
+    CustomDataImpl, CustomNameImpl, DataComponentImpl, ItemModelImpl, ItemNameImpl,
 };
 use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
@@ -15,6 +15,48 @@ use std::io::Cursor;
 
 #[derive(Clone)]
 pub struct ItemStackSerializer<'a>(pub Cow<'a, ItemStack>);
+
+pub(super) fn vanilla_stack(stack: &ItemStack) -> Cow<'_, ItemStack> {
+    if stack.item.id < Item::VANILLA_COUNT {
+        return Cow::Borrowed(stack);
+    }
+    let Some(entry) = pumpkin_data::content::item(stack.item.id) else {
+        return Cow::Borrowed(ItemStack::EMPTY);
+    };
+    let mut view = stack.transmute_copy(entry.carrier, stack.item_count);
+    view.set_data_component(ItemModelImpl {
+        id: Cow::Borrowed(entry.item.registry_key),
+    });
+    if view.get_data_component::<CustomNameImpl>().is_none() {
+        view.set_data_component(CustomNameImpl {
+            name: TextComponent::text(entry.display_name.to_owned()),
+        });
+    }
+    Cow::Owned(view)
+}
+
+pub(super) fn restore_content_item(mut stack: ItemStack) -> ItemStack {
+    if let Some(model) = stack.get_data_component::<ItemModelImpl>()
+        && let Some(item) = Item::from_registry_key(&model.id)
+        && let Some(entry) = pumpkin_data::content::item(item.id)
+        && entry.carrier.id == stack.item.id
+    {
+        stack.item = item;
+        stack.patch.retain(|(id, value)| {
+            if *id == DataComponent::ItemModel {
+                return false;
+            }
+            if let Some(name) = value
+                .as_ref()
+                .and_then(|value| value.as_any().downcast_ref::<CustomNameImpl>())
+            {
+                return name.name != TextComponent::text(entry.display_name.to_owned());
+            }
+            true
+        });
+    }
+    stack
+}
 
 fn item_component_counts(stack: &ItemStack) -> (u8, u8) {
     let mut to_add = 0u8;
@@ -308,13 +350,13 @@ impl ItemStackSerializer<'_> {
             .try_into()
             .map_err(|_| ReadingError::Message("Invalid item id!".into()))?;
 
-        Ok(ItemStackSerializer(Cow::Owned(
+        Ok(ItemStackSerializer(Cow::Owned(restore_content_item(
             ItemStack::new_with_component(
                 item_count.0 as u8,
-                Item::from_id(item_id_u16).unwrap_or(&Item::AIR),
+                Item::from_vanilla_id(item_id_u16).unwrap_or(&Item::AIR),
                 patch,
             ),
-        )))
+        ))))
     }
 
     pub fn read_with_version(
@@ -341,7 +383,7 @@ impl ItemStackSerializer<'_> {
             if nbt_type != 0 {
                 // TAG_End is 0 when no NBT is present
             }
-            let item = Item::from_id(raw_item_id).unwrap_or(&Item::AIR);
+            let item = Item::from_vanilla_id(raw_item_id).unwrap_or(&Item::AIR);
             Ok(ItemStackSerializer(Cow::Owned(ItemStack::new(count, item))))
         } else if *version >= JavaMinecraftVersion::V_1_13 {
             let raw_item_id = read.get_i16_be()?;
@@ -353,7 +395,7 @@ impl ItemStackSerializer<'_> {
             if nbt_type != 0 {
                 // TAG_End is 0 when no NBT is present
             }
-            let item = Item::from_id(raw_item_id as u16).unwrap_or(&Item::AIR);
+            let item = Item::from_vanilla_id(raw_item_id as u16).unwrap_or(&Item::AIR);
             Ok(ItemStackSerializer(Cow::Owned(ItemStack::new(count, item))))
         } else {
             let raw_item_id = read.get_i16_be()?;
@@ -366,7 +408,7 @@ impl ItemStackSerializer<'_> {
             if nbt_type != 0 {
                 // TAG_End is 0 when no NBT is present
             }
-            let item = Item::from_id(raw_item_id as u16).unwrap_or(&Item::AIR);
+            let item = Item::from_vanilla_id(raw_item_id as u16).unwrap_or(&Item::AIR);
             Ok(ItemStackSerializer(Cow::Owned(ItemStack::new(count, item))))
         }
     }
@@ -419,7 +461,7 @@ impl ItemStackSerializer<'_> {
             .0
             .try_into()
             .map_err(|_| ReadingError::Message("Invalid item id!".into()))?;
-        let item = Item::from_id(item_id_u16).unwrap_or(&Item::AIR);
+        let item = Item::from_vanilla_id(item_id_u16).unwrap_or(&Item::AIR);
 
         let num_to_add = read.get_var_int()?.0;
         let num_to_remove = read.get_var_int()?.0;
@@ -465,7 +507,7 @@ impl ItemStackSerializer<'_> {
             .try_into()
             .map_err(|_| ReadingError::Message("Invalid item count!".into()))?;
 
-        let stack = ItemStack::new_with_component(item_count_u8, item, patch);
+        let stack = restore_content_item(ItemStack::new_with_component(item_count_u8, item, patch));
         if stack.is_empty() {
             return Err(ReadingError::Message(
                 "Can't read empty item stack template".into(),
@@ -527,13 +569,13 @@ impl ItemStackSerializer<'_> {
             .try_into()
             .map_err(|_| ReadingError::Message("Invalid item id!".into()))?;
 
-        Ok(ItemStackSerializer(Cow::Owned(
+        Ok(ItemStackSerializer(Cow::Owned(restore_content_item(
             ItemStack::new_with_component(
                 item_count_u8,
-                Item::from_id(item_id_u16).unwrap_or(&Item::AIR),
+                Item::from_vanilla_id(item_id_u16).unwrap_or(&Item::AIR),
                 patch,
             ),
-        )))
+        ))))
     }
 
     pub fn write_with_version(
@@ -541,7 +583,8 @@ impl ItemStackSerializer<'_> {
         write: &mut impl NetworkWriteExt,
         version: &JavaMinecraftVersion,
     ) -> Result<(), WritingError> {
-        serialize_item_stack_with_id(self.0.as_ref(), self.0.item.id, *version, write)
+        let stack = vanilla_stack(&self.0);
+        serialize_item_stack_with_id(&stack, stack.item.id, *version, write)
     }
 
     pub fn write_length_prefixed_with_version(
@@ -549,12 +592,8 @@ impl ItemStackSerializer<'_> {
         write: &mut impl NetworkWriteExt,
         version: &JavaMinecraftVersion,
     ) -> Result<(), WritingError> {
-        serialize_length_prefixed_item_stack_with_id(
-            self.0.as_ref(),
-            self.0.item.id,
-            *version,
-            write,
-        )
+        let stack = vanilla_stack(&self.0);
+        serialize_length_prefixed_item_stack_with_id(&stack, stack.item.id, *version, write)
     }
 
     pub fn write_item_cost_with_version(
@@ -562,7 +601,8 @@ impl ItemStackSerializer<'_> {
         write: &mut impl NetworkWriteExt,
         version: &JavaMinecraftVersion,
     ) -> Result<(), WritingError> {
-        serialize_item_cost_with_id(self.0.as_ref(), self.0.item.id, *version, write)
+        let stack = vanilla_stack(&self.0);
+        serialize_item_cost_with_id(&stack, stack.item.id, *version, write)
     }
 
     pub fn write_untrusted_with_version(
@@ -614,20 +654,21 @@ impl ItemStackSerializer<'_> {
                 "Can't write empty item stack template".into(),
             ));
         }
-        let (to_add, to_remove) = item_component_counts(self.0.as_ref());
-        write.put_var_int(&VarInt::from(self.0.item.id))?;
-        write.put_var_int(&VarInt::from(self.0.item_count))?;
+        let stack = vanilla_stack(&self.0);
+        let (to_add, to_remove) = item_component_counts(&stack);
+        write.put_var_int(&VarInt::from(stack.item.id))?;
+        write.put_var_int(&VarInt::from(stack.item_count))?;
         write.put_var_int(&VarInt::from(to_add))?;
         write.put_var_int(&VarInt::from(to_remove))?;
 
-        for (id, data) in &self.0.patch {
+        for (id, data) in &stack.patch {
             if let Some(data) = data {
                 write.put_var_int(&VarInt(i32::from(id.to_id())))?;
                 serialize(*id, data.as_ref(), write)?;
             }
         }
 
-        for (id, data) in &self.0.patch {
+        for (id, data) in &stack.patch {
             if data.is_none() {
                 write.put_var_int(&VarInt(i32::from(id.to_id())))?;
             }
@@ -852,5 +893,67 @@ impl From<Option<ItemStack>> for ItemStackOptionalTemplateSerializer<'_> {
             || ItemStackOptionalTemplateSerializer(Cow::Borrowed(ItemStack::EMPTY)),
             ItemStackOptionalTemplateSerializer::from,
         )
+    }
+}
+
+#[cfg(test)]
+mod content_tests {
+    use super::*;
+    use crate::{ClientPacket, java::client::play::CBlockUpdate};
+    use pumpkin_data::{
+        Block,
+        content::{BlockDefinition, Registry, StateDefinition},
+    };
+    use pumpkin_util::math::position::BlockPos;
+
+    #[test]
+    fn custom_ids_are_translated_at_the_java_wire_boundary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let carrier = &Block::NOTE_BLOCK.states[0];
+        let registry = Registry::open(
+            &dir.path().join("registry.dat"),
+            &[BlockDefinition {
+                name: "test:machine".into(),
+                display_name: "Machine".into(),
+                entity: None,
+                item_carrier: &Item::PAPER,
+                states: vec![StateDefinition {
+                    properties: std::collections::BTreeMap::new(),
+                    physical: Block::STONE.default_state,
+                    carrier: carrier.id,
+                    carrier_replacement: Some(Block::NOTE_BLOCK.states[1].id),
+                    shape: Vec::new(),
+                }],
+            }],
+        )?;
+        let block = registry.block("test:machine").ok_or("missing definition")?;
+        registry.install()?;
+        let item = Item::from_id(block.item_id).ok_or("missing item")?;
+        let stack = ItemStackSerializer::from(ItemStack::new(3, item));
+        let mut bytes = Vec::new();
+        let version = JavaMinecraftVersion::V_26_3;
+
+        stack.write_untrusted_with_version(&mut bytes, &version)?;
+        let mut wire = bytes.as_slice();
+        assert_eq!(wire.get_var_int()?.0, 3);
+        assert_eq!(wire.get_var_int()?.0, i32::from(Item::PAPER.id));
+        let restored =
+            ItemStackSerializer::read_untrusted_with_version(&mut bytes.as_slice(), &version)?
+                .to_stack();
+        assert_eq!(restored.item, item);
+        assert_eq!(restored.item_count, 3);
+        assert!(restored.patch.is_empty());
+
+        bytes.clear();
+        let pos = BlockPos::new(42, 3, 9);
+        CBlockUpdate::new(pos, VarInt::from(block.default_state.id.as_u16()))
+            .write_packet_data(&mut bytes, &version)?;
+        let mut wire = bytes.as_slice();
+        assert_eq!(wire.get_block_pos(&version)?, pos);
+        assert_eq!(wire.get_var_int()?.0, i32::from(carrier.id.as_u16()));
+        assert!(wire.is_empty());
+        assert_eq!(carrier.id.vanilla_view(), Block::NOTE_BLOCK.states[1].id);
+        Ok(())
     }
 }

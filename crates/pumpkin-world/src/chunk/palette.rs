@@ -838,7 +838,7 @@ impl BlockPalette {
         match self {
             Self::Homogeneous(registry_id) => NetworkSerialization {
                 bits_per_entry: 0,
-                palette: NetworkPalette::Single(registry_id.as_u16()),
+                palette: NetworkPalette::Single(registry_id.vanilla_view().as_u16()),
                 packed_data: Box::new([]),
             },
             Self::Heterogeneous(data) => {
@@ -848,6 +848,7 @@ impl BlockPalette {
                     let values_per_i64 = 64 / bits_per_entry;
                     let mut packed_data =
                         Vec::with_capacity(Self::VOLUME.div_ceil(values_per_i64 as usize));
+                    let translate = data.palette.iter().any(|&id| id != id.vanilla_view());
                     let mut current_idx = 0;
                     while current_idx < Self::VOLUME {
                         let mut acc = 0u64;
@@ -856,7 +857,13 @@ impl BlockPalette {
                                 let y = (current_idx + i) / (Self::SIZE * Self::SIZE);
                                 let z = ((current_idx + i) / Self::SIZE) % Self::SIZE;
                                 let x = (current_idx + i) % Self::SIZE;
-                                let value = data.get(x, y, z).as_u16();
+                                let state = data.get(x, y, z);
+                                let value = if translate {
+                                    state.vanilla_view()
+                                } else {
+                                    state
+                                }
+                                .as_u16();
                                 debug_assert!((1u32 << bits_per_entry) > u32::from(value));
                                 acc |= (value as u64) << (bits_per_entry as u64 * i as u64);
                             }
@@ -877,7 +884,7 @@ impl BlockPalette {
                     NetworkSerialization {
                         bits_per_entry,
                         palette: NetworkPalette::Indirect(
-                            palette.iter().map(|v| v.as_u16()).collect(),
+                            palette.iter().map(|v| v.vanilla_view().as_u16()).collect(),
                         ),
                         packed_data: packed,
                     }
@@ -1087,7 +1094,10 @@ impl BlockPalette {
         }
     }
 
-    pub(crate) fn read_pump_binary(buf: &mut &[u8]) -> Result<Self, super::ChunkParsingError> {
+    pub(crate) fn read_pump_binary(
+        buf: &mut &[u8],
+        removed: &mut bool,
+    ) -> Result<Self, super::ChunkParsingError> {
         use bytes::Buf;
 
         if !buf.has_remaining() {
@@ -1095,14 +1105,16 @@ impl BlockPalette {
                 "Unexpected EOF reading block palette mode".into(),
             ));
         }
-        match buf.get_u8() {
+        let mut missing = false;
+        let mut read_id = |raw| saved_block_state(raw, &mut missing);
+        let palette = match buf.get_u8() {
             0 => {
                 if buf.remaining() < 2 {
                     return Err(super::ChunkParsingError::ErrorDeserializingChunk(
                         "Unexpected EOF reading homogeneous block palette".into(),
                     ));
                 }
-                Ok(Self::Homogeneous(BlockStateId::new_or_air(buf.get_u16())))
+                Ok(Self::Homogeneous(read_id(buf.get_u16())))
             }
             1 => {
                 if buf.remaining() < 2 {
@@ -1120,11 +1132,12 @@ impl BlockPalette {
                 }
                 let mut palette = Vec::with_capacity(palette_len);
                 for _ in 0..palette_len {
-                    palette.push(BlockStateId::new_or_air(buf.get_u16()));
+                    palette.push(read_id(buf.get_u16()));
                     buf.advance(2);
                 }
                 if palette_len == 1 {
                     buf.advance(Self::VOLUME);
+                    *removed |= missing;
                     return Ok(Self::Homogeneous(palette[0]));
                 }
                 let mut indices = Box::new([[[0u8; Self::SIZE]; Self::SIZE]; Self::SIZE]);
@@ -1154,15 +1167,28 @@ impl BlockPalette {
                 let mut cube =
                     Box::new([[[BlockStateId::AIR; Self::SIZE]; Self::SIZE]; Self::SIZE]);
                 for slot in cube.as_flattened_mut().as_flattened_mut() {
-                    *slot = BlockStateId::new_or_air(buf.get_u16());
+                    *slot = read_id(buf.get_u16());
                 }
                 Ok(Self::from_cube(cube))
             }
             mode => Err(super::ChunkParsingError::ErrorDeserializingChunk(format!(
                 "Unknown block palette mode {mode}"
             ))),
+        }?;
+        *removed |= missing;
+        if missing && matches!(palette, Self::Heterogeneous(_)) {
+            Ok(Self::from_fn(|x, y, z| palette.get(x, y, z)))
+        } else {
+            Ok(palette)
         }
     }
+}
+
+pub(super) fn saved_block_state(raw: u16, removed: &mut bool) -> BlockStateId {
+    BlockStateId::from_runtime_id(raw).unwrap_or_else(|| {
+        *removed = true;
+        BlockStateId::AIR
+    })
 }
 
 impl BiomePalette {
@@ -1370,10 +1396,22 @@ mod tests {
         encoded.put_u16(air.as_u16());
         encoded.put_u16(BlockPalette::VOLUME as u16);
         encoded.resize(encoded.len() + BlockPalette::VOLUME, 0);
-        let palette = BlockPalette::read_pump_binary(&mut encoded.as_slice())?;
+        let palette = BlockPalette::read_pump_binary(&mut encoded.as_slice(), &mut false)?;
         assert!(palette.iter().all(|value| value == plate));
         assert!(palette.contains_matching(|value| value == plate));
         assert!(!palette.contains_matching(|value| value == air));
+        Ok(())
+    }
+
+    #[test]
+    fn loading_a_removed_state_clears_its_palette_slot()
+    -> Result<(), crate::chunk::ChunkParsingError> {
+        let mut input = [0, 0xff, 0xff].as_slice();
+        let mut removed = false;
+        let palette = BlockPalette::read_pump_binary(&mut input, &mut removed)?;
+        assert!(removed);
+        assert_eq!(palette.get(0, 0, 0), BlockStateId::AIR);
+        assert!(input.is_empty());
         Ok(())
     }
 
@@ -1436,7 +1474,7 @@ mod tests {
     #[test]
     fn bulk_palette_handles_direct_network_palettes() {
         assert_bulk_matches_mutations(|x, y, z| {
-            BlockStateId::new_or_air(((y * 256 + z * 16 + x) % 300) as u16)
+            BlockStateId::runtime_or_air(((y * 256 + z * 16 + x) % 300) as u16)
         });
     }
 

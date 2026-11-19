@@ -685,7 +685,10 @@ impl World {
         let mut groups: FxHashMap<Vector2<i32>, Vec<NbtCompound>> = FxHashMap::default();
         for entity in entities {
             let base_entity = entity.get_entity();
-            if base_entity.is_removed() || is_saved_as_passenger(entity.as_ref()) {
+            if !entity.saves_with_chunk()
+                || base_entity.is_removed()
+                || is_saved_as_passenger(entity.as_ref())
+            {
                 continue;
             }
             let mut nbt = NbtCompound::new();
@@ -5635,7 +5638,20 @@ impl World {
 
         for chunk_pos in &chunks_set {
             self.save_block_entities(*chunk_pos);
-            self.block_entities.remove(chunk_pos);
+            if let Some((_, entities)) = self.block_entities.remove(chunk_pos) {
+                for (position, entity) in entities {
+                    if entity
+                        .as_any()
+                        .is::<crate::block::entities::content::ContentBlockEntity>()
+                    {
+                        crate::block::entities::content::notify(
+                            self,
+                            position,
+                            crate::block::entities::content::Change::Unloaded,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -5795,14 +5811,23 @@ impl World {
         let new_block = Block::from_state_id(block_state_id);
         let is_new_block = old_block != new_block;
         let block_moved = flags.contains(BlockFlags::MOVED);
+        crate::block::entities::content::state_changed(
+            self,
+            *position,
+            replaced_block_state_id,
+            block_state_id,
+        );
 
         if is_new_block
             && old_block.default_state.block_entity_type != u16::MAX
-            && old_block.default_state.block_entity_type
+            && (old_block.default_state.block_entity_type
                 != new_block.default_state.block_entity_type
-            && let Some(entity) = self.get_block_entity(position)
+                || old_block.default_state.block_entity_type
+                    == pumpkin_data::content::CUSTOM_ENTITY_TYPE)
         {
-            if !flags.contains(BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK) {
+            if !flags.contains(BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK)
+                && let Some(entity) = self.get_block_entity(position)
+            {
                 entity.on_block_replaced(self, position);
             }
             self.remove_block_entity(position);
@@ -6021,7 +6046,7 @@ impl World {
             let je_packet = CWorldEvent::new(
                 WorldEvent::ParticlesDestroyBlock as i32,
                 *position,
-                broken_state_id.as_u16().into(),
+                broken_state_id.vanilla_view().as_u16().into(),
                 false,
             );
             let be_packet = CLevelEvent {
@@ -6136,7 +6161,7 @@ impl World {
             let je_packet = CWorldEvent::new(
                 WorldEvent::ParticlesDestroyBlock as i32,
                 *position,
-                broken_state_id.as_u16().into(),
+                broken_state_id.vanilla_view().as_u16().into(),
                 false,
             );
             let be_packet = CLevelEvent {
@@ -7185,6 +7210,14 @@ impl World {
             self.custom_block_entity_data
                 .insert(*block_pos, custom_data.clone());
         }
+        if let Some(id) = nbt.get_string("id")
+            && pumpkin_data::content::entity_name(id).is_some()
+            && pumpkin_data::content::state(self.get_block_state_id(block_pos).as_u16())
+                .and_then(|state| state.entity)
+                != Some(id)
+        {
+            return None;
+        }
         let entity = block_entity_from_nbt(&nbt)?;
         if let Some(weak) = self.weak_self() {
             entity.set_world(weak);
@@ -7193,6 +7226,16 @@ impl World {
             .entry(chunk_pos)
             .or_default()
             .insert(*block_pos, entity.clone());
+        if entity
+            .as_any()
+            .is::<crate::block::entities::content::ContentBlockEntity>()
+        {
+            crate::block::entities::content::notify(
+                self,
+                *block_pos,
+                crate::block::entities::content::Change::Loaded(self.get_block_state_id(block_pos)),
+            );
+        }
         Some(entity)
     }
 
@@ -7262,6 +7305,13 @@ impl World {
         let chunk_pos = block_pos.chunk_position();
         let block_entity_nbt = block_entity.chunk_data_nbt();
         let entity_id = block_entity.resource_location().to_string();
+        if pumpkin_data::content::entity_name(&entity_id).is_some() {
+            self.add_block_entity_nbt(block_pos, &{
+                let mut saved = NbtCompound::new();
+                block_entity.write_internal(&mut saved);
+                saved
+            });
+        }
 
         if let Some(nbt) = &block_entity_nbt {
             let bytes = pumpkin_nbt::Nbt::from(nbt.clone()).write_unnamed();

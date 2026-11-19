@@ -82,10 +82,26 @@ impl PendingConnection {
 
         let resource_config = &server.advanced_config.resource_pack.java;
         if resource_config.enabled {
-            let uuid = Uuid::new_v3(&uuid::Uuid::NAMESPACE_DNS, resource_config.url.as_bytes());
+            let host = self.server_address.split('\0').next().unwrap_or_default();
+            let host = match host.trim_matches(['[', ']']).parse::<std::net::IpAddr>() {
+                Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
+                Ok(ip) => ip.to_string(),
+                Err(_)
+                    if !host.is_empty()
+                        && host
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-')) =>
+                {
+                    host.to_owned()
+                }
+                Err(_) => String::from("localhost"),
+            };
+            let url = resource_config.url.replace("{host}", &host);
+            let uuid = Uuid::new_v3(&uuid::Uuid::NAMESPACE_DNS, url.as_bytes());
+            self.pending_pack = Some(uuid);
             let resource_pack = CConfigAddResourcePack::new(
                 &uuid,
-                &resource_config.url,
+                &url,
                 &resource_config.sha1,
                 resource_config.force,
                 if resource_config.prompt_message.is_empty() {

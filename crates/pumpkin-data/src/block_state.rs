@@ -11,7 +11,7 @@ use crate::{Block, BlockDirection, BlockId};
 /// A single `Block` (like a Hopper) can have multiple `BlockState`s (e.g., pointing North,
 /// South, or being powered). This struct is optimized for high-speed lookups during
 /// physics and lighting calculations.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockState {
     /// The global palette ID used for network serialization and chunk storage.
     pub id: BlockStateId,
@@ -233,9 +233,7 @@ impl BlockState {
     }
 
     pub fn get_block_collision_shapes(&self) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.collision_shapes
-            .iter()
-            .map(|&id| COLLISION_SHAPES[id as usize])
+        self.shapes(self.collision_shapes)
     }
 
     /// Returns block-local collision shapes with vanilla's coordinate-derived offset applied.
@@ -248,11 +246,24 @@ impl BlockState {
             .map(move |shape| shape.shift(offset))
     }
 
-    pub fn get_block_outline_shapes(&self) -> impl Iterator<Item = BoundingBox> + '_ {
-        let base_shapes = self
-            .outline_shapes
+    fn shapes(&self, vanilla: &[u16]) -> impl Iterator<Item = BoundingBox> {
+        #[cfg(feature = "item")]
+        let custom = (self.id.as_u16() >= BlockStateId::COUNT)
+            .then(|| crate::content::state(self.id.as_u16()))
+            .flatten()
+            .map(|entry| entry.shape.as_slice())
+            .filter(|shape| !shape.is_empty());
+        #[cfg(not(feature = "item"))]
+        let custom: Option<&[BoundingBox]> = None;
+        let vanilla = if custom.is_some() { &[] } else { vanilla };
+        vanilla
             .iter()
-            .map(|&id| COLLISION_SHAPES[id as usize]);
+            .map(|&id| COLLISION_SHAPES[id as usize])
+            .chain(custom.unwrap_or_default().iter().copied())
+    }
+
+    pub fn get_block_outline_shapes(&self) -> impl Iterator<Item = BoundingBox> + '_ {
+        let base_shapes = self.shapes(self.outline_shapes);
 
         let water_shape = self
             .is_waterlogged()
@@ -268,9 +279,8 @@ impl BlockState {
     ) -> impl Iterator<Item = BoundingBox> + '_ {
         let offset = Block::from_state_id(self.id).shape_offset_delta(pos);
         let base_shapes = self
-            .outline_shapes
-            .iter()
-            .map(move |&id| COLLISION_SHAPES[id as usize].shift(offset));
+            .shapes(self.outline_shapes)
+            .map(move |shape| shape.shift(offset));
 
         let water_shape = self
             .is_waterlogged()
@@ -297,12 +307,26 @@ impl BlockStateId {
     /// The total count of all registered block states.
     pub const COUNT: u16 = Self::STATE_COUNT;
 
-    // SAFETY: There must never be a BlockStateId where self.0 >= BlockStateId::STATE_COUNT
+    // An id outside the vanilla range must be present in the frozen content registry.
 
     #[inline]
     #[must_use]
     pub const fn new(inner: u16) -> Option<Self> {
         if inner < Self::STATE_COUNT {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn from_runtime_id(inner: u16) -> Option<Self> {
+        if inner < Self::STATE_COUNT {
+            return Some(Self(inner));
+        }
+        #[cfg(feature = "item")]
+        if crate::content::state(inner).is_some() {
             return Some(Self(inner));
         }
         None
@@ -312,9 +336,34 @@ impl BlockStateId {
     #[must_use]
     pub const fn new_or_air(inner: u16) -> Self {
         if inner < Self::STATE_COUNT {
-            return Self(inner);
+            Self(inner)
+        } else {
+            Self::AIR
         }
-        Self::AIR
+    }
+
+    #[must_use]
+    pub fn runtime_or_air(inner: u16) -> Self {
+        Self::from_runtime_id(inner).unwrap_or(Self::AIR)
+    }
+
+    pub(crate) const fn registered(inner: u16) -> Self {
+        Self(inner)
+    }
+
+    /// State id sent to a client using vanilla registries.
+    #[inline]
+    #[must_use]
+    pub fn vanilla_view(self) -> Self {
+        #[cfg(feature = "item")]
+        {
+            if self.0 >= Self::COUNT {
+                return crate::content::state(self.0).map_or(Self::AIR, |entry| entry.carrier);
+            }
+            crate::content::replace_carrier(self)
+        }
+        #[cfg(not(feature = "item"))]
+        self
     }
 
     #[inline(always)]
@@ -325,55 +374,55 @@ impl BlockStateId {
 
     #[inline]
     #[must_use]
-    pub const fn to_state(self) -> &'static BlockState {
+    pub fn to_state(self) -> &'static BlockState {
         BlockState::from_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn to_block_id(self) -> BlockId {
+    pub fn to_block_id(self) -> BlockId {
         BlockId::from_state_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn to_block(self) -> &'static Block {
+    pub fn to_block(self) -> &'static Block {
         Block::from_state_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_solid_render(self) -> bool {
+    pub fn is_solid_render(self) -> bool {
         self.to_state().is_solid_render()
     }
 
     #[inline]
     #[must_use]
-    pub const fn can_occlude(self) -> bool {
+    pub fn can_occlude(self) -> bool {
         self.to_state().can_occlude()
     }
 
     #[inline]
     #[must_use]
-    pub const fn has_analog_output_signal(self) -> bool {
+    pub fn has_analog_output_signal(self) -> bool {
         self.to_state().has_analog_output_signal()
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_waterlogged(self) -> bool {
+    pub fn is_waterlogged(self) -> bool {
         self.to_state().is_waterlogged()
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_side_solid(self, side: BlockDirection) -> bool {
+    pub fn is_side_solid(self, side: BlockDirection) -> bool {
         self.to_state().is_side_solid(side)
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_center_solid(self, side: BlockDirection) -> bool {
+    pub fn is_center_solid(self, side: BlockDirection) -> bool {
         self.to_state().is_center_solid(side)
     }
 

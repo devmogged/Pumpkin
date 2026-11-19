@@ -512,6 +512,12 @@ impl BlockActionResult {
 
 /// Marks a block with no registered behaviour. Never handed out as a real index.
 const NO_BEHAVIOUR: u16 = u16::MAX;
+static CONTENT_BEHAVIOUR: std::sync::OnceLock<Arc<dyn BlockBehaviour>> = std::sync::OnceLock::new();
+
+/// Set the behaviour dispatcher for the frozen custom block registry.
+pub fn install_content_behaviour(behaviour: Arc<dyn BlockBehaviour>) -> bool {
+    CONTENT_BEHAVIOUR.set(behaviour).is_ok()
+}
 
 pub struct BlockRegistry {
     block_indices: [u16; pumpkin_data::BlockId::COUNT as usize],
@@ -1501,7 +1507,9 @@ impl BlockRegistry {
     #[inline]
     #[must_use]
     pub fn get_pumpkin_block(&self, block: BlockId) -> Option<&Arc<dyn BlockBehaviour>> {
-        let idx = self.block_indices[block.as_u16() as usize];
+        let Some(&idx) = self.block_indices.get(usize::from(block.as_u16())) else {
+            return CONTENT_BEHAVIOUR.get();
+        };
         if idx == NO_BEHAVIOUR {
             None
         } else {

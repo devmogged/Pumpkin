@@ -512,6 +512,9 @@ pub fn collect_loot(
     pos: &BlockPos,
     params: &LootContextParameters,
 ) -> Vec<ItemStack> {
+    if let Some(entry) = pumpkin_data::content::item(block.item_id) {
+        return vec![ItemStack::new(1, entry.item)];
+    }
     let Some(loot_table) = block.loot_table.and_then(|key| world.get_loot_table(key)) else {
         return Vec::new();
     };

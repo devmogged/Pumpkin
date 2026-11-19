@@ -343,7 +343,7 @@ impl EndermanEntity {
 
     pub fn set_carried_block(&self, block_state: Option<BlockStateId>) {
         self.carried_block.store(block_state);
-        let value = block_state.map_or(VarInt(0), |id| VarInt(id.as_u16() as i32));
+        let value = block_state.map_or(VarInt(0), |id| VarInt::from(id.vanilla_view().as_u16()));
         self.mob_entity
             .living_entity
             .entity

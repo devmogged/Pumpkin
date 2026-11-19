@@ -128864,12 +128864,23 @@ impl Item {
             "zombie_spawn_egg" => Some(&Self::ZOMBIE_SPAWN_EGG),
             "zombie_villager_spawn_egg" => Some(&Self::ZOMBIE_VILLAGER_SPAWN_EGG),
             "zombified_piglin_spawn_egg" => Some(&Self::ZOMBIFIED_PIGLIN_SPAWN_EGG),
+            #[cfg(feature = "block")]
+            _ if name.contains(':') => crate::content::item_by_name(name),
             _ => None,
         }
     }
     #[doc = "Try to parse an item from a raw id."]
     #[must_use]
-    pub const fn from_id(id: u16) -> Option<&'static Self> {
+    pub fn from_id(id: u16) -> Option<&'static Self> {
+        #[cfg(feature = "block")]
+        if id >= Self::VANILLA_COUNT {
+            return crate::content::item(id).map(|entry| entry.item);
+        }
+        Self::from_vanilla_id(id)
+    }
+    pub const VANILLA_COUNT: u16 = 1658u16;
+    #[must_use]
+    pub const fn from_vanilla_id(id: u16) -> Option<&'static Self> {
         match id {
             1253 => Some(&Self::ABANDONED_CAMP_MAP),
             983 => Some(&Self::ACACIA_BOAT),

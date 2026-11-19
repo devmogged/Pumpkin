@@ -55,13 +55,34 @@ pub type ServerHook = Box<dyn FnOnce(&Arc<Server>) + Send>;
 pub struct Launch {
     /// Run in order before the server creates or loads any worlds.
     pub before_worlds_loaded: Vec<Box<dyn FnOnce() + Send>>,
+    before_world_open: Vec<WorldOpenHook>,
     /// Run in order after the server is created and before any plugin loads.
     pub on_server_created: Vec<ServerHook>,
     /// Plugins compiled into this binary. They load in order, before the plugin folder.
     pub builtin_plugins: Vec<(PluginMetadata, Arc<dyn Plugin>)>,
 }
 
+type WorldOpenHook = Box<
+    dyn FnOnce(&std::path::Path, &mut pumpkin_config::AdvancedConfiguration) -> std::io::Result<()>
+        + Send,
+>;
+
 impl Launch {
+    /// Initialize content from the root world directory before any world loads.
+    #[must_use]
+    pub fn before_world_open(
+        mut self,
+        hook: impl FnOnce(
+            &std::path::Path,
+            &mut pumpkin_config::AdvancedConfiguration,
+        ) -> std::io::Result<()>
+        + Send
+        + 'static,
+    ) -> Self {
+        self.before_world_open.push(Box::new(hook));
+        self
+    }
+
     #[must_use]
     pub fn before_worlds_loaded(mut self, hook: impl FnOnce() + Send + 'static) -> Self {
         self.before_worlds_loaded.push(Box::new(hook));
@@ -221,9 +242,16 @@ async fn run_server(launch: Launch) {
     for hook in launch.before_worlds_loaded {
         hook();
     }
+    let mut advanced_config = config.advanced;
+    for hook in launch.before_world_open {
+        if let Err(err) = hook(&config.basic.get_world_path(), &mut advanced_config) {
+            tracing::error!("Could not open world content: {err}");
+            exit(1);
+        }
+    }
     let pumpkin_server = PumpkinServer::new(
         config.basic,
-        config.advanced,
+        advanced_config,
         config.telemetry,
         vanilla_data,
         plugin_loaders,

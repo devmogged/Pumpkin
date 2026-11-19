@@ -950,7 +950,15 @@ impl ItemStack {
             return None;
         }
         let mut compound = NbtCompound::new();
-        compound.put_string("id", format!("minecraft:{}", self.item.registry_key));
+        let key = self.item.registry_key;
+        compound.put_string(
+            "id",
+            if key.contains(':') {
+                key.to_owned()
+            } else {
+                format!("minecraft:{key}")
+            },
+        );
         compound.put_int("count", i32::from(self.item_count));
 
         let mut tag = NbtCompound::new();

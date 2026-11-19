@@ -28,7 +28,7 @@ use pumpkin_util::math::vector2::Vector2;
 
 use super::{
     ChunkData, ChunkHeightmaps, ChunkLight, ChunkParsingError, ChunkSections,
-    palette::{BiomePalette, BlockPalette},
+    palette::{BiomePalette, BlockPalette, saved_block_state},
 };
 pub mod anvil;
 pub mod linear;
@@ -108,32 +108,38 @@ fn lowest_biome_section_y(root_tag: &NbtCompound) -> Option<i32> {
         .map(|y| y.min(0))
 }
 
-fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId]>> {
+fn extract_u16_array(
+    tag: &pumpkin_nbt::tag::NbtTag,
+    removed: &mut bool,
+) -> Option<Box<[BlockStateId]>> {
     match tag {
         pumpkin_nbt::tag::NbtTag::IntArray(arr) => Some(
             arr.iter()
-                .map(|&x| BlockStateId::new_or_air(x as u16))
+                .map(|&x| saved_block_state(x as u16, removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::ByteArray(arr) => Some(
             arr.iter()
-                .map(|&x| BlockStateId::new_or_air(x as u16))
+                .map(|&x| saved_block_state(x as u16, removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::LongArray(arr) => Some(
             arr.iter()
-                .map(|&x| BlockStateId::new_or_air(x as u16))
+                .map(|&x| saved_block_state(x as u16, removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::List(list) => {
             let ids: Box<[BlockStateId]> = list
                 .iter()
                 .map(|t| match t {
-                    pumpkin_nbt::tag::NbtTag::Int(x) => BlockStateId::new_or_air(*x as u16),
-                    pumpkin_nbt::tag::NbtTag::Short(x) => BlockStateId::new_or_air(*x as u16),
-                    pumpkin_nbt::tag::NbtTag::Byte(x) => BlockStateId::new_or_air(*x as u16),
-                    pumpkin_nbt::tag::NbtTag::Long(x) => BlockStateId::new_or_air(*x as u16),
+                    pumpkin_nbt::tag::NbtTag::Int(x) => saved_block_state(*x as u16, removed),
+                    pumpkin_nbt::tag::NbtTag::Short(x) => saved_block_state(*x as u16, removed),
+                    pumpkin_nbt::tag::NbtTag::Byte(x) => saved_block_state(*x as u16, removed),
+                    pumpkin_nbt::tag::NbtTag::Long(x) => saved_block_state(*x as u16, removed),
                     pumpkin_nbt::tag::NbtTag::String(s) => {
+                        if is_custom_id(s) {
+                            return resolve_saved_custom_block(Block::from_name(s).map(|block| block.default_state.id), removed);
+                        }
                         let entry =
                             crate::generation::structure::template::PaletteEntry::new(s.to_string());
                         if let Some(state) =
@@ -146,6 +152,9 @@ fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId
                         BlockStateId::AIR
                     }
                     pumpkin_nbt::tag::NbtTag::Compound(compound) => {
+                        if compound.get_string("Name").is_some_and(is_custom_id) {
+                            return resolve_saved_custom_block(crate::block::BlockStateCodec::state_from_nbt(compound), removed);
+                        }
                         if let Ok(entry) =
                             crate::generation::structure::template::PaletteEntry::from_nbt_compound(
                                 compound,
@@ -166,6 +175,29 @@ fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId
         }
         _ => None,
     }
+}
+
+fn is_custom_id(id: &str) -> bool {
+    id.contains(':') && !id.starts_with("minecraft:")
+}
+
+fn resolve_saved_custom_block(state: Option<BlockStateId>, removed: &mut bool) -> BlockStateId {
+    state.unwrap_or_else(|| {
+        *removed = true;
+        BlockStateId::AIR
+    })
+}
+
+fn discard_removed_block_entities(
+    section: &ChunkSections,
+    entities: &mut FxHashMap<BlockPos, NbtCompound>,
+) {
+    entities.retain(|pos, data| {
+        !data.get_string("id").is_some_and(is_custom_id)
+            || section
+                .get_block_absolute_y((pos.0.x & 15) as usize, pos.0.y, (pos.0.z & 15) as usize)
+                .is_some_and(|state| state.as_u16() >= BlockStateId::COUNT)
+    });
 }
 
 fn extract_u8_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[u8]>> {
@@ -287,6 +319,7 @@ impl ChunkData {
             (i32::from(max_y_section) - i32::from(min_y_section) + 1).max(0) as usize;
         let mut block_lights = vec![LightContainer::Empty(0); section_count];
         let mut sky_lights = vec![LightContainer::Empty(0); section_count];
+        let mut removed = false;
         let mut block_palettes = vec![BlockPalette::default(); section_count];
         let mut biome_palettes = vec![BiomePalette::default(); section_count];
 
@@ -344,7 +377,7 @@ impl ChunkData {
                             .map(|arr| arr.to_vec().into_boxed_slice());
                         let palette = bs_compound
                             .get("palette")
-                            .and_then(extract_u16_array)
+                            .and_then(|tag| extract_u16_array(tag, &mut removed))
                             .unwrap_or_else(|| vec![BlockStateId::AIR].into_boxed_slice());
 
                         block_palettes[index] =
@@ -448,6 +481,10 @@ impl ChunkData {
             }
         }
 
+        if removed {
+            discard_removed_block_entities(&section, &mut block_entities);
+        }
+
         let light_correct = root_tag.get_bool("isLightOn").unwrap_or(false);
 
         let status_str = root_tag.get_string("Status").unwrap_or("minecraft:empty");
@@ -477,8 +514,7 @@ impl ChunkData {
             heightmap: std::sync::Mutex::new(heightmaps),
             x: position.x,
             z: position.y,
-            // This chunk is read from disk, so it has not been modified
-            dirty: AtomicBool::new(false),
+            dirty: AtomicBool::new(removed),
             block_ticks: ChunkTickScheduler::from_iter(block_ticks),
             fluid_ticks: ChunkTickScheduler::from_iter(fluid_ticks),
             pending_block_entities: std::sync::Mutex::new(block_entities),
@@ -582,27 +618,7 @@ impl ChunkData {
             let palette_tags: Vec<NbtTag> = block_states_nbt
                 .palette
                 .iter()
-                .map(|&id| {
-                    let block = Block::from_state_id(id);
-                    let mut comp = NbtCompound::new();
-                    let name = if block.name.starts_with("minecraft:") {
-                        block.name.to_string()
-                    } else {
-                        format!("minecraft:{}", block.name)
-                    };
-                    comp.put_string("Name", name);
-                    if let Some(props) = block.properties(id) {
-                        let prop_vec = props.to_props();
-                        if !prop_vec.is_empty() {
-                            let mut props_comp = NbtCompound::new();
-                            for p in prop_vec {
-                                props_comp.put_string(p.key_str(), p.value_str().to_string());
-                            }
-                            comp.put_compound("Properties", props_comp);
-                        }
-                    }
-                    NbtTag::Compound(comp)
-                })
+                .map(|&id| NbtTag::Compound(crate::block::BlockStateCodec::state_to_nbt(id)))
                 .collect();
             bs_comp.put_list("palette", palette_tags);
             section_comp.put_compound("block_states", bs_comp);
@@ -949,13 +965,14 @@ impl ChunkData {
             )));
         }
 
+        let mut removed = false;
         let mut block_palettes = Vec::with_capacity(section_count);
         let mut biome_palettes = Vec::with_capacity(section_count);
         let mut block_lights = Vec::with_capacity(section_count);
         let mut sky_lights = Vec::with_capacity(section_count);
 
         for _ in 0..section_count {
-            block_palettes.push(BlockPalette::read_pump_binary(&mut buf)?);
+            block_palettes.push(BlockPalette::read_pump_binary(&mut buf, &mut removed)?);
             biome_palettes.push(BiomePalette::read_pump_binary(&mut buf)?);
 
             if !buf.has_remaining() {
@@ -1027,7 +1044,7 @@ impl ChunkData {
             let priority = i32::from(buf.get_i8());
             let raw_id = buf.get_u16();
             if let Ok(priority) = TickPriority::try_from(priority)
-                && let Some(block_id) = BlockId::new(raw_id)
+                && let Some(block_id) = BlockId::from_runtime_id(raw_id)
             {
                 block_ticks.push(ScheduledTick {
                     delay,
@@ -1107,6 +1124,9 @@ impl ChunkData {
             }
         }
 
+        if removed {
+            discard_removed_block_entities(&section, &mut block_entities);
+        }
         let custom_data = if (flags & (1 << 4)) != 0 {
             if buf.remaining() < 4 {
                 return Err(ChunkParsingError::ErrorDeserializingChunk(
@@ -1135,7 +1155,7 @@ impl ChunkData {
             heightmap: std::sync::Mutex::new(heightmaps),
             x: position.x,
             z: position.y,
-            dirty: AtomicBool::new(false),
+            dirty: AtomicBool::new(removed),
             block_ticks: ChunkTickScheduler::from_iter(block_ticks),
             fluid_ticks: ChunkTickScheduler::from_iter(fluid_ticks),
             pending_block_entities: std::sync::Mutex::new(block_entities),
@@ -1651,7 +1671,7 @@ mod tests {
         entry2.put_compound("Properties", props);
 
         let list_tag = NbtTag::List(vec![NbtTag::Compound(entry1), NbtTag::Compound(entry2)]);
-        let result = extract_u16_array(&list_tag).expect("should extract palette");
+        let result = extract_u16_array(&list_tag, &mut false).expect("should extract palette");
 
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Block::STONE.default_state.id);

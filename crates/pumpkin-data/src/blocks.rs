@@ -129,7 +129,11 @@ impl Taggable for Block {
 
 impl ToResourceLocation for &'static Block {
     fn to_resource_location(&self) -> ResourceLocation {
-        format!("minecraft:{}", self.name)
+        if self.name.contains(':') {
+            self.name.to_owned()
+        } else {
+            format!("minecraft:{}", self.name)
+        }
     }
 }
 
@@ -184,7 +188,7 @@ impl Block {
     }
 
     #[must_use]
-    pub const fn is_waterlogged(&self, id: BlockStateId) -> bool {
+    pub fn is_waterlogged(&self, id: BlockStateId) -> bool {
         id.is_waterlogged()
     }
 
@@ -390,12 +394,26 @@ impl BlockId {
     /// The total count of all registered blocks.
     pub const COUNT: u16 = Self::BLOCK_COUNT;
 
-    // SAFETY: There must never be a BlockId where self.0 >= BlockId::BLOCK_COUNT
+    // An id outside the vanilla range must be present in the frozen content registry.
 
     #[inline]
     #[must_use]
     pub const fn new(inner: u16) -> Option<Self> {
         if inner < Self::BLOCK_COUNT {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn from_runtime_id(inner: u16) -> Option<Self> {
+        if inner < Self::BLOCK_COUNT {
+            return Some(Self(inner));
+        }
+        #[cfg(feature = "item")]
+        if crate::content::block_by_id(inner).is_some() {
             return Some(Self(inner));
         }
         None
@@ -405,14 +423,24 @@ impl BlockId {
     #[must_use]
     pub const fn new_or_air(inner: u16) -> Self {
         if inner < Self::BLOCK_COUNT {
-            return Self(inner);
+            Self(inner)
+        } else {
+            Self::AIR
         }
-        Self::AIR
+    }
+
+    #[must_use]
+    pub fn runtime_or_air(inner: u16) -> Self {
+        Self::from_runtime_id(inner).unwrap_or(Self::AIR)
+    }
+
+    pub(crate) const fn registered(inner: u16) -> Self {
+        Self(inner)
     }
 
     #[inline]
     #[must_use]
-    pub const fn to_block(self) -> &'static Block {
+    pub fn to_block(self) -> &'static Block {
         Block::from_id(self)
     }
 
