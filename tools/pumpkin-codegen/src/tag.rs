@@ -547,9 +547,7 @@ pub(crate) fn build() -> TokenStream {
                 });
                 match ids {
                     Some(ids) => Some(added || ids.contains(&id)),
-                    None if added => Some(true),
-                    None => crate::tag_overlay::convention_tag(&full)
-                        .and_then(|tag| self.is_tagged_with(&tag)),
+                    None => added.then_some(true),
                 }
             }
 

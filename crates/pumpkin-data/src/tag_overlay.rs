@@ -31,13 +31,6 @@ pub fn set(memberships: HashMap<(RegistryKey, u16), Vec<String>>) {
     ACTIVE.store(active, Ordering::Release);
 }
 
-/// The shared `c:` tag a Forge 1.20 convention tag (`forge:ingots/iron`) became. Ported data
-/// still names the Forge ones.
-#[must_use]
-pub fn convention_tag(tag: &str) -> Option<String> {
-    tag.strip_prefix("forge:").map(|path| format!("c:{path}"))
-}
-
 /// Whether a datapack added entry `id` of `key` to `tag` (`namespace:path`).
 #[must_use]
 pub fn contains(key: RegistryKey, id: u16, tag: &str) -> bool {
@@ -50,23 +43,4 @@ pub fn contains(key: RegistryKey, id: u16, tag: &str) -> bool {
         .as_ref()
         .and_then(|memberships| memberships.get(&(key, id)))
         .is_some_and(|tags| tags.iter().any(|t| **t == *tag))
-}
-
-#[cfg(all(test, feature = "item"))]
-mod tests {
-    use crate::item::Item;
-    use crate::tag::Taggable;
-
-    #[test]
-    fn forge_convention_tags_resolve_as_shared_tags() {
-        assert_eq!(
-            Item::IRON_NUGGET.is_tagged_with("#forge:nuggets/iron"),
-            Some(true)
-        );
-        assert_eq!(
-            Item::GOLD_NUGGET.is_tagged_with("forge:nuggets/iron"),
-            Some(false)
-        );
-        assert_eq!(Item::IRON_NUGGET.is_tagged_with("forge:no_such_tag"), None);
-    }
 }
