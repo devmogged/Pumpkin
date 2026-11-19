@@ -253,6 +253,72 @@ fn value_to_fossil_processor(value: &Value) -> TokenStream {
     }
 }
 
+fn value_to_template_feature(config: &Value) -> TokenStream {
+    const ROTATIONS: [&str; 4] = ["none", "clockwise_90", "180", "counterclockwise_90"];
+    let entries: Vec<(TokenStream, i32)> = config["templates"]
+        .as_array()
+        .expect("template features need a templates list")
+        .iter()
+        .map(|entry| {
+            let id = entry["data"]["id"]
+                .as_str()
+                .expect("template entries need an id");
+            let rotations: Vec<TokenStream> = entry["data"]["rotations"]
+                .as_array()
+                .map_or_else(
+                    || ROTATIONS.to_vec(),
+                    |r| r.iter().filter_map(Value::as_str).collect(),
+                )
+                .into_iter()
+                .map(|rotation| {
+                    let variant = match rotation {
+                        "none" => format_ident!("None"),
+                        "clockwise_90" => format_ident!("Clockwise90"),
+                        "180" => format_ident!("Rotate180"),
+                        "counterclockwise_90" => format_ident!("CounterClockwise90"),
+                        other => panic!("Unknown rotation: {other}"),
+                    };
+                    quote! { pumpkin_data::Rotation::#variant }
+                })
+                .collect();
+            let weight = entry["weight"].as_i64().unwrap_or(1) as i32;
+            let tokens = quote! {
+                crate::generation::feature::features::template::TemplateEntry {
+                    id: #id,
+                    rotations: vec![#(#rotations),*],
+                    weight: #weight,
+                }
+            };
+            (tokens, weight)
+        })
+        .collect();
+    let total_weight: i32 = entries.iter().map(|(_, weight)| weight).sum();
+    let entries = entries.into_iter().map(|(tokens, _)| tokens);
+    let processors = match &config["processors"] {
+        Value::Null => quote! { std::sync::Arc::from([]) },
+        Value::String(name) => {
+            quote! { crate::generation::structure::template::load_processor_list(#name) }
+        }
+        inline => {
+            let json = inline.to_string();
+            serde_json::from_str::<crate::processor_list::RawProcessorListWrapper>(&json)
+                .expect("inline template processors must parse");
+            // Checked above, so parsing at runtime can't fail.
+            quote! {
+                crate::generation::structure::template::parse_processor_list(#json)
+                    .unwrap_or_default()
+            }
+        }
+    };
+    quote! {
+        ConfiguredFeature::Template(crate::generation::feature::features::template::TemplateFeature {
+            templates: vec![#(#entries),*],
+            total_weight: #total_weight,
+            processors: #processors,
+        })
+    }
+}
+
 /// Converts a single configured-feature JSON value into its `ConfiguredFeature` token stream.
 ///
 /// # Arguments
@@ -1004,7 +1070,15 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             quote! { ConfiguredFeature::DripstoneCluster(crate::generation::feature::features::drip_stone::cluster::DripstoneClusterFeature {}) }
         }
         "minecraft:sequence" => {
-            quote! { ConfiguredFeature::NoOp }
+            let features: Vec<TokenStream> = config["features"]
+                .as_array()
+                .map(|arr| arr.iter().map(value_to_placed_feature_wrapper).collect())
+                .unwrap_or_default();
+            quote! {
+                ConfiguredFeature::Sequence(crate::generation::feature::features::sequence::SequenceFeature {
+                    features: vec![#(#features),*],
+                })
+            }
         }
         "minecraft:stepped_column_cluster" => {
             let block = value_to_block_state_provider(&config["block"]);
@@ -1046,8 +1120,6 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             let spread_attempts = config["spread_attempts"].as_u64().unwrap() as i32;
             let growth_rounds = config["growth_rounds"].as_u64().unwrap() as i32;
             let spread_rounds = config["spread_rounds"].as_u64().unwrap() as i32;
-            let extra_rare_growths = value_to_int_provider(&config["extra_rare_growths"]);
-            let catalyst_chance = config["catalyst_chance"].as_f64().unwrap() as f32;
             quote! {
                 ConfiguredFeature::SculkPatch(crate::generation::feature::features::sculk_patch::SculkPatchFeature {
                     charge_count: #charge_count,
@@ -1055,8 +1127,6 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
                     spread_attempts: #spread_attempts,
                     growth_rounds: #growth_rounds,
                     spread_rounds: #spread_rounds,
-                    extra_rare_growths: #extra_rare_growths,
-                    catalyst_chance: #catalyst_chance,
                 })
             }
         }
@@ -1168,9 +1238,7 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
                 })
             }
         }
-        "minecraft:template" => {
-            quote! { ConfiguredFeature::NoOp }
-        }
+        "minecraft:template" => value_to_template_feature(config),
         other => {
             let msg = format!("unknown configured feature type: {other}");
             quote! { compile_error!(#msg) }
@@ -2020,6 +2088,25 @@ fn value_to_placement_modifier_cf(v: &Value) -> TokenStream {
     match type_str {
         "minecraft:biome" => quote! { PlacementModifier::Biome(BiomePlacementModifier) },
         "minecraft:in_square" => quote! { PlacementModifier::InSquare(SquarePlacementModifier) },
+        "minecraft:random_chance" => {
+            let chance = v["chance"].as_f64().expect("random_chance needs a chance") as f32;
+            quote! {
+                PlacementModifier::RandomChance(
+                    crate::generation::feature::placed_features::RandomChancePlacementModifier {
+                        chance: #chance,
+                    },
+                )
+            }
+        }
+        "minecraft:randomly_selected" => {
+            let placements: Vec<TokenStream> = v["placements"]
+                .as_array()
+                .expect("randomly_selected needs placements")
+                .iter()
+                .map(value_to_placement_modifier_cf)
+                .collect();
+            quote! { PlacementModifier::RandomlySelected(vec![#(#placements),*]) }
+        }
         "minecraft:fixed_placement" => {
             let positions = v["positions"]
                 .as_array()

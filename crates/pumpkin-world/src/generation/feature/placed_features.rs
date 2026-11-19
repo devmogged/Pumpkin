@@ -168,6 +168,8 @@ where
 pub enum PlacementModifier {
     BlockPredicateFilter(BlockFilterPlacementModifier),
     RarityFilter(RarityFilterPlacementModifier),
+    RandomChance(RandomChancePlacementModifier),
+    RandomlySelected(Vec<Self>),
     SurfaceRelativeThresholdFilter(SurfaceThresholdFilterPlacementModifier),
     SurfaceWaterDepthFilter(SurfaceWaterDepthFilterPlacementModifier),
     Biome(BiomePlacementModifier),
@@ -202,6 +204,22 @@ impl PlacementModifier {
             }
             Self::RarityFilter(modifier) => {
                 modifier.get_positions(block_registry, chunk, feature, random, pos)
+            }
+            Self::RandomChance(modifier) => {
+                modifier.get_positions(block_registry, chunk, feature, random, pos)
+            }
+            // RandomlySelectedPlacement: Util.getRandom over the list, then that modifier.
+            Self::RandomlySelected(modifiers) => {
+                let index = random.next_bounded_i32(modifiers.len() as i32) as usize;
+                modifiers[index].get_positions(
+                    chunk,
+                    block_registry,
+                    min_y,
+                    height,
+                    feature,
+                    random,
+                    pos,
+                )
             }
             Self::SurfaceRelativeThresholdFilter(modifier) => {
                 modifier.get_positions(block_registry, chunk, feature, random, pos)
@@ -463,6 +481,23 @@ impl ConditionalPlacementModifier for RarityFilterPlacementModifier {
         _pos: BlockPos,
     ) -> bool {
         random.next_f32() < 1.0 / self.chance as f32
+    }
+}
+
+pub struct RandomChancePlacementModifier {
+    pub chance: f32,
+}
+
+impl ConditionalPlacementModifier for RandomChancePlacementModifier {
+    fn should_place<T: GenerationCache>(
+        &self,
+        _block_registry: &dyn WorldPortalExt,
+        _feature: pumpkin_data::placed_feature::PlacedFeature,
+        _chunk: &T,
+        random: &mut RandomGenerator,
+        _pos: BlockPos,
+    ) -> bool {
+        random.next_f32() < self.chance
     }
 }
 

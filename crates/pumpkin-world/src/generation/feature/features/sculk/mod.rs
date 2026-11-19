@@ -6,7 +6,6 @@
 //! - [`vein`]     — multiface (sculk vein) spreading via support faces.
 //! - [`growth`]   — sculk sensor / shrieker placement rules.
 
-use pumpkin_data::Block;
 use pumpkin_data::BlockDirection;
 use pumpkin_data::BlockId;
 use pumpkin_data::BlockState;
@@ -133,17 +132,6 @@ pub fn can_spread_from(level: &dyn SculkLevel, pos: BlockPos) -> bool {
     BlockDirection::all()
         .into_iter()
         .any(|dir| level.sculk_is_full_cube(pos.offset(dir.to_offset())))
-}
-
-/// Builds the shrieker block state used by the extra-rare-growths pass
-/// (with `can_summon` set when world-gen).
-#[must_use]
-pub fn shrieker_state(can_summon: bool) -> &'static BlockState {
-    let mut properties = pumpkin_data::block_properties::SculkShriekerLikeProperties::default(
-        &Block::SCULK_SHRIEKER,
-    );
-    properties.r#can_summon = can_summon;
-    BlockState::from_id(properties.to_state_id(&Block::SCULK_SHRIEKER))
 }
 
 /// Convenience: resolve the block id at a position, defaulting to air when
@@ -339,6 +327,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pumpkin_data::Block;
     use test_utils::MockSculkLevel;
 
     #[test]

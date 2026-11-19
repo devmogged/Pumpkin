@@ -747,7 +747,7 @@ fn build_configured_features()
             extra_edge_column_chance: 0.7f32,
         }),
     );
-    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBlockDecoration , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: WeightedRandomSelector (WeightedRandomFeature { features : vec ! [WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: AIR . default_state , }) , schedule_tick : None , }))) , placement : vec ! [] , }) , weight : 20i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: SeaPickle) , placement : vec ! [] , }) , weight : 3i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: NoOp)) , placement : vec ! [] , }) , weight : 57i32 }] , total_weight : 80i32 , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (1i32) , z : IntProvider :: Constant (0i32) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (- 1i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (1i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (1i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (- 1i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , })] , })) ;
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBlockDecoration , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: WeightedRandomSelector (WeightedRandomFeature { features : vec ! [WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: AIR . default_state , }) , schedule_tick : None , }))) , placement : vec ! [] , }) , weight : 20i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: SeaPickle) , placement : vec ! [] , }) , weight : 3i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: NoOp)) , placement : vec ! [] , }) , weight : 57i32 }] , total_weight : 80i32 , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (1i32) , z : IntProvider :: Constant (0i32) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.2f32 , } ,) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (- 1i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.2f32 , } ,) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (1i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.2f32 , } ,) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (1i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Pillar (PillarBlockStateProvider { state : pumpkin_data :: Block :: AIR . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.2f32 , } ,) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (- 1i32) , y : IntProvider :: Constant (0i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) })] , })] , })) ;
     map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBrainBlock , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: BRAIN_CORAL_BLOCK . default_state }) , schedule_tick : None , }))) , placement : vec ! [] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBlockDecoration) , placement : vec ! [] , })] , })) ;
     map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBubbleBlock , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: BUBBLE_CORAL_BLOCK . default_state }) , schedule_tick : None , }))) , placement : vec ! [] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBlockDecoration) , placement : vec ! [] , })] , })) ;
     map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralFireBlock , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: FIRE_CORAL_BLOCK . default_state }) , schedule_tick : None , }))) , placement : vec ! [] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBlockDecoration) , placement : vec ! [] , })] , })) ;
@@ -1022,31 +1022,7 @@ fn build_configured_features()
             },
         ),
     );
-    map.insert(
-        pumpkin_data::configured_feature::ConfiguredFeature::DesertWell,
-        ConfiguredFeature::Overlay(
-            crate::generation::feature::features::overlay::OverlayFeature {
-                features: vec![
-                    PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Constant(-2i32),
-                            z: IntProvider::Constant(0i32),
-                        })],
-                    }),
-                    PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![PlacementModifier::Biome(BiomePlacementModifier)],
-                    }),
-                    PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![PlacementModifier::Biome(BiomePlacementModifier)],
-                    }),
-                ],
-            },
-        ),
-    );
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: DesertWell , ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:desert_well/well" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 1i32 , processors : std :: sync :: Arc :: from ([]) , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (0i32) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:desert_well/suspicious_sand" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 1i32 , processors : crate :: generation :: structure :: template :: parse_processor_list ("{\"processors\":[{\"processor_type\":\"minecraft:rule\",\"rules\":[{\"block_entity_modifier\":{\"type\":\"minecraft:append_loot\",\"loot_table\":\"minecraft:archaeology/desert_well\"},\"input_predicate\":{\"block\":\"minecraft:suspicious_sand\",\"predicate_type\":\"minecraft:block_match\"},\"location_predicate\":{\"predicate_type\":\"minecraft:always_true\"},\"output_state\":\"minecraft:suspicious_sand\"}]}]}") . unwrap_or_default () , }))) , placement : vec ! [PlacementModifier :: RandomlySelected (vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 1i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (- 1i32) , y : IntProvider :: Constant (- 1i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 1i32) , z : IntProvider :: Constant (1i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (1i32) , y : IntProvider :: Constant (- 1i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 1i32) , z : IntProvider :: Constant (- 1i32) })])] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:desert_well/suspicious_sand" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 1i32 , processors : crate :: generation :: structure :: template :: parse_processor_list ("{\"processors\":[{\"processor_type\":\"minecraft:rule\",\"rules\":[{\"block_entity_modifier\":{\"type\":\"minecraft:append_loot\",\"loot_table\":\"minecraft:archaeology/desert_well\"},\"input_predicate\":{\"block\":\"minecraft:suspicious_sand\",\"predicate_type\":\"minecraft:block_match\"},\"location_predicate\":{\"predicate_type\":\"minecraft:always_true\"},\"output_state\":\"minecraft:suspicious_sand\"}]}]}") . unwrap_or_default () , }))) , placement : vec ! [PlacementModifier :: RandomlySelected (vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (- 1i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (1i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (1i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 2i32) , z : IntProvider :: Constant (- 1i32) })])] , })] , })) ;
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::DiskClay,
         ConfiguredFeature::Disk(crate::generation::feature::features::disk::DiskFeature {
@@ -3768,14 +3744,8 @@ fn build_configured_features()
             },
         ),
     );
-    map.insert(
-        pumpkin_data::configured_feature::ConfiguredFeature::SculkPatchAncientCity,
-        ConfiguredFeature::NoOp,
-    );
-    map.insert(
-        pumpkin_data::configured_feature::ConfiguredFeature::SculkPatchDeepDark,
-        ConfiguredFeature::NoOp,
-    );
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: SculkPatchAncientCity , ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SculkPatch (crate :: generation :: feature :: features :: sculk_patch :: SculkPatchFeature { charge_count : 10i32 , amount_per_charge : 32i32 , spread_attempts : 64i32 , growth_rounds : 0i32 , spread_rounds : 1i32 , }))) , placement : vec ! [] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Overlay (crate :: generation :: feature :: features :: overlay :: OverlayFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : { let mut props = std :: collections :: HashMap :: new () ; props . insert ("bloom" . to_string () , "false" . to_string ()) ; BlockStateCodec { name : & pumpkin_data :: Block :: SCULK_CATALYST , properties : Some (props) , } . get_state () } }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.5f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: HasSturdyFace (HasSturdyFacePredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , - 1i32 , 0i32)) } , direction : BlockDirection :: Up , }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : { let mut props = std :: collections :: HashMap :: new () ; props . insert ("can_summon" . to_string () , "true" . to_string ()) ; props . insert ("shrieking" . to_string () , "false" . to_string ()) ; props . insert ("waterlogged" . to_string () , "false" . to_string ()) ; BlockStateCodec { name : & pumpkin_data :: Block :: SCULK_SHRIEKER , properties : Some (props) , } . get_state () } }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Count (CountPlacementModifier { count : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : 1i32 , max_inclusive : 3i32 })) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 2i32 , max_inclusive : 2i32 })) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 2i32 , max_inclusive : 2i32 })) , z : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 2i32 , max_inclusive : 2i32 })) }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_AIR , }) , BlockPredicate :: HasSturdyFace (HasSturdyFacePredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , - 1i32 , 0i32)) } , direction : BlockDirection :: Up , })] , }) })] , })] , }))) , placement : vec ! [] , })] , })) ;
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: SculkPatchDeepDark , ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SculkPatch (crate :: generation :: feature :: features :: sculk_patch :: SculkPatchFeature { charge_count : 10i32 , amount_per_charge : 32i32 , spread_attempts : 64i32 , growth_rounds : 0i32 , spread_rounds : 1i32 , }))) , placement : vec ! [] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : { let mut props = std :: collections :: HashMap :: new () ; props . insert ("bloom" . to_string () , "false" . to_string ()) ; BlockStateCodec { name : & pumpkin_data :: Block :: SCULK_CATALYST , properties : Some (props) , } . get_state () } }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.5f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: HasSturdyFace (HasSturdyFacePredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , - 1i32 , 0i32)) } , direction : BlockDirection :: Up , }) })] , })] , })) ;
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::SculkVein,
         ConfiguredFeature::MultifaceGrowth(
@@ -4234,7 +4204,78 @@ fn build_configured_features()
     );
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::SulfurPool,
-        ConfiguredFeature::NoOp,
+        ConfiguredFeature::Sequence(
+            crate::generation::feature::features::sequence::SequenceFeature {
+                features: vec![
+                    PlacedFeatureWrapper::Direct(PlacedFeature {
+                        feature: Feature::Inlined(Box::new(ConfiguredFeature::Lake(
+                            crate::generation::feature::features::lake::LakeFeature {
+                                fluid: BlockStateProvider::Simple(SimpleStateProvider {
+                                    state: {
+                                        let mut props = std::collections::HashMap::new();
+                                        props.insert("level".to_string(), "0".to_string());
+                                        BlockStateCodec {
+                                            name: &pumpkin_data::Block::WATER,
+                                            properties: Some(props),
+                                        }
+                                        .get_state()
+                                    },
+                                }),
+                                barrier: BlockStateProvider::Simple(SimpleStateProvider {
+                                    state: pumpkin_data::Block::SULFUR.default_state,
+                                }),
+                            },
+                        ))),
+                        placement: vec![],
+                    }),
+                    PlacedFeatureWrapper::Direct(PlacedFeature {
+                        feature: Feature::Inlined(Box::new(ConfiguredFeature::SimpleBlock(
+                            SimpleBlockFeature {
+                                to_place: BlockStateProvider::Simple(SimpleStateProvider {
+                                    state: {
+                                        let mut props = std::collections::HashMap::new();
+                                        props.insert(
+                                            "potent_sulfur_state".to_string(),
+                                            "wet".to_string(),
+                                        );
+                                        BlockStateCodec {
+                                            name: &pumpkin_data::Block::POTENT_SULFUR,
+                                            properties: Some(props),
+                                        }
+                                        .get_state()
+                                    },
+                                }),
+                                schedule_tick: None,
+                            },
+                        ))),
+                        placement: vec![PlacementModifier::EnvironmentScan(
+                            EnvironmentScanPlacementModifier {
+                                direction_of_search: BlockDirection::Down,
+                                target_condition: BlockPredicate::AllOf(AllOfBlockPredicate {
+                                    predicates: vec![
+                                        BlockPredicate::Solid(SolidBlockPredicate {
+                                            offset: OffsetBlocksBlockPredicate { offset: None },
+                                        }),
+                                        BlockPredicate::MatchingFluids(
+                                            MatchingFluidsBlockPredicate {
+                                                offset: OffsetBlocksBlockPredicate {
+                                                    offset: Some(Vector3::new(0i32, 1i32, 0i32)),
+                                                },
+                                                fluids: MatchingBlocksWrapper::Single(
+                                                    "minecraft:water".to_string(),
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                }),
+                                allowed_search_condition: None,
+                                max_steps: 4i32,
+                            },
+                        )],
+                    }),
+                ],
+            },
+        ),
     );
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::SulfurSpike,
@@ -4337,42 +4378,7 @@ fn build_configured_features()
             crate::generation::feature::features::drip_stone::cluster::DripstoneClusterFeature {},
         ),
     );
-    map.insert(
-        pumpkin_data::configured_feature::ConfiguredFeature::SulfurSpring,
-        ConfiguredFeature::WeightedRandomSelector(WeightedRandomFeature {
-            features: vec![
-                WeightedRandomFeatureEntry {
-                    feature: PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![],
-                    }),
-                    weight: 200i32,
-                },
-                WeightedRandomFeatureEntry {
-                    feature: PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![],
-                    }),
-                    weight: 90i32,
-                },
-                WeightedRandomFeatureEntry {
-                    feature: PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![],
-                    }),
-                    weight: 20i32,
-                },
-                WeightedRandomFeatureEntry {
-                    feature: PlacedFeatureWrapper::Direct(PlacedFeature {
-                        feature: Feature::Inlined(Box::new(ConfiguredFeature::NoOp)),
-                        placement: vec![],
-                    }),
-                    weight: 5i32,
-                },
-            ],
-            total_weight: 315i32,
-        }),
-    );
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: SulfurSpring , ConfiguredFeature :: WeightedRandomSelector (WeightedRandomFeature { features : vec ! [WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: TUFF . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Count (CountPlacementModifier { count : IntProvider :: Constant (64i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 7i32 , max_inclusive : 7i32 , plateau : 0i32 })) , y : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 3i32 , max_inclusive : 3i32 , plateau : 0i32 })) , z : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 7i32 , max_inclusive : 7i32 , plateau : 0i32 })) }) , PlacementModifier :: EnvironmentScan (EnvironmentScanPlacementModifier { direction_of_search : BlockDirection :: Down , target_condition : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) , allowed_search_condition : None , max_steps : 4i32 }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_small_1" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_small_2" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_small_3" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_small_4" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 4i32 , processors : std :: sync :: Arc :: from ([]) , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 7i32) , z : IntProvider :: Constant (0i32) })] , })] , }))) , placement : vec ! [] , }) , weight : 200i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: TUFF . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Count (CountPlacementModifier { count : IntProvider :: Constant (80i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 8i32 , max_inclusive : 8i32 , plateau : 0i32 })) , y : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 3i32 , max_inclusive : 3i32 , plateau : 0i32 })) , z : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 8i32 , max_inclusive : 8i32 , plateau : 0i32 })) }) , PlacementModifier :: EnvironmentScan (EnvironmentScanPlacementModifier { direction_of_search : BlockDirection :: Down , target_condition : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) , allowed_search_condition : None , max_steps : 4i32 }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_medium_1" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_medium_2" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_medium_3" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 3i32 , processors : std :: sync :: Arc :: from ([]) , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 7i32) , z : IntProvider :: Constant (0i32) })] , })] , }))) , placement : vec ! [] , }) , weight : 90i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: TUFF . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Count (CountPlacementModifier { count : IntProvider :: Constant (96i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 9i32 , max_inclusive : 9i32 , plateau : 0i32 })) , y : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 3i32 , max_inclusive : 3i32 , plateau : 0i32 })) , z : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 9i32 , max_inclusive : 9i32 , plateau : 0i32 })) }) , PlacementModifier :: EnvironmentScan (EnvironmentScanPlacementModifier { direction_of_search : BlockDirection :: Down , target_condition : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) , allowed_search_condition : None , max_steps : 4i32 }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_large_1" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , } , crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_large_2" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 2i32 , processors : std :: sync :: Arc :: from ([]) , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 7i32) , z : IntProvider :: Constant (0i32) })] , })] , }))) , placement : vec ! [] , }) , weight : 20i32 } , WeightedRandomFeatureEntry { feature : PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Sequence (crate :: generation :: feature :: features :: sequence :: SequenceFeature { features : vec ! [PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: SimpleBlock (SimpleBlockFeature { to_place : BlockStateProvider :: Simple (SimpleStateProvider { state : pumpkin_data :: Block :: TUFF . default_state }) , schedule_tick : None , }))) , placement : vec ! [PlacementModifier :: Count (CountPlacementModifier { count : IntProvider :: Constant (128i32) }) , PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 10i32 , max_inclusive : 10i32 , plateau : 0i32 })) , y : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 3i32 , max_inclusive : 3i32 , plateau : 0i32 })) , z : IntProvider :: Object (NormalIntProvider :: Trapezoid (TrapezoidIntProvider { min_inclusive : - 10i32 , max_inclusive : 10i32 , plateau : 0i32 })) }) , PlacementModifier :: EnvironmentScan (EnvironmentScanPlacementModifier { direction_of_search : BlockDirection :: Down , target_condition : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) , allowed_search_condition : None , max_steps : 4i32 }) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: Solid (SolidBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } }) })] , }) , PlacedFeatureWrapper :: Direct (PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: Template (crate :: generation :: feature :: features :: template :: TemplateFeature { templates : vec ! [crate :: generation :: feature :: features :: template :: TemplateEntry { id : "minecraft:spring/sulfur_spring_extra_large_1" , rotations : vec ! [pumpkin_data :: Rotation :: None , pumpkin_data :: Rotation :: Clockwise90 , pumpkin_data :: Rotation :: Rotate180 , pumpkin_data :: Rotation :: CounterClockwise90] , weight : 1i32 , }] , total_weight : 1i32 , processors : std :: sync :: Arc :: from ([]) , }))) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Constant (- 7i32) , z : IntProvider :: Constant (0i32) })] , })] , }))) , placement : vec ! [] , }) , weight : 5i32 }] , total_weight : 315i32 , })) ;
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::Sunflower,
         ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
@@ -4918,348 +4924,7 @@ fn build_configured_features()
             crate::generation::feature::features::void_start_platform::VoidStartPlatformFeature {},
         ),
     );
-    map.insert(
-        pumpkin_data::configured_feature::ConfiguredFeature::WarmOceanVegetation,
-        ConfiguredFeature::SimpleRandomSelector(SimpleRandomFeature {
-            features: vec![
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralTree(
-                        crate::generation::feature::features::coral::coral_tree::CoralTreeFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralClaw(
-                        crate::generation::feature::features::coral::coral_claw::CoralClawFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Named(
-                        pumpkin_data::configured_feature::ConfiguredFeature::CoralTubeBlock,
-                    ),
-                    placement: vec![
-                        PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Object(NormalIntProvider::Uniform(
-                                UniformIntProvider {
-                                    min_inclusive: -3i32,
-                                    max_inclusive: -1i32,
-                                },
-                            )),
-                            z: IntProvider::Constant(0i32),
-                        }),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                            predicate: BlockPredicate::AllOf(AllOfBlockPredicate {
-                                predicates: vec![
-                                    BlockPredicate::AnyOf(AnyOfBlockPredicate {
-                                        predicates: vec![
-                                            BlockPredicate::MatchingBlocks(
-                                                MatchingBlocksBlockPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    blocks: MatchingBlocksWrapper::Single(
-                                                        "minecraft:water".to_string(),
-                                                    ),
-                                                },
-                                            ),
-                                            BlockPredicate::MatchingBlockTag(
-                                                MatchingBlockTagPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    tag: pumpkin_data::tag::Block::MINECRAFT_CORALS,
-                                                },
-                                            ),
-                                        ],
-                                    }),
-                                    BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-                                        offset: OffsetBlocksBlockPredicate {
-                                            offset: Some(Vector3::new(0i32, 1i32, 0i32)),
-                                        },
-                                        blocks: MatchingBlocksWrapper::Single(
-                                            "minecraft:water".to_string(),
-                                        ),
-                                    }),
-                                ],
-                            }),
-                        }),
-                    ],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralTree(
-                        crate::generation::feature::features::coral::coral_tree::CoralTreeFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralClaw(
-                        crate::generation::feature::features::coral::coral_claw::CoralClawFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Named(
-                        pumpkin_data::configured_feature::ConfiguredFeature::CoralBrainBlock,
-                    ),
-                    placement: vec![
-                        PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Object(NormalIntProvider::Uniform(
-                                UniformIntProvider {
-                                    min_inclusive: -3i32,
-                                    max_inclusive: -1i32,
-                                },
-                            )),
-                            z: IntProvider::Constant(0i32),
-                        }),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                            predicate: BlockPredicate::AllOf(AllOfBlockPredicate {
-                                predicates: vec![
-                                    BlockPredicate::AnyOf(AnyOfBlockPredicate {
-                                        predicates: vec![
-                                            BlockPredicate::MatchingBlocks(
-                                                MatchingBlocksBlockPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    blocks: MatchingBlocksWrapper::Single(
-                                                        "minecraft:water".to_string(),
-                                                    ),
-                                                },
-                                            ),
-                                            BlockPredicate::MatchingBlockTag(
-                                                MatchingBlockTagPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    tag: pumpkin_data::tag::Block::MINECRAFT_CORALS,
-                                                },
-                                            ),
-                                        ],
-                                    }),
-                                    BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-                                        offset: OffsetBlocksBlockPredicate {
-                                            offset: Some(Vector3::new(0i32, 1i32, 0i32)),
-                                        },
-                                        blocks: MatchingBlocksWrapper::Single(
-                                            "minecraft:water".to_string(),
-                                        ),
-                                    }),
-                                ],
-                            }),
-                        }),
-                    ],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralTree(
-                        crate::generation::feature::features::coral::coral_tree::CoralTreeFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralClaw(
-                        crate::generation::feature::features::coral::coral_claw::CoralClawFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Named(
-                        pumpkin_data::configured_feature::ConfiguredFeature::CoralBubbleBlock,
-                    ),
-                    placement: vec![
-                        PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Object(NormalIntProvider::Uniform(
-                                UniformIntProvider {
-                                    min_inclusive: -3i32,
-                                    max_inclusive: -1i32,
-                                },
-                            )),
-                            z: IntProvider::Constant(0i32),
-                        }),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                            predicate: BlockPredicate::AllOf(AllOfBlockPredicate {
-                                predicates: vec![
-                                    BlockPredicate::AnyOf(AnyOfBlockPredicate {
-                                        predicates: vec![
-                                            BlockPredicate::MatchingBlocks(
-                                                MatchingBlocksBlockPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    blocks: MatchingBlocksWrapper::Single(
-                                                        "minecraft:water".to_string(),
-                                                    ),
-                                                },
-                                            ),
-                                            BlockPredicate::MatchingBlockTag(
-                                                MatchingBlockTagPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    tag: pumpkin_data::tag::Block::MINECRAFT_CORALS,
-                                                },
-                                            ),
-                                        ],
-                                    }),
-                                    BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-                                        offset: OffsetBlocksBlockPredicate {
-                                            offset: Some(Vector3::new(0i32, 1i32, 0i32)),
-                                        },
-                                        blocks: MatchingBlocksWrapper::Single(
-                                            "minecraft:water".to_string(),
-                                        ),
-                                    }),
-                                ],
-                            }),
-                        }),
-                    ],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralTree(
-                        crate::generation::feature::features::coral::coral_tree::CoralTreeFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralClaw(
-                        crate::generation::feature::features::coral::coral_claw::CoralClawFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Named(
-                        pumpkin_data::configured_feature::ConfiguredFeature::CoralFireBlock,
-                    ),
-                    placement: vec![
-                        PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Object(NormalIntProvider::Uniform(
-                                UniformIntProvider {
-                                    min_inclusive: -3i32,
-                                    max_inclusive: -1i32,
-                                },
-                            )),
-                            z: IntProvider::Constant(0i32),
-                        }),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                            predicate: BlockPredicate::AllOf(AllOfBlockPredicate {
-                                predicates: vec![
-                                    BlockPredicate::AnyOf(AnyOfBlockPredicate {
-                                        predicates: vec![
-                                            BlockPredicate::MatchingBlocks(
-                                                MatchingBlocksBlockPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    blocks: MatchingBlocksWrapper::Single(
-                                                        "minecraft:water".to_string(),
-                                                    ),
-                                                },
-                                            ),
-                                            BlockPredicate::MatchingBlockTag(
-                                                MatchingBlockTagPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    tag: pumpkin_data::tag::Block::MINECRAFT_CORALS,
-                                                },
-                                            ),
-                                        ],
-                                    }),
-                                    BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-                                        offset: OffsetBlocksBlockPredicate {
-                                            offset: Some(Vector3::new(0i32, 1i32, 0i32)),
-                                        },
-                                        blocks: MatchingBlocksWrapper::Single(
-                                            "minecraft:water".to_string(),
-                                        ),
-                                    }),
-                                ],
-                            }),
-                        }),
-                    ],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralTree(
-                        crate::generation::feature::features::coral::coral_tree::CoralTreeFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Inlined(Box::new(ConfiguredFeature::CoralClaw(
-                        crate::generation::feature::features::coral::coral_claw::CoralClawFeature,
-                    ))),
-                    placement: vec![],
-                },
-                PlacedFeature {
-                    feature: Feature::Named(
-                        pumpkin_data::configured_feature::ConfiguredFeature::CoralHornBlock,
-                    ),
-                    placement: vec![
-                        PlacementModifier::Offset(OffsetPlacementModifier {
-                            x: IntProvider::Constant(0i32),
-                            y: IntProvider::Object(NormalIntProvider::Uniform(
-                                UniformIntProvider {
-                                    min_inclusive: -3i32,
-                                    max_inclusive: -1i32,
-                                },
-                            )),
-                            z: IntProvider::Constant(0i32),
-                        }),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::Biome(BiomePlacementModifier),
-                        PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                            predicate: BlockPredicate::AllOf(AllOfBlockPredicate {
-                                predicates: vec![
-                                    BlockPredicate::AnyOf(AnyOfBlockPredicate {
-                                        predicates: vec![
-                                            BlockPredicate::MatchingBlocks(
-                                                MatchingBlocksBlockPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    blocks: MatchingBlocksWrapper::Single(
-                                                        "minecraft:water".to_string(),
-                                                    ),
-                                                },
-                                            ),
-                                            BlockPredicate::MatchingBlockTag(
-                                                MatchingBlockTagPredicate {
-                                                    offset: OffsetBlocksBlockPredicate {
-                                                        offset: None,
-                                                    },
-                                                    tag: pumpkin_data::tag::Block::MINECRAFT_CORALS,
-                                                },
-                                            ),
-                                        ],
-                                    }),
-                                    BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-                                        offset: OffsetBlocksBlockPredicate {
-                                            offset: Some(Vector3::new(0i32, 1i32, 0i32)),
-                                        },
-                                        blocks: MatchingBlocksWrapper::Single(
-                                            "minecraft:water".to_string(),
-                                        ),
-                                    }),
-                                ],
-                            }),
-                        }),
-                    ],
-                },
-            ],
-        }),
-    );
+    map . insert (pumpkin_data :: configured_feature :: ConfiguredFeature :: WarmOceanVegetation , ConfiguredFeature :: SimpleRandomSelector (SimpleRandomFeature { features : vec ! [PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralTree (crate :: generation :: feature :: features :: coral :: coral_tree :: CoralTreeFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralClaw (crate :: generation :: feature :: features :: coral :: coral_claw :: CoralClawFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralTubeBlock) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 3i32 , max_inclusive : - 1i32 })) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.9f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: AnyOf (AnyOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) , BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_CORALS , })] , }) , BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , 1i32 , 0i32)) } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , })] , }) })] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralTree (crate :: generation :: feature :: features :: coral :: coral_tree :: CoralTreeFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralClaw (crate :: generation :: feature :: features :: coral :: coral_claw :: CoralClawFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBrainBlock) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 3i32 , max_inclusive : - 1i32 })) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.9f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: AnyOf (AnyOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) , BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_CORALS , })] , }) , BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , 1i32 , 0i32)) } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , })] , }) })] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralTree (crate :: generation :: feature :: features :: coral :: coral_tree :: CoralTreeFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralClaw (crate :: generation :: feature :: features :: coral :: coral_claw :: CoralClawFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralBubbleBlock) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 3i32 , max_inclusive : - 1i32 })) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.9f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: AnyOf (AnyOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) , BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_CORALS , })] , }) , BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , 1i32 , 0i32)) } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , })] , }) })] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralTree (crate :: generation :: feature :: features :: coral :: coral_tree :: CoralTreeFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralClaw (crate :: generation :: feature :: features :: coral :: coral_claw :: CoralClawFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralFireBlock) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 3i32 , max_inclusive : - 1i32 })) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.9f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: AnyOf (AnyOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) , BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_CORALS , })] , }) , BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , 1i32 , 0i32)) } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , })] , }) })] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralTree (crate :: generation :: feature :: features :: coral :: coral_tree :: CoralTreeFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Inlined (Box :: new (ConfiguredFeature :: CoralClaw (crate :: generation :: feature :: features :: coral :: coral_claw :: CoralClawFeature))) , placement : vec ! [] , } , PlacedFeature { feature : Feature :: Named (pumpkin_data :: configured_feature :: ConfiguredFeature :: CoralHornBlock) , placement : vec ! [PlacementModifier :: Offset (OffsetPlacementModifier { x : IntProvider :: Constant (0i32) , y : IntProvider :: Object (NormalIntProvider :: Uniform (UniformIntProvider { min_inclusive : - 3i32 , max_inclusive : - 1i32 })) , z : IntProvider :: Constant (0i32) }) , PlacementModifier :: Biome (BiomePlacementModifier) , PlacementModifier :: RandomChance (crate :: generation :: feature :: placed_features :: RandomChancePlacementModifier { chance : 0.9f32 , } ,) , PlacementModifier :: BlockPredicateFilter (BlockFilterPlacementModifier { predicate : BlockPredicate :: AllOf (AllOfBlockPredicate { predicates : vec ! [BlockPredicate :: AnyOf (AnyOfBlockPredicate { predicates : vec ! [BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , }) , BlockPredicate :: MatchingBlockTag (MatchingBlockTagPredicate { offset : OffsetBlocksBlockPredicate { offset : None } , tag : pumpkin_data :: tag :: Block :: MINECRAFT_CORALS , })] , }) , BlockPredicate :: MatchingBlocks (MatchingBlocksBlockPredicate { offset : OffsetBlocksBlockPredicate { offset : Some (Vector3 :: new (0i32 , 1i32 , 0i32)) } , blocks : MatchingBlocksWrapper :: Single ("minecraft:water" . to_string ()) , })] , }) })] , }] , })) ;
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::WarpedForestVegetation,
         ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
