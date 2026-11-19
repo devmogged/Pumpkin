@@ -19,6 +19,13 @@ pub(crate) const fn should_try_block_placement(result: &BlockActionResult) -> bo
     matches!(result, BlockActionResult::Pass)
 }
 
+static CONTENT_BEHAVIOUR: std::sync::OnceLock<Arc<dyn ItemBehaviour>> = std::sync::OnceLock::new();
+
+/// Set the block-use dispatcher for items in the frozen custom content registry.
+pub fn install_content_behaviour(behaviour: Arc<dyn ItemBehaviour>) -> bool {
+    CONTENT_BEHAVIOUR.set(behaviour).is_ok()
+}
+
 #[derive(Default)]
 pub struct ItemRegistry {
     items: FxHashMap<u16, Arc<dyn ItemBehaviour>>,
@@ -149,7 +156,13 @@ impl ItemRegistry {
             return BlockActionResult::Pass;
         }
 
-        let pumpkin_item = self.get_pumpkin_item(stack.item.id);
+        // Custom content items only take over block use; their copied components keep the
+        // fallbacks below and in the other dispatchers.
+        let pumpkin_item = self.get_pumpkin_item(stack.item.id).or_else(|| {
+            (stack.item.id >= Item::VANILLA_COUNT)
+                .then(|| CONTENT_BEHAVIOUR.get())
+                .flatten()
+        });
         let result = if let Some(pumpkin_item) = pumpkin_item {
             pumpkin_item.use_on_block(stack, player, location, face, cursor_pos, block, server)
         } else if let Some(bt) = stack
