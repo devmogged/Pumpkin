@@ -177,7 +177,10 @@ impl Registry {
                 states,
                 flammable: None,
                 experience: None,
-                loot_table: None,
+                // Vanilla's default block loot table id, so a mod's `data/` can supply drops.
+                loot_table: def.name.split_once(':').map(|(namespace, path)| {
+                    &*Box::leak(format!("{namespace}:blocks/{path}").into_boxed_str())
+                }),
                 ..def.states[0].physical.id.to_block().clone()
             }));
             let item = Box::leak(Box::new(Item {

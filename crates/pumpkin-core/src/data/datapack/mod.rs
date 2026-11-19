@@ -204,6 +204,7 @@ impl DatapackManager {
             tags: &mut all_tags,
         };
 
+        load_builtin_datapacks(&mut acc, &mut loaded_packs_vec);
         scan_datapacks_dir(
             &datapacks_dir,
             enabled_packs,
@@ -1639,6 +1640,45 @@ fn load_bundled_datapacks(
                 known_packs,
             });
         }
+    }
+}
+
+static BUILTIN_DATAPACKS: RwLock<Vec<(String, PathBuf)>> = RwLock::new(Vec::new());
+
+/// Adds a datapack folder that loads with every world, before the world's own datapacks, the
+/// way a Fabric server loads each mod's `data/`. Call it before the server starts.
+pub fn register_builtin_datapack(id: String, path: PathBuf) {
+    BUILTIN_DATAPACKS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((id, path));
+}
+
+fn load_builtin_datapacks(
+    acc: &mut PackContentAccumulators<'_>,
+    loaded_packs_vec: &mut Vec<LoadedDatapack>,
+) {
+    let packs = BUILTIN_DATAPACKS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    for (id, pack_path) in packs {
+        let (description, pack_format, known_packs) = read_pack_mcmeta(&pack_path);
+        let counts = load_pack_contents(&pack_path, acc);
+        info!(
+            "Loaded built-in datapack '{id}': {} recipe(s), {} loot table(s), {} tag(s), {} advancement(s), {} function(s)",
+            counts.recipes, counts.loot_tables, counts.tags, counts.advancements, counts.functions,
+        );
+        loaded_packs_vec.push(LoadedDatapack {
+            name: id.clone(),
+            id,
+            description,
+            pack_format,
+            root_path: pack_path,
+            recipe_count: counts.recipes,
+            function_count: counts.functions,
+            known_packs,
+        });
     }
 }
 
