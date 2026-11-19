@@ -64,8 +64,12 @@ impl<'a> CRecipeBookAdd<'a> {
 fn write_item_slot_display(
     write: &mut impl Write,
     item: &Item,
-    _version: JavaMinecraftVersion,
+    version: JavaMinecraftVersion,
 ) -> Result<(), WritingError> {
+    // A custom item id means nothing to the client; a stack display carries its vanilla view.
+    if item.id >= Item::VANILLA_COUNT {
+        return write_item_stack_slot_display(write, item, 1, version);
+    }
     write.write_var_int(&VarInt(SLOT_DISPLAY_ITEM as i32))?;
     write.write_var_int(&VarInt(item.id as i32))?;
     Ok(())
@@ -202,7 +206,7 @@ fn write_ingredient_holderset(
             // 1 item -> VarInt(1 + 1) = VarInt(2)
             write.write_var_int(&VarInt(2))?;
             if let Some(item) = Item::from_registry_key(key) {
-                write.write_var_int(&VarInt(item.id as i32))?;
+                write.write_var_int(&VarInt(item.vanilla_view().id as i32))?;
             } else {
                 // Non-empty fallback item to prevent client UnsupportedOperationException
                 write.write_var_int(&VarInt(0))?;
@@ -212,7 +216,7 @@ fn write_ingredient_holderset(
             if let Some(items) = resolve_item_tag(tag, version) {
                 write.write_var_int(&VarInt(items.len() as i32 + 1))?;
                 for item in &items {
-                    write.write_var_int(&VarInt(item.id as i32))?;
+                    write.write_var_int(&VarInt(item.vanilla_view().id as i32))?;
                 }
             } else {
                 let tag = tag.strip_prefix('#').unwrap_or(tag);
@@ -230,7 +234,7 @@ fn write_ingredient_holderset(
                 .iter()
                 .filter_map(|id| {
                     let key = id.strip_prefix("minecraft:").unwrap_or(id);
-                    Item::from_registry_key(key).map(|item| item.id as i32)
+                    Item::from_registry_key(key).map(|item| item.vanilla_view().id as i32)
                 })
                 .collect();
             if items.is_empty() {
@@ -779,7 +783,7 @@ fn write_dynamic_ingredient_holderset(
             let key = id.strip_prefix("minecraft:").unwrap_or(id);
             write.write_var_int(&VarInt(2))?;
             if let Some(item) = Item::from_registry_key(key) {
-                write.write_var_int(&VarInt(item.id as i32))?;
+                write.write_var_int(&VarInt(item.vanilla_view().id as i32))?;
             } else {
                 write.write_var_int(&VarInt(0))?;
             }
@@ -788,7 +792,7 @@ fn write_dynamic_ingredient_holderset(
             if let Some(items) = resolve_item_tag(tag, version) {
                 write.write_var_int(&VarInt(items.len() as i32 + 1))?;
                 for item in &items {
-                    write.write_var_int(&VarInt(item.id as i32))?;
+                    write.write_var_int(&VarInt(item.vanilla_view().id as i32))?;
                 }
             } else {
                 let tag = tag.strip_prefix('#').unwrap_or(tag);
@@ -806,7 +810,7 @@ fn write_dynamic_ingredient_holderset(
                 .iter()
                 .filter_map(|id| {
                     let key = id.strip_prefix("minecraft:").unwrap_or(id);
-                    Item::from_registry_key(key).map(|item| item.id as i32)
+                    Item::from_registry_key(key).map(|item| item.vanilla_view().id as i32)
                 })
                 .collect();
             if items.is_empty() {

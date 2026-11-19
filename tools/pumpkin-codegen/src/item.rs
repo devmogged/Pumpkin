@@ -2463,6 +2463,13 @@ pub fn build() -> TokenStream {
             #[must_use]
             #[allow(deprecated)]
             pub fn translated_name(&self) -> TextComponent {
+                // A mod item copies its carrier's components, so its `item_name` is the carrier's.
+                #[cfg(feature = "block")]
+                if self.id >= Self::VANILLA_COUNT
+                    && let Some(entry) = crate::content::item(self.id)
+                {
+                    return TextComponent::text(entry.display_name.to_owned());
+                }
                 let name = self
                     .components
                     .iter()

@@ -14,15 +14,9 @@ impl OwnedRecipeIngredient {
     #[must_use]
     pub fn match_item(&self, item: &Item) -> bool {
         match self {
-            Self::Simple(id) => {
-                let name = format!("minecraft:{}", item.registry_key);
-                name == *id
-            }
+            Self::Simple(id) => item.has_id(id),
             Self::Tagged(tag) => item.is_tagged_with(tag).unwrap_or(false),
-            Self::OneOf(ids) => {
-                let name = format!("minecraft:{}", item.registry_key);
-                ids.contains(&name)
-            }
+            Self::OneOf(ids) => ids.iter().any(|id| item.has_id(id)),
         }
     }
 }

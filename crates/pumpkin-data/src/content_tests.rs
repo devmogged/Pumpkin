@@ -52,3 +52,24 @@ fn definition(name: &str) -> BlockDefinition {
         }],
     }
 }
+
+#[test]
+fn recipe_ids_match_mod_and_vanilla_items() -> Result<(), Box<dyn std::error::Error>> {
+    let world = tempfile::tempdir()?;
+    let registry = Registry::open(
+        &world.path().join("moddedmc/registry.dat"),
+        &[definition("test:stone")],
+    )?;
+    let block = registry.block("test:stone").ok_or("missing block")?;
+    let item = registry
+        .items
+        .get(&block.item_id)
+        .ok_or("missing item")?
+        .item;
+    assert!(item.has_id("test:stone"));
+    assert!(!item.has_id("minecraft:stone"));
+    assert!(!Item::STONE.has_id("test:stone"));
+    assert!(Item::STONE.has_id("minecraft:stone"));
+    assert_eq!(block.loot_table, Some("test:blocks/stone"));
+    Ok(())
+}

@@ -333,6 +333,29 @@ pub(crate) fn item_by_name(name: &str) -> Option<&'static Item> {
     Some(item(block(name)?.item_id)?.item)
 }
 
+impl Item {
+    /// Whether `id` (`namespace:path`) names this item. Vanilla registry keys omit `minecraft:`;
+    /// custom ones carry their namespace.
+    #[must_use]
+    pub fn has_id(&self, id: &str) -> bool {
+        if self.registry_key.contains(':') {
+            id == self.registry_key
+        } else {
+            id.strip_prefix("minecraft:") == Some(self.registry_key)
+        }
+    }
+
+    /// The vanilla item a stock client sees in place of this one: itself, or a custom item's
+    /// carrier.
+    #[must_use]
+    pub fn vanilla_view(&'static self) -> &'static Self {
+        if self.id < Self::VANILLA_COUNT {
+            return self;
+        }
+        item(self.id).map_or(&Self::AIR, |entry| entry.carrier)
+    }
+}
+
 /// Resolve the exact raw property map used by chunk NBT and custom content.
 pub fn state_from_properties<'a>(
     block: &Block,

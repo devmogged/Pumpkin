@@ -127172,6 +127172,12 @@ impl Item {
     #[must_use]
     #[allow(deprecated)]
     pub fn translated_name(&self) -> TextComponent {
+        #[cfg(feature = "block")]
+        if self.id >= Self::VANILLA_COUNT
+            && let Some(entry) = crate::content::item(self.id)
+        {
+            return TextComponent::text(entry.display_name.to_owned());
+        }
         let name = self
             .components
             .iter()
