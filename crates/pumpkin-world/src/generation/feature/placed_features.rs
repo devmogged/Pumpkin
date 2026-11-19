@@ -170,6 +170,7 @@ pub enum PlacementModifier {
     RarityFilter(RarityFilterPlacementModifier),
     RandomChance(RandomChancePlacementModifier),
     RandomlySelected(Vec<Self>),
+    Cuboid(CuboidPlacementModifier),
     SurfaceRelativeThresholdFilter(SurfaceThresholdFilterPlacementModifier),
     SurfaceWaterDepthFilter(SurfaceWaterDepthFilterPlacementModifier),
     Biome(BiomePlacementModifier),
@@ -221,6 +222,7 @@ impl PlacementModifier {
                     pos,
                 )
             }
+            Self::Cuboid(modifier) => modifier.get_positions(random, pos),
             Self::SurfaceRelativeThresholdFilter(modifier) => {
                 modifier.get_positions(block_registry, chunk, feature, random, pos)
             }
@@ -501,6 +503,43 @@ impl ConditionalPlacementModifier for RandomChancePlacementModifier {
     }
 }
 
+/// Vanilla `CuboidPlacement`: every position of a randomly sized box above the origin.
+pub struct CuboidPlacementModifier {
+    pub xz_size: IntProvider,
+    pub y_size: IntProvider,
+    pub include_edges: bool,
+    pub include_interior: bool,
+}
+
+impl CuboidPlacementModifier {
+    pub fn get_positions(
+        &self,
+        random: &mut RandomGenerator,
+        pos: BlockPos,
+    ) -> Box<dyn Iterator<Item = BlockPos>> {
+        let height = self.y_size.get(random);
+        let width = self.xz_size.get(random);
+        let length = self.xz_size.get(random);
+        let (include_edges, include_interior) = (self.include_edges, self.include_interior);
+        let inner = move |v: i32, max: i32| v != 0 && v != max;
+        Box::new(
+            (0..=width)
+                .flat_map(move |x| {
+                    (0..=height).flat_map(move |y| (0..=length).map(move |z| (x, y, z)))
+                })
+                .filter(move |&(x, y, z)| {
+                    let interior_axes = [inner(x, width), inner(y, height), inner(z, length)]
+                        .into_iter()
+                        .filter(|&i| i)
+                        .count();
+                    // Edges lie on the boundary of at least two axes.
+                    (include_edges || interior_axes >= 2) && (include_interior || interior_axes < 3)
+                })
+                .map(move |(x, y, z)| BlockPos(pos.0.add(&Vector3::new(x, y, z)))),
+        )
+    }
+}
+
 pub struct SquarePlacementModifier;
 
 impl SquarePlacementModifier {
@@ -661,6 +700,33 @@ mod tests {
     use pumpkin_util::random::xoroshiro128::Xoroshiro;
 
     use super::*;
+
+    #[test]
+    fn hollow_cuboid_keeps_only_face_centres() {
+        let cuboid = CuboidPlacementModifier {
+            xz_size: IntProvider::Constant(2),
+            y_size: IntProvider::Constant(2),
+            include_edges: false,
+            include_interior: false,
+        };
+        let mut random = RandomGenerator::Xoroshiro(Xoroshiro::from_seed(0));
+        let mut positions: Vec<_> = cuboid
+            .get_positions(&mut random, BlockPos::new(10, 20, 30))
+            .map(|p| (p.0.x - 10, p.0.y - 20, p.0.z - 30))
+            .collect();
+        positions.sort_unstable();
+        assert_eq!(
+            positions,
+            [
+                (0, 1, 1),
+                (1, 0, 1),
+                (1, 1, 0),
+                (1, 1, 2),
+                (1, 2, 1),
+                (2, 1, 1)
+            ]
+        );
+    }
 
     #[test]
     fn modifier_candidates_interleave_with_feature_rng() {
