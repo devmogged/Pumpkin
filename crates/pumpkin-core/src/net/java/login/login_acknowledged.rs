@@ -1,5 +1,7 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use crate::net::java::pending::CONFIGURATION_EXTENSION_PING;
+use pumpkin_protocol::java::client::config::{CConfigPing, CPluginMessage};
 use pumpkin_util::version::JavaMinecraftVersion;
 
 impl PendingConnection {
@@ -80,6 +82,23 @@ impl PendingConnection {
             self.send_packet_now(&CConfigServerLinks::new(&links)).await;
         }
 
+        if self.version.load() == CURRENT_MC_VERSION
+            && let Some(extension) = server.java_configuration_extension.get()
+        {
+            self.waiting_for_extension = true;
+            self.send_packet_now(&CPluginMessage::new(extension.channel, &[]))
+                .await;
+            // Stock clients ignore the channel but answer the ping in packet order.
+            self.send_packet_now(&CConfigPing::new(CONFIGURATION_EXTENSION_PING))
+                .await;
+        } else {
+            self.offer_initial_resource_pack(server).await;
+        }
+        debug!("login acknowledged");
+        None
+    }
+
+    pub(crate) async fn offer_initial_resource_pack(&mut self, server: &Server) {
         let resource_config = &server.advanced_config.resource_pack.java;
         if resource_config.enabled {
             let host = self.server_address.split('\0').next().unwrap_or_default();
@@ -115,8 +134,6 @@ impl PendingConnection {
         } else {
             self.start_known_packs(server).await;
         }
-        debug!("login acknowledged");
-        None
     }
 
     /// Starts the known packs exchange. Clients before 1.20.5 have no known packs, so

@@ -169,6 +169,9 @@ pub struct Server {
     // world stuff which maybe should be put into a struct
     pub level_info: Arc<ArcSwap<LevelData>>,
     world_info_writer: Arc<dyn WorldInfoWriter>,
+    /// Optional custom payload negotiation before the Java resource-pack offer.
+    pub java_configuration_extension:
+        std::sync::OnceLock<crate::net::java::pending::JavaConfigurationExtension>,
 }
 
 impl Server {
@@ -373,6 +376,7 @@ impl Server {
             player_idle_timeout: AtomicI32::new(0),
             mojang_public_keys: ArcSwap::from_pointee(Vec::new()),
             world_info_writer: Arc::new(AnvilLevelInfo),
+            java_configuration_extension: std::sync::OnceLock::new(),
             level_info,
             management_hub,
             available_update: std::sync::OnceLock::new(),

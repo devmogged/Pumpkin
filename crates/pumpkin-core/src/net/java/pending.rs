@@ -12,7 +12,7 @@ use pumpkin_protocol::{
     ClientPacket, ConnectionState, PacketDecodeError, RawPacket, ServerPacket,
     codec::var_int::VarInt,
     java::{
-        client::config::CConfigDisconnect,
+        client::config::{CConfigDisconnect, CPluginMessage},
         client::login::CLoginDisconnect,
         client::play::CPlayDisconnect,
         packet_decoder::TCPNetworkDecoder,
@@ -47,6 +47,13 @@ use crate::{
 use super::{JavaClient, JavaReadHalf, JavaWriteHalf};
 
 const BRAND_CHANNEL_PREFIX: &str = "minecraft:brand";
+pub(super) const CONFIGURATION_EXTENSION_PING: i32 = i32::MIN;
+
+/// An optional, server-initiated configuration exchange for current Java clients.
+pub struct JavaConfigurationExtension {
+    pub channel: &'static str,
+    pub answer: fn(&[u8]) -> Option<Vec<u8>>,
+}
 
 /// How long a connection may stay silent before login finishes.
 ///
@@ -81,6 +88,7 @@ pub struct PendingConnection {
     /// `State::PROTOCOL_SWITCHING`. Login acknowledgement is only valid after it.
     pub login_success_sent: bool,
     pub(super) pending_pack: Option<uuid::Uuid>,
+    pub(super) waiting_for_extension: bool,
     /// For the connection packet events.
     server: Weak<Server>,
 }
@@ -131,6 +139,7 @@ impl PendingConnection {
             login_started: false,
             login_success_sent: false,
             pending_pack: None,
+            waiting_for_extension: false,
             verify_token: None,
             vine_challenge: None,
             velocity_message_id: None,
@@ -604,8 +613,18 @@ impl PendingConnection {
                 Ok(None)
             }
             id if id == SPluginMessage::to_id(version) => {
-                self.handle_plugin_message(SPluginMessage::read(&mut payload, &version)?)
-                    .await;
+                let message = SPluginMessage::read(&mut payload, &version)?;
+                if self.waiting_for_extension
+                    && let Some(extension) = server.java_configuration_extension.get()
+                    && message.channel == extension.channel
+                {
+                    if let Some(answer) = (extension.answer)(message.data) {
+                        self.send_packet_now(&CPluginMessage::new(extension.channel, &answer))
+                            .await;
+                    }
+                } else {
+                    self.handle_plugin_message(message).await;
+                }
                 Ok(None)
             }
             id if id == SAcknowledgeFinishConfig::to_id(version) => {
@@ -645,7 +664,11 @@ impl PendingConnection {
                 Ok(None)
             }
             id if id == SConfigPong::to_id(version) => {
-                let _pong = SConfigPong::read(&mut payload, &version)?;
+                let pong = SConfigPong::read(&mut payload, &version)?;
+                if pong.id == CONFIGURATION_EXTENSION_PING && self.waiting_for_extension {
+                    self.waiting_for_extension = false;
+                    self.offer_initial_resource_pack(server).await;
+                }
                 Ok(None)
             }
             id if id == SAcceptCodeOfConduct::to_id(version) => {
