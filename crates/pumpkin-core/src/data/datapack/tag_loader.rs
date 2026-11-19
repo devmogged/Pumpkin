@@ -139,6 +139,11 @@ fn resolve_tag<S: std::hash::BuildHasher>(
         out.extend_from_slice(ids);
     }
     let Some(entry) = tags.get(name) else {
+        if get_tag_ids(key, name).is_none()
+            && let Some(convention) = pumpkin_data::tag_overlay::convention_tag(name)
+        {
+            resolve_tag(tags, key, lookup, &convention, depth + 1, out);
+        }
         return;
     };
     for value in &entry.values {
