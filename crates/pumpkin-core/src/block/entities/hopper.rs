@@ -124,7 +124,7 @@ impl BlockEntity for HopperBlockEntity {
             && let Some(entity) = world.get_block_entity(&self.position)
             && let Some(hopper) = entity.as_any().downcast_ref::<Self>()
         {
-            hopper.try_move_items(properties, world);
+            hopper.try_move_items(properties, world, |hopper| hopper.suck_in_items(world));
         }
     }
 
@@ -394,13 +394,20 @@ impl HopperBlockEntity {
         Self::put_back(source, slot, one_item).map_or(Ok(false), Err)
     }
 
-    fn try_move_items(&self, state: HopperLikeProperties, world: &Arc<World>) {
+    /// Vanilla `tryMoveItems`: `pull` is the hopper's own `suckInItems` on its transfer tick, or
+    /// one touching item entity from `entity_inside`.
+    fn try_move_items(
+        &self,
+        state: HopperLikeProperties,
+        world: &Arc<World>,
+        pull: impl FnOnce(&Self) -> bool,
+    ) {
         // Emptiness before the cooldown check, so a just inserted item isn't ejected this tick.
         let has_items = !self.is_empty();
         if self.cooldown_time.load(Ordering::Relaxed) <= 0 && state.enabled {
             let mut success = has_items && self.eject_items(world, state.facing);
             if !self.inventory_full() {
-                success |= self.suck_in_items(world);
+                success |= pull(self);
             }
             if success {
                 // Vanilla `setCooldown(8)`: overrides a cooldown an insert set during this move.
@@ -481,33 +488,62 @@ impl HopperBlockEntity {
         if !state.is_full_cube() || block.has_tag(&tag::Block::MINECRAFT_DOES_NOT_BLOCK_HOPPERS) {
             let entities = world.get_entities_at_box(&SUCK_AABB.at_pos(self.position));
             for entity_base in entities {
-                let Some(item_entity) = entity_base.get_item_entity() else {
-                    continue;
-                };
-                let (is_empty, item_id) = {
-                    let stack = item_entity
-                        .get_item_stack()
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    (stack.is_empty(), stack.item.registry_key)
-                };
-                if is_empty
-                    || world.cancelled_by_plugin(|| {
-                        InventoryPickupItemEvent::new(
-                            self.position,
-                            item_entity.get_entity().entity_id,
-                            item_id.to_string(),
-                        )
-                    })
+                if let Some(item_entity) = entity_base.get_item_entity()
+                    && self.pull_item_entity(world, item_entity)
                 {
-                    continue;
-                }
-                if Self::pickup_item_entity(self, item_entity) {
                     return true;
                 }
             }
         }
         false
+    }
+
+    /// Vanilla `HopperBlockEntity.entityInside`: an item entity in the suck box is pulled in at
+    /// once, through the same cooldown as the hopper's own transfer tick.
+    pub fn entity_inside(&self, world: &Arc<World>, entity: &dyn EntityBase) {
+        let Some(item_entity) = entity.get_item_entity() else {
+            return;
+        };
+        let is_empty = item_entity
+            .get_item_stack()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty();
+        if is_empty
+            || !item_entity
+                .get_entity()
+                .bounding_box
+                .load()
+                .intersects(&SUCK_AABB.at_pos(self.position))
+        {
+            return;
+        }
+        let (block, state) = world.get_block_and_state(&self.position);
+        if let Some(properties) = hopper_properties(block.id, state.id) {
+            self.try_move_items(properties, world, |hopper| {
+                hopper.pull_item_entity(world, item_entity)
+            });
+        }
+    }
+
+    /// One item entity into this hopper, unless it's empty or a plugin cancels the pickup.
+    fn pull_item_entity(&self, world: &Arc<World>, item_entity: &ItemEntity) -> bool {
+        let (is_empty, item_id) = {
+            let stack = item_entity
+                .get_item_stack()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (stack.is_empty(), stack.item.registry_key)
+        };
+        !is_empty
+            && !world.cancelled_by_plugin(|| {
+                InventoryPickupItemEvent::new(
+                    self.position,
+                    item_entity.get_entity().entity_id,
+                    item_id.to_string(),
+                )
+            })
+            && Self::pickup_item_entity(self, item_entity)
     }
 
     /// Vanilla `removeItem(slot, 1)`. `None` when the slot no longer holds `approved`.
