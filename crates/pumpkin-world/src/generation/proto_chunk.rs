@@ -2004,7 +2004,12 @@ impl GenerationCache for ProtoChunk {
     fn try_get_proto_chunk(&self, cx: i32, cz: i32) -> Option<&ProtoChunk> {
         self.get_chunk(cx, cz)
     }
+    // Like `Cache`, other chunks read as air and ignore writes; the inherent accessors would
+    // wrap the position back into this chunk.
     fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId {
+        if pos.x >> 4 != self.x || pos.z >> 4 != self.z {
+            return BlockStateId::AIR;
+        }
         Self::get_block_state(self, pos)
     }
     fn get_fluid_and_fluid_state(&self, pos: &Vector3<i32>) -> (Fluid, FluidState) {
@@ -2030,10 +2035,14 @@ impl GenerationCache for ProtoChunk {
         (fluid.clone(), state)
     }
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState) {
-        Self::set_block_state(self, pos.x, pos.y, pos.z, block_state);
+        if pos.x >> 4 == self.x && pos.z >> 4 == self.z {
+            Self::set_block_state(self, pos.x, pos.y, pos.z, block_state);
+        }
     }
-    fn add_block_entity(&mut self, _pos: &Vector3<i32>, nbt: NbtCompound) {
-        self.add_block_entity(nbt);
+    fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound) {
+        if pos.x >> 4 == self.x && pos.z >> 4 == self.z {
+            self.add_block_entity(nbt);
+        }
     }
     fn top_motion_blocking_block_height_exclusive(&self, x: i32, z: i32) -> i32 {
         Self::top_motion_blocking_block_height_exclusive(self, x, z)
@@ -2057,7 +2066,7 @@ impl GenerationCache for ProtoChunk {
         Self::ocean_floor_wg_height_exclusive(self, x, z)
     }
     fn is_air(&self, local_pos: &Vector3<i32>) -> bool {
-        self.is_air(local_pos)
+        is_air(GenerationCache::get_block_state(self, local_pos))
     }
     fn get_biome_for_terrain_gen(&self, x: i32, y: i32, z: i32) -> &'static Biome {
         let biome_pos = self.get_terrain_gen_biome_pos(x, y, z);
