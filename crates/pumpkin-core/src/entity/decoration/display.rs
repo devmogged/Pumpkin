@@ -665,13 +665,24 @@ impl DisplayEntity {
 pub struct BlockDisplayEntity {
     pub display: DisplayEntity,
     pub block_state: AtomicI32,
+    transient: bool,
 }
 
 impl BlockDisplayEntity {
     pub fn new(entity: Entity) -> Arc<Self> {
+        Self::with_transience(entity, false)
+    }
+
+    /// A display that is never saved with its chunk, for content mods that draw moving blocks.
+    pub fn transient(entity: Entity) -> Arc<Self> {
+        Self::with_transience(entity, true)
+    }
+
+    fn with_transience(entity: Entity, transient: bool) -> Arc<Self> {
         Arc::new(Self {
             display: DisplayEntity::new(entity),
             block_state: AtomicI32::new(0),
+            transient,
         })
     }
 
@@ -693,6 +704,10 @@ impl BlockDisplayEntity {
 }
 
 impl EntityBase for BlockDisplayEntity {
+    fn saves_with_chunk(&self) -> bool {
+        !self.transient
+    }
+
     fn write_custom_nbt(&self, nbt: &mut NbtCompound) {
         self.display.write_display_nbt(nbt);
         nbt.put_int("block_state", self.block_state.load(Ordering::Relaxed));
