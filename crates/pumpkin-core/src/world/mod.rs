@@ -5829,6 +5829,7 @@ impl World {
             *position,
             replaced_block_state_id,
             block_state_id,
+            block_moved,
         );
 
         if is_new_block
@@ -6014,6 +6015,15 @@ impl World {
                 broken_block_state,
                 cause,
             );
+        if let (Some(player), Some(server)) = (cause, self.server.upgrade()) {
+            server.block_registry.player_will_destroy(
+                self,
+                broken_block,
+                position,
+                broken_block_state,
+                player,
+            );
+        }
 
         if !flags.contains(BlockFlags::SKIP_DROPS) {
             let tool = cause.as_ref().and_then(|p| {

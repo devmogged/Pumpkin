@@ -152,10 +152,11 @@ impl Registry {
                 if let Some(replacement) = state.carrier_replacement {
                     if replacement.as_u16() >= BlockStateId::COUNT
                         || replacement == state.carrier
+                        // States that look alike may share a carrier, never with two replacements.
                         || registry
                             .replacements
                             .insert(state.carrier, replacement)
-                            .is_some()
+                            .is_some_and(|previous| previous != replacement)
                     {
                         return Err(invalid("invalid or duplicate custom block carrier"));
                     }
