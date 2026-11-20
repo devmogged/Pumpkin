@@ -314,12 +314,13 @@ impl PartialEq for World {
 impl Eq for World {}
 
 /// Runs after an entity joins a world, spawned or loaded with its chunk.
-static ENTITY_ADDED: std::sync::OnceLock<fn(&World, &Arc<dyn EntityBase>)> =
-    std::sync::OnceLock::new();
+pub type EntityAddedHook = fn(&World, &Arc<dyn EntityBase>);
+
+static ENTITY_ADDED: std::sync::OnceLock<EntityAddedHook> = std::sync::OnceLock::new();
 
 /// Set the hook the embedder runs for every entity that joins a world. Only the first call
 /// installs it.
-pub fn install_entity_added_hook(hook: fn(&World, &Arc<dyn EntityBase>)) -> bool {
+pub fn install_entity_added_hook(hook: EntityAddedHook) -> bool {
     ENTITY_ADDED.set(hook).is_ok()
 }
 
