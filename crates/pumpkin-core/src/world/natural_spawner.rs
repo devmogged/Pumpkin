@@ -834,13 +834,7 @@ pub fn spawn_category_for_position(
                         .get_entity()
                         .set_rotation(rng().random::<f32>() * 360.0, 0.0);
 
-                    let is_valid_for_mob = entity.get_mob().is_none_or(|mob| {
-                        let despawn_dist = f64::from(entity_type.category.despawn_distance);
-                        !(player_distance_sq > despawn_dist * despawn_dist
-                            && mob.remove_when_far_away(player_distance_sq))
-                    });
-
-                    if is_valid_for_mob {
+                    if is_valid_position_for_mob(world, entity.as_ref(), player_distance_sq) {
                         group_data = finalize_spawn(
                             &entity,
                             world,
@@ -867,6 +861,20 @@ pub fn spawn_category_for_position(
             ll += 1;
         }
     }
+}
+
+fn is_valid_position_for_mob(
+    world: &World,
+    entity: &dyn EntityBase,
+    nearest_player_distance_sq: f64,
+) -> bool {
+    let Some(mob) = entity.get_mob() else {
+        return false;
+    };
+    let despawn_distance = f64::from(entity.get_entity().entity_type.category.despawn_distance);
+    (nearest_player_distance_sq <= despawn_distance * despawn_distance
+        || !mob.remove_when_far_away(nearest_player_distance_sq))
+        && mob.check_spawn_obstruction(world)
 }
 
 #[must_use]
@@ -1197,6 +1205,37 @@ mod tests {
         assert_eq!(
             state.mob_category_counts.0[MobCategory::MONSTER.id].load(Relaxed),
             1
+        );
+        world.level.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn natural_spawns_reject_occupied_mob_space() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::entity::{ai::test_support::world, r#type::from_type};
+
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let occupied = from_type(
+            &EntityType::ZOMBIE,
+            Vector3::new(8.0, 64.0, 8.0),
+            &world,
+            Uuid::new_v4(),
+        );
+        let candidate = from_type(
+            &EntityType::ZOMBIE,
+            Vector3::new(8.0, 64.0, 8.0),
+            &world,
+            Uuid::new_v4(),
+        );
+        assert!(
+            is_valid_position_for_mob(&world, candidate.as_ref(), 1_000.0),
+            "an unobstructed mob must be allowed to spawn"
+        );
+        world.spawn_entity_non_save(occupied);
+        assert!(
+            !is_valid_position_for_mob(&world, candidate.as_ref(), 1_000.0),
+            "a natural spawn must not overlap an existing mob"
         );
         world.level.shutdown().await;
         Ok(())
