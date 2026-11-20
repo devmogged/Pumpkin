@@ -6,11 +6,16 @@ use crate::{
     server::Server,
 };
 use pumpkin_data::effect::StatusEffect;
+use pumpkin_data::item_stack::ItemStack;
 use pumpkin_util::math::boundingbox::BoundingBox;
 use pumpkin_util::math::vector3::Vector3;
 
 type EffectEntry = (&'static StatusEffect, i32, u8, bool, bool, bool);
-use pumpkin_data::item_stack::ItemStack;
+
+// Vanilla AreaEffectCloud.serverTick measures finite duration after the wait period.
+fn duration_finished(age: i32, wait_time: i32, duration: i32) -> bool {
+    duration != -1 && age - wait_time >= duration
+}
 
 #[derive(Clone)]
 struct ParticleMeta {
@@ -72,11 +77,11 @@ impl AreaEffectCloudEntity {
             item_stack: Mutex::new(ItemStack::new(0, &pumpkin_data::item::Item::GLASS_BOTTLE)),
             effects: Mutex::new(Vec::new()),
             radius: Mutex::new(3.0),
-            duration: Mutex::new(600), // default for lingering potions
+            duration: Mutex::new(-1), // Vanilla default is infinite; potions set their own duration.
             age: Mutex::new(0),
             reapplication_delay: Mutex::new(20),
             reapplication_map: Mutex::new(HashMap::new()),
-            radius_on_tick: Mutex::new(-3.0 / 600.0), // default for lingering potions
+            radius_on_tick: Mutex::new(0.0),
             radius_on_use: Mutex::new(0.0),
             duration_on_use: Mutex::new(0),
             wait_time: Mutex::new(20),
@@ -257,33 +262,26 @@ impl EntityBase for AreaEffectCloudEntity {
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::semicolon_outside_block)]
     fn tick(&self, _caller: &dyn EntityBase, _server: &Server) {
-        // Age & duration handling
-        {
+        let age = {
             let mut age = self
                 .age
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *age += 1;
-            let duration = *self
-                .duration
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if *age > duration {
-                // Remove old entities
-                self.entity.remove();
-                return;
-            }
-        }
-
-        // Get current age and waiting period
-        let age = *self
-            .age
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *age
+        };
         let wait_time = *self
             .wait_time
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let duration = *self
+            .duration
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if duration_finished(age, wait_time, duration) {
+            self.entity.remove();
+            return;
+        }
 
         // When the waiting period ends, notify clients so they render full particles
         if age == wait_time && wait_time > 0 {
@@ -514,5 +512,59 @@ impl EntityBase for AreaEffectCloudEntity {
 
     fn cast_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::ai::test_support::world;
+    use pumpkin_data::entity::EntityType;
+
+    #[test]
+    fn finite_cloud_duration_starts_after_wait_period() {
+        assert!(!duration_finished(309, 10, 300));
+        assert!(duration_finished(310, 10, 300));
+        assert!(!duration_finished(20, 20, 1));
+        assert!(duration_finished(21, 20, 1));
+        assert!(!duration_finished(520, 20, -1));
+    }
+
+    #[tokio::test]
+    async fn new_cloud_has_vanilla_infinite_default_and_constant_radius()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let cloud = AreaEffectCloudEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(2.5, 151.0, 2.5),
+            &EntityType::AREA_EFFECT_CLOUD,
+        ));
+        let Some(cloud) = cloud.cast_any().downcast_ref::<AreaEffectCloudEntity>() else {
+            panic!("cloud factory should create an area-effect cloud");
+        };
+        assert_eq!(
+            *cloud
+                .duration
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            -1
+        );
+        assert_eq!(
+            *cloud
+                .radius_on_tick
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            0.0
+        );
+        assert_eq!(
+            *cloud
+                .wait_time
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            20
+        );
+        world.level.shutdown().await;
+        Ok(())
     }
 }
