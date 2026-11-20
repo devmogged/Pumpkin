@@ -624,7 +624,9 @@ pub fn spawn_mobs_for_chunk_generation(
 
                 let pos = get_top_non_colliding_pos(world, cache, entity_type, x, z);
 
-                if entity_type.summonable && is_spawn_position_ok_cache(cache, &pos, entity_type) {
+                if entity_type.summonable
+                    && is_spawn_position_ok_cache(world, cache, &pos, entity_type)
+                {
                     let width = f64::from(entity_type.dimension[0]);
                     let fx =
                         (f64::from(x)).clamp(f64::from(xo) + width, f64::from(xo) + 16.0 - width);
@@ -1087,8 +1089,8 @@ pub fn is_spawn_position_ok(
             let is_valid_spawn_below = is_valid_spawn_floor(down, entity_type);
 
             if is_valid_spawn_below {
-                is_valid_empty_spawn_block(cur, entity_type)
-                    && is_valid_empty_spawn_block(up, entity_type)
+                is_valid_empty_spawn_block(world, cur, entity_type)
+                    && is_valid_empty_spawn_block(world, up, entity_type)
             } else {
                 false
             }
@@ -1099,6 +1101,7 @@ pub fn is_spawn_position_ok(
 
 #[must_use]
 pub fn is_spawn_position_ok_cache(
+    world: &World,
     cache: &dyn GenerationCache,
     block_pos: &BlockPos,
     entity_type: &'static EntityType,
@@ -1128,8 +1131,8 @@ pub fn is_spawn_position_ok_cache(
             let is_valid_spawn_below = is_valid_spawn_floor(down, entity_type);
 
             if is_valid_spawn_below {
-                is_valid_empty_spawn_block(state, entity_type)
-                    && is_valid_empty_spawn_block(up, entity_type)
+                is_valid_empty_spawn_block(world, state, entity_type)
+                    && is_valid_empty_spawn_block(world, up, entity_type)
             } else {
                 false
             }
@@ -1140,16 +1143,35 @@ pub fn is_spawn_position_ok_cache(
 
 #[must_use]
 pub fn is_valid_empty_spawn_block(
+    world: &World,
     state: &'static BlockState,
     entity_type: &'static EntityType,
 ) -> bool {
     if state.is_full_cube() {
         return false;
     }
-    if state.is_liquid() {
+    let block = Block::from_state_id(state.id);
+    // Vanilla's isSignalSource ignores facing; the registry's redstone query is directional.
+    if [
+        BlockDirection::Up,
+        BlockDirection::Down,
+        BlockDirection::North,
+        BlockDirection::South,
+        BlockDirection::East,
+        BlockDirection::West,
+    ]
+    .into_iter()
+    .any(|direction| {
+        world
+            .block_registry
+            .emits_redstone_power(block, state, direction)
+    }) {
         return false;
     }
-    if Block::from_state_id(state.id).has_tag(&MINECRAFT_PREVENT_MOB_SPAWNING_INSIDE) {
+    if World::get_fluid_from_state_id(state.id).id != pumpkin_data::fluid::Fluid::EMPTY.id {
+        return false;
+    }
+    if block.has_tag(&MINECRAFT_PREVENT_MOB_SPAWNING_INSIDE) {
         return false;
     }
     !is_block_dangerous(entity_type, state)
@@ -1259,6 +1281,50 @@ mod tests {
             !is_valid_position_for_mob(&world, candidate.as_ref(), 1_000.0),
             "a natural spawn must not overlap an existing mob"
         );
+        world.level.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn spawn_empty_blocks_match_vanilla_signal_and_fluid_rules()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::entity::ai::test_support::world;
+
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let zombie = &EntityType::ZOMBIE;
+        assert!(is_valid_empty_spawn_block(
+            &world,
+            Block::AIR.default_state,
+            zombie
+        ));
+        for block in [&Block::LEVER, &Block::REDSTONE_TORCH, &Block::REPEATER] {
+            assert!(
+                !is_valid_empty_spawn_block(&world, block.default_state, zombie),
+                "signal source {} must block spawning even if unpowered",
+                block.name
+            );
+        }
+        let dry = Block::OAK_SLAB
+            .states
+            .iter()
+            .find(|state| !state.id.is_waterlogged() && !state.is_full_cube());
+        assert!(dry.is_some(), "expected a dry oak slab state");
+        if let Some(state) = dry {
+            assert!(is_valid_empty_spawn_block(&world, state, zombie));
+        }
+        let wet = Block::OAK_SLAB
+            .states
+            .iter()
+            .find(|state| state.id.is_waterlogged());
+        assert!(wet.is_some(), "expected a waterlogged oak slab state");
+        if let Some(state) = wet {
+            assert!(!state.is_full_cube());
+            assert!(
+                !is_valid_empty_spawn_block(&world, state, zombie),
+                "waterlogged slabs must block land mob spawning"
+            );
+        }
         world.level.shutdown().await;
         Ok(())
     }

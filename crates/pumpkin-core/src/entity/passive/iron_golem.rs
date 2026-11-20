@@ -316,7 +316,7 @@ impl Mob for IronGolemEntity {
         let entity_type = &EntityType::IRON_GOLEM;
         [pos, pos.up(), pos.up().up()]
             .iter()
-            .all(|pos| is_valid_empty_spawn_block(world.get_block_state(pos), entity_type))
+            .all(|pos| is_valid_empty_spawn_block(world, world.get_block_state(pos), entity_type))
             && water_animal::check_spawn_obstruction(self, world)
     }
 

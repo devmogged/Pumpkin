@@ -62,8 +62,11 @@ impl PhantomSpawner {
             let east = -10 + rng.random_range(0..21);
             let south = -10 + rng.random_range(0..21);
             let spawn_pos = player_pos.offset(Vector3::new(east, up, south));
-            if !is_valid_empty_spawn_block(world.get_block_state(&spawn_pos), &EntityType::PHANTOM)
-            {
+            if !is_valid_empty_spawn_block(
+                world,
+                world.get_block_state(&spawn_pos),
+                &EntityType::PHANTOM,
+            ) {
                 continue;
             }
             let group_size = 1 + rng.random_range(0..=difficulty.base_difficulty as i32);
