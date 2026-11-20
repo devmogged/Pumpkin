@@ -157,6 +157,10 @@ pub trait BlockBehaviour: Send + Sync {
 
     fn broken(&self, _args: BrokenArgs<'_>) {}
 
+    /// Vanilla `Block.playerWillDestroy`: a player is about to break this block, after the break
+    /// was accepted and before drops and removal.
+    fn player_will_destroy(&self, _args: PlayerWillDestroyArgs<'_>) {}
+
     fn on_neighbor_update(&self, _args: OnNeighborUpdateArgs<'_>) {}
 
     /// Called if a block state is replaced or it replaces another state
@@ -414,6 +418,14 @@ pub struct AttackArgs<'a> {
     pub block: &'a Block,
     pub state: &'a BlockState,
     pub position: &'a BlockPos,
+    pub player: &'a Arc<Player>,
+}
+
+pub struct PlayerWillDestroyArgs<'a> {
+    pub world: &'a Arc<World>,
+    pub block: &'a Block,
+    pub position: &'a BlockPos,
+    pub state: &'a BlockState,
     pub player: &'a Arc<Player>,
 }
 
