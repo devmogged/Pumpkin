@@ -107,15 +107,14 @@ impl NBTStorageInit for pumpkin_data::potion::Effect {
             warn!("Unable to read effect. Unknown effect type: {effect_id}");
             return None;
         };
-        let Some(show_icon) = nbt.get_byte("show_icon") else {
-            warn!("Unable to read effect. Show icon is not present");
-            return None;
-        };
         let amplifier = nbt.get_int("amplifier").unwrap_or(0) as u8;
         let duration = nbt.get_int("duration").unwrap_or(0);
         let ambient = nbt.get_byte("ambient").unwrap_or(0) == 1;
         let show_particles = nbt.get_byte("show_particles").unwrap_or(1) == 1;
-        let show_icon = show_icon == 1;
+        // Vanilla MobEffectInstance.Details.create defaults show_icon to show_particles.
+        let show_icon = nbt
+            .get_byte("show_icon")
+            .map_or(show_particles, |flag| flag == 1);
         Some(Self {
             effect_type,
             duration,
@@ -125,5 +124,32 @@ impl NBTStorageInit for pumpkin_data::potion::Effect {
             show_icon,
             blend: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pumpkin_data::potion::Effect;
+
+    #[test]
+    fn effect_nbt_defaults_optional_icon_to_particle_visibility() {
+        let mut nbt = NbtCompound::new();
+        nbt.put("id", "minecraft:speed");
+        nbt.put_int("duration", 200);
+        let effect = Effect::create_from_nbt(&mut nbt).expect("minimal vanilla effect NBT");
+        assert!(effect.show_particles);
+        assert!(effect.show_icon);
+        assert_eq!(effect.duration, 200);
+
+        nbt.put_byte("show_particles", 0);
+        let effect = Effect::create_from_nbt(&mut nbt).expect("effect without icon flag");
+        assert!(!effect.show_particles);
+        assert!(!effect.show_icon);
+
+        nbt.put_byte("show_icon", 1);
+        let effect = Effect::create_from_nbt(&mut nbt).expect("explicit icon override");
+        assert!(!effect.show_particles);
+        assert!(effect.show_icon);
     }
 }
