@@ -4585,6 +4585,19 @@ impl EntityBase for LivingEntity {
             self.stop_auto_spin_attack();
         }
 
+        if is_alive {
+            // Vanilla `aiStep` always gets the movement-speed instance via `removeFrost`,
+            // even when unfrozen. This materializes it for NBT without a false update.
+            if let Some(speed) = self
+                .attributes
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&Attributes::MOVEMENT_SPEED.id)
+            {
+                speed.materialized.store(true, Relaxed);
+            }
+        }
+
         // Fetch supporting blocks for players or other entities
         let supporting_pos = caller.get_player().map_or_else(
             || self.entity.get_supporting_block_pos(),
