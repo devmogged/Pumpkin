@@ -1,7 +1,12 @@
 #![allow(clippy::print_stdout, clippy::needless_pass_by_value)]
 
 use crate::chunk_system::chunk_state::StagedChunkEnum;
-use crate::generation::{generator::WorldGenerator, get_world_gen, proto_chunk::ProtoChunk};
+use crate::generation::{
+    generator::WorldGenerator,
+    get_world_gen,
+    proto_chunk::ProtoChunk,
+    worldgen_overrides::{WorldgenOverrides, default_settings_id},
+};
 use pumpkin_data::dimension::Dimension;
 use pumpkin_util::world_seed::Seed;
 
@@ -16,9 +21,21 @@ fn verify_chunk_noise(
     test_name: &str,
 ) {
     let seed = Seed(seed);
-    let world_gen = get_world_gen(seed, dimension, false, Vec::new(), String::new());
+    let settings = WorldgenOverrides::default()
+        .build(default_settings_id(&dimension))
+        .unwrap();
+    let world_gen = WorldGenerator::Noise(Box::new(
+        crate::generation::generator::VanillaGenerator::new_with_runtime_settings(
+            seed,
+            dimension,
+            None,
+            None,
+            None,
+            Some(&settings),
+        ),
+    ));
     let mut chunk = ProtoChunk::new(chunk_x, chunk_z, &world_gen);
-    let WorldGenerator::Noise(generator) = &*world_gen else {
+    let WorldGenerator::Noise(generator) = &world_gen else {
         unreachable!()
     };
 

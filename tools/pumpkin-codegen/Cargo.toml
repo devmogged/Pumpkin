@@ -5,6 +5,7 @@ edition = "2024"
 rust-version.workspace = true
 
 [dependencies]
+pumpkin-worldgen-model = { path = "../../crates/pumpkin-worldgen-model", features = ["codegen"] }
 indexmap = { version = "2.14", features = ["serde"] }
 heck = "0.5"
 base64.workspace = true

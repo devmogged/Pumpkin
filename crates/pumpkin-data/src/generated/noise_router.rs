@@ -1,5 +1,335 @@
 /* This file is generated. Do not edit manually. */
 use crate::chunk::DoublePerlinNoiseParameters;
+pub const VANILLA_DENSITY_JSON: &[(&str, &str)] = &[
+    (
+        "minecraft:end/base_3d_noise",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/end/base_3d_noise.json"
+        ),
+    ),
+    (
+        "minecraft:end/islands",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/end/islands.json"
+        ),
+    ),
+    (
+        "minecraft:end/sloped_cheese",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/end/sloped_cheese.json"
+        ),
+    ),
+    (
+        "minecraft:nether/base_3d_noise",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/nether/base_3d_noise.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/base_3d_noise",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/base_3d_noise.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/entrances",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/entrances.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/noodle",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/noodle.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/pillars",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/pillars.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/spaghetti_2d",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/spaghetti_2d.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/spaghetti_2d_thickness_modulator",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/spaghetti_2d_thickness_modulator.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/caves/spaghetti_roughness_function",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/caves/spaghetti_roughness_function.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/chunk_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/chunk_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/continents",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/continents.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/depth",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/depth.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/erosion",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/erosion.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/factor",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/factor.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/final_density",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/final_density.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/jaggedness",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/jaggedness.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/offset",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/offset.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/copper_density",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/copper_density.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/gap",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/gap.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/iron_density",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/iron_density.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/mask",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/mask.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/richness",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/richness.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ore_vein/toggle",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ore_vein/toggle.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/preliminary_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/preliminary_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ridges",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ridges.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/ridges_folded",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/ridges_folded.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/sloped_cheese",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/sloped_cheese.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/temperature",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/temperature.json"
+        ),
+    ),
+    (
+        "minecraft:overworld/vegetation",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld/vegetation.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/chunk_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/chunk_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/depth",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/depth.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/factor",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/factor.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/final_density",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/final_density.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/jaggedness",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/jaggedness.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/offset",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/offset.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/preliminary_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/preliminary_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_amplified/sloped_cheese",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_amplified/sloped_cheese.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/chunk_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/chunk_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/continents",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/continents.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/depth",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/depth.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/erosion",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/erosion.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/factor",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/factor.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/final_density",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/final_density.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/jaggedness",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/jaggedness.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/offset",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/offset.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/preliminary_surface_level",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/preliminary_surface_level.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/sloped_cheese",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/sloped_cheese.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/temperature",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/temperature.json"
+        ),
+    ),
+    (
+        "minecraft:overworld_large_biomes/vegetation",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/overworld_large_biomes/vegetation.json"
+        ),
+    ),
+    (
+        "minecraft:shift_x",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/shift_x.json"
+        ),
+    ),
+    (
+        "minecraft:shift_z",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/shift_z.json"
+        ),
+    ),
+    (
+        "minecraft:y",
+        include_str!("../../../../assets/datapack/data/minecraft/worldgen/density_function/y.json"),
+    ),
+    (
+        "minecraft:zero",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/density_function/zero.json"
+        ),
+    ),
+];
 pub trait NoiseEvaluationContext {
     fn sample_noise(
         &mut self,
@@ -6207,20 +6537,24 @@ pub mod end_compiled {
         eval_end_24(pos, ctx) + eval_end_25(pos, ctx)
     }
 }
+#[derive(Debug, PartialEq)]
 pub struct NoiseData {
     pub noise_id: DoublePerlinNoiseParameters,
     pub xz_scale: f64,
     pub y_scale: f64,
 }
+#[derive(Debug, PartialEq)]
 pub struct FindTopSurfaceData {
     pub lower_bound: i32,
     pub cell_height: i32,
 }
+#[derive(Debug, PartialEq)]
 pub struct ShiftedNoiseData {
     pub xz_scale: f64,
     pub y_scale: f64,
     pub noise_id: DoublePerlinNoiseParameters,
 }
+#[derive(Debug, PartialEq)]
 pub struct InterpolatedNoiseSamplerData {
     pub xz_scale: f64,
     pub y_scale: f64,
@@ -6228,24 +6562,26 @@ pub struct InterpolatedNoiseSamplerData {
     pub y_factor: f64,
     pub smear_scale_multiplier: f64,
 }
+#[derive(Debug, PartialEq)]
 pub struct ClampedYGradientData {
     pub from_y: f32,
     pub to_y: f32,
     pub from_value: f32,
     pub to_value: f32,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Axis {
     X,
     Y,
     Z,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Tiling {
     ClampToEdge,
     Repeat,
     MirroredRepeat,
 }
+#[derive(Debug, PartialEq)]
 pub struct GradientData {
     pub axis: Axis,
     pub tiling: Tiling,
@@ -6254,28 +6590,30 @@ pub struct GradientData {
     pub from_value: f32,
     pub to_value: f32,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DistanceMetric {
     Euclidean,
     EuclideanSquared,
     Manhattan,
     Chebyshev,
 }
+#[derive(Debug, PartialEq)]
 pub struct DistanceToPointData {
     pub point: [i32; 3],
     pub metric: DistanceMetric,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RoundingOperation {
     Floor,
     Round,
     Ceil,
     Truncate,
 }
+#[derive(Debug, PartialEq)]
 pub struct RoundingData {
     pub operation: RoundingOperation,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BinaryOperation {
     Add,
     Mul,
@@ -6285,6 +6623,7 @@ pub enum BinaryOperation {
     Div,
     Pow,
 }
+#[derive(Debug, PartialEq)]
 pub struct BinaryData {
     pub operation: BinaryOperation,
 }
@@ -6309,11 +6648,12 @@ impl BinaryData {
         }
     }
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum LinearOperation {
     Add,
     Mul,
 }
+#[derive(Debug, PartialEq)]
 pub struct LinearData {
     pub operation: LinearOperation,
     pub argument: f32,
@@ -6328,7 +6668,7 @@ impl LinearData {
         }
     }
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum UnaryOperation {
     Abs,
     Square,
@@ -6342,6 +6682,7 @@ pub enum UnaryOperation {
     Log,
     Sign,
 }
+#[derive(Debug, PartialEq)]
 pub struct UnaryData {
     pub operation: UnaryOperation,
 }
@@ -6393,6 +6734,7 @@ impl UnaryData {
         }
     }
 }
+#[derive(Debug, PartialEq)]
 pub struct ClampData {
     pub min_value: f32,
     pub max_value: f32,
@@ -6404,15 +6746,18 @@ impl ClampData {
         density.clamp(self.min_value, self.max_value)
     }
 }
+#[derive(Debug, PartialEq)]
 pub struct RangeChoiceData {
     pub min_inclusive: f32,
     pub max_exclusive: f32,
 }
+#[derive(Debug, PartialEq)]
 pub struct SplinePoint {
     pub location: f32,
     pub value: &'static SplineRepr,
     pub derivative: f32,
 }
+#[derive(Debug, PartialEq)]
 pub enum SplineRepr {
     Standard {
         location_function_index: usize,
@@ -6422,11 +6767,12 @@ pub enum SplineRepr {
         value: f32,
     },
 }
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum WrapperType {
     Interpolated { cell_size_xz: i32, cell_size_y: i32 },
     Cache,
 }
+#[derive(Debug, PartialEq)]
 pub enum BaseNoiseFunctionComponent {
     Beardifier,
     BlendAlpha,
@@ -6521,6 +6867,7 @@ pub enum BaseNoiseFunctionComponent {
         spline: &'static SplineRepr,
     },
 }
+#[derive(Debug, PartialEq)]
 pub struct BaseNoiseRouter {
     pub full_component_stack: &'static [BaseNoiseFunctionComponent],
     pub barrier_noise: usize,
@@ -6534,9 +6881,11 @@ pub struct BaseNoiseRouter {
     pub vein_ridged: usize,
     pub vein_gap: usize,
 }
+#[derive(Debug, PartialEq)]
 pub struct BaseSurfaceEstimator {
     pub full_component_stack: &'static [BaseNoiseFunctionComponent],
 }
+#[derive(Debug, PartialEq)]
 pub struct BaseMultiNoiseRouter {
     pub full_component_stack: &'static [BaseNoiseFunctionComponent],
     pub temperature: usize,
@@ -6546,12 +6895,14 @@ pub struct BaseMultiNoiseRouter {
     pub depth: usize,
     pub ridges: usize,
 }
+#[derive(Debug, PartialEq)]
 pub struct BaseVeinRouter {
     pub full_component_stack: &'static [BaseNoiseFunctionComponent],
     pub vein_toggle: usize,
     pub vein_ridged: usize,
     pub vein_gap: usize,
 }
+#[derive(Debug, PartialEq)]
 pub struct BaseNoiseRouters {
     pub noise: BaseNoiseRouter,
     pub surface_estimator: BaseSurfaceEstimator,

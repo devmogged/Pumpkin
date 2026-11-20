@@ -14,6 +14,48 @@ pub struct NoiseSettings {
     pub spawn_target: &'static [ParameterPoint],
 }
 pub type GenerationSettings = NoiseSettings;
+pub const VANILLA_SETTINGS_JSON: &[(&str, &str)] = &[
+    (
+        "minecraft:amplified",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/amplified.json"
+        ),
+    ),
+    (
+        "minecraft:caves",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/caves.json"
+        ),
+    ),
+    (
+        "minecraft:end",
+        include_str!("../../../../assets/datapack/data/minecraft/worldgen/noise_settings/end.json"),
+    ),
+    (
+        "minecraft:floating_islands",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/floating_islands.json"
+        ),
+    ),
+    (
+        "minecraft:large_biomes",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/large_biomes.json"
+        ),
+    ),
+    (
+        "minecraft:nether",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/nether.json"
+        ),
+    ),
+    (
+        "minecraft:overworld",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/noise_settings/overworld.json"
+        ),
+    ),
+];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GenerationShapeConfig {
     pub min_y: i8,

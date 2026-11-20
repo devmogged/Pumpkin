@@ -1,4 +1,5 @@
 /* This file is generated. Do not edit manually. */
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DoublePerlinNoiseParameters {
     pub id: usize,
     pub first_octave: i32,

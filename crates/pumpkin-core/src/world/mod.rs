@@ -390,7 +390,12 @@ impl World {
         server: Weak<Server>,
     ) -> Self {
         // TODO
-        let generation_settings = NoiseSettings::from_dimension(&dimension);
+        let generation_settings = match level.world_gen.load().as_ref() {
+            pumpkin_world::generation::generator::WorldGenerator::Noise(generator) => {
+                generator.settings
+            }
+            _ => NoiseSettings::from_dimension(&dimension),
+        };
 
         // Load portal POI from disk (PoiStorage::new automatically loads from disk if files exist)
         let portal_poi = portal::PortalPoiStorage::new(level.level_folder.poi_folder.clone());

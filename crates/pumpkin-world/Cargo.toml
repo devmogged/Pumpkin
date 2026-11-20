@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+pumpkin-worldgen-model = { path = "../pumpkin-worldgen-model", features = ["runtime"] }
 pumpkin-nbt.workspace = true
 pumpkin-util.workspace = true
 pumpkin-config.workspace = true

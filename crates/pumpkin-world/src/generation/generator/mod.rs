@@ -243,9 +243,32 @@ impl VanillaGenerator {
         biome_source: Option<&crate::world_info::BiomeSource>,
         structure_overrides: Option<&[String]>,
     ) -> Self {
-        let settings = settings_name
-            .and_then(NoiseSettings::from_name)
-            .unwrap_or_else(|| NoiseSettings::from_dimension(&dimension));
+        Self::new_with_runtime_settings(
+            seed,
+            dimension,
+            settings_name,
+            biome_source,
+            structure_overrides,
+            None,
+        )
+    }
+
+    pub(crate) fn new_with_runtime_settings(
+        seed: Seed,
+        dimension: Dimension,
+        settings_name: Option<&str>,
+        biome_source: Option<&crate::world_info::BiomeSource>,
+        structure_overrides: Option<&[String]>,
+        runtime: Option<&super::worldgen_overrides::RuntimeNoiseSettings>,
+    ) -> Self {
+        let settings = runtime.map_or_else(
+            || {
+                settings_name
+                    .and_then(NoiseSettings::from_name)
+                    .unwrap_or_else(|| NoiseSettings::from_dimension(&dimension))
+            },
+            |runtime| runtime.settings,
+        );
         let surface_rule = settings_name
             .and_then(MaterialRule::from_name)
             .unwrap_or_else(|| MaterialRule::from_dimension(&dimension));
@@ -253,9 +276,14 @@ impl VanillaGenerator {
             crate::biome::ActiveBiomeSupplier::from_biome_source(biome_source, &dimension);
         let random_config = GlobalRandomConfig::new(seed.0, settings.legacy_random_source);
 
-        let base = settings_name
-            .and_then(BaseNoiseRouters::from_name)
-            .unwrap_or_else(|| BaseNoiseRouters::from_dimension(&dimension));
+        let base = runtime.map_or_else(
+            || {
+                settings_name
+                    .and_then(BaseNoiseRouters::from_name)
+                    .unwrap_or_else(|| BaseNoiseRouters::from_dimension(&dimension))
+            },
+            |runtime| &runtime.router,
+        );
         let terrain_cache = TerrainCache::from_random(&random_config);
 
         let default_block = settings.default_block;

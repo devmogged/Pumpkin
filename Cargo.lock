@@ -3007,6 +3007,7 @@ dependencies = [
  "proc-macro2",
  "pumpkin-nbt",
  "pumpkin-util",
+ "pumpkin-worldgen-model",
  "quote",
  "rayon",
  "semver",
@@ -3419,6 +3420,7 @@ dependencies = [
  "pumpkin-data",
  "pumpkin-nbt",
  "pumpkin-util",
+ "pumpkin-worldgen-model",
  "rand 0.10.3",
  "rayon",
  "rustc-hash",
@@ -3434,6 +3436,19 @@ dependencies = [
  "tracing",
  "uuid",
  "xxhash-rust",
+]
+
+[[package]]
+name = "pumpkin-worldgen-model"
+version = "0.2.2+26.3-26.63"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "pumpkin-data",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 3.0.10",
 ]
 
 [[package]]

@@ -2,31 +2,8 @@ use std::{collections::BTreeMap, fs};
 
 use proc_macro2::TokenStream;
 use pumpkin_util::DoublePerlinNoiseParametersCodec;
+use pumpkin_worldgen_model::noise_parameter::NoiseParameterJson;
 use quote::{format_ident, quote};
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct NoiseParameterJson {
-    #[serde(rename = "firstOctave")]
-    first_octave: Option<i32>,
-    amplitudes: Option<Vec<f64>>,
-    amplitude_modifiers: Option<Vec<f64>>,
-    base_octave: Option<i32>,
-    octave_count: Option<usize>,
-}
-
-impl From<NoiseParameterJson> for DoublePerlinNoiseParametersCodec {
-    fn from(raw: NoiseParameterJson) -> Self {
-        Self {
-            first_octave: raw.first_octave.or(raw.base_octave).unwrap_or(-7),
-            amplitudes: raw
-                .amplitudes
-                .or(raw.amplitude_modifiers)
-                .or_else(|| raw.octave_count.map(|n| vec![1.0; n.max(1)]))
-                .unwrap_or_else(|| vec![1.0]),
-        }
-    }
-}
 
 fn collect_noise_files(
     base: &std::path::Path,
@@ -50,10 +27,14 @@ fn collect_noise_files(
                 .join("/");
             let key = format!("minecraft:{rel_str}");
             let content = fs::read_to_string(&path).expect("Failed to read noise file");
-            let param: DoublePerlinNoiseParametersCodec =
-                serde_json::from_str::<NoiseParameterJson>(&content)
-                    .expect("Failed to parse noise parameter JSON")
-                    .into();
+            let (first_octave, amplitudes) = serde_json::from_str::<NoiseParameterJson>(&content)
+                .expect("Failed to parse noise parameter JSON")
+                .into_parameters()
+                .expect("Invalid vanilla noise parameters");
+            let param = DoublePerlinNoiseParametersCodec {
+                first_octave,
+                amplitudes,
+            };
             result.insert(key, param);
         }
     }
@@ -102,6 +83,7 @@ pub fn build() -> TokenStream {
     let count = json.len();
 
     quote! {
+        #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct DoublePerlinNoiseParameters {
             pub id: usize,
             pub first_octave: i32,

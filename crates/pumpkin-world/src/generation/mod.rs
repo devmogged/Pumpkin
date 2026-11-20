@@ -17,6 +17,7 @@ pub mod proto_chunk_test;
 pub mod rule;
 pub mod structure;
 mod surface;
+pub mod worldgen_overrides;
 
 use generator::VanillaGenerator;
 use pumpkin_data::dimension::Dimension;
@@ -69,19 +70,48 @@ pub fn get_world_gen_with_all_settings(
     biome_source: Option<&crate::world_info::BiomeSource>,
     structure_overrides: Option<&[String]>,
 ) -> Box<generator::WorldGenerator> {
+    Box::new(get_world_gen_with_overrides(
+        seed,
+        dimension,
+        is_flat,
+        flat_layers,
+        flat_biome,
+        generator_settings,
+        biome_source,
+        structure_overrides,
+        None,
+    ))
+}
+
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn get_world_gen_with_overrides(
+    seed: Seed,
+    dimension: Dimension,
+    is_flat: bool,
+    flat_layers: Vec<generator::FlatLayer>,
+    flat_biome: String,
+    generator_settings: Option<&str>,
+    biome_source: Option<&crate::world_info::BiomeSource>,
+    structure_overrides: Option<&[String]>,
+    overrides: Option<&worldgen_overrides::WorldgenOverrides>,
+) -> generator::WorldGenerator {
     if is_flat {
-        Box::new(generator::WorldGenerator::Flat(Box::new(
-            generator::flat::FlatGenerator::new(seed, dimension, flat_layers, flat_biome),
+        generator::WorldGenerator::Flat(Box::new(generator::flat::FlatGenerator::new(
+            seed,
+            dimension,
+            flat_layers,
+            flat_biome,
         )))
     } else {
-        Box::new(generator::WorldGenerator::Noise(Box::new(
-            VanillaGenerator::new_with_all_settings(
-                seed,
-                dimension,
-                generator_settings,
-                biome_source,
-                structure_overrides,
-            ),
+        let runtime =
+            overrides.and_then(|overrides| overrides.settings(generator_settings, &dimension));
+        generator::WorldGenerator::Noise(Box::new(VanillaGenerator::new_with_runtime_settings(
+            seed,
+            dimension,
+            generator_settings,
+            biome_source,
+            structure_overrides,
+            runtime.as_ref(),
         )))
     }
 }

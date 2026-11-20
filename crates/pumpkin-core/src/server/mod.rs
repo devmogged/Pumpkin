@@ -25,9 +25,9 @@ use pumpkin_config::{AdvancedConfiguration, BasicConfiguration, TelemetryConfig}
 use pumpkin_data::dimension::Dimension;
 use pumpkin_util::permission::PermissionManager;
 use pumpkin_util::text::color::NamedColor;
-use pumpkin_world::dimension::into_level;
 use pumpkin_world::generation::generator::GeneratorInit;
 use pumpkin_world::world::WorldPortalExt;
+use pumpkin_world::{generation::worldgen_overrides::WorldgenOverrides, level::Level};
 use tracing::{debug, error, info, warn};
 
 use pumpkin_protocol::java::client::login::CEncryptionRequest;
@@ -442,6 +442,20 @@ impl Server {
             });
         }
 
+        let enabled_packs = server.level_info.load().data_packs.enabled.clone();
+        server
+            .datapack_manager
+            .load_all(&world_path, &enabled_packs, &server.recipe_manager);
+
+        let mut packs = server.datapack_manager.get_loaded_packs();
+        packs.sort_by_key(|pack| {
+            enabled_packs
+                .iter()
+                .position(|id| id == &pack.id || id == &pack.name)
+        });
+        let worldgen =
+            WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
+
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {
             info!(
@@ -451,7 +465,13 @@ impl Server {
                     .to_pretty_console()
             );
             let config = Arc::new(server.advanced_config.world.clone());
-            let level = into_level(dim.clone(), &config, world_path.clone(), seed);
+            let level = Level::from_root_folder_with_overrides(
+                &config,
+                world_path.clone(),
+                seed,
+                dim.clone(),
+                Some(&worldgen),
+            );
             let world = Arc::new(World::load(
                 level.clone(),
                 server.level_info.clone(),
@@ -483,11 +503,6 @@ impl Server {
         server.worlds.store(Arc::new(worlds_vec));
 
         info!("All worlds loaded successfully.");
-
-        let enabled_packs = server.level_info.load().data_packs.enabled.clone();
-        server
-            .datapack_manager
-            .load_all(&world_path, &enabled_packs, &server.recipe_manager);
 
         let source = crate::command::CommandSender::Console.into_source(&server);
         let _ = server

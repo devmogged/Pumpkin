@@ -10,7 +10,7 @@ use crate::{
         },
         palette::has_random_ticking_fluid,
     },
-    generation::get_world_gen_with_all_settings,
+    generation::{get_world_gen_with_overrides, worldgen_overrides::WorldgenOverrides},
     tick::{OrderedTick, ScheduledTick, TickPriority, order},
     world::WorldPortalExt,
 };
@@ -140,12 +140,24 @@ pub struct LevelFolder {
 
 impl Level {
     #[must_use]
-    #[expect(clippy::too_many_lines)]
     pub fn from_root_folder(
         level_config: &LevelConfig,
         root_folder: PathBuf,
         seed: i64,
         dimension: Dimension,
+    ) -> Arc<Self> {
+        Self::from_root_folder_with_overrides(level_config, root_folder, seed, dimension, None)
+    }
+
+    /// Opens a level using its enabled datapack noise resources.
+    #[must_use]
+    #[expect(clippy::too_many_lines)]
+    pub fn from_root_folder_with_overrides(
+        level_config: &LevelConfig,
+        root_folder: PathBuf,
+        seed: i64,
+        dimension: Dimension,
+        worldgen: Option<&WorldgenOverrides>,
     ) -> Arc<Self> {
         let (namespace, name) = match dimension.minecraft_name.split_once(':') {
             Some((ns, n)) => (ns, n),
@@ -230,7 +242,7 @@ impl Level {
         let dim_min_y = dimension.min_y;
         let dim_height = dimension.height;
         let seed = Seed(seed as u64);
-        let world_gen: Arc<WorldGenerator> = Arc::from(get_world_gen_with_all_settings(
+        let world_gen: Arc<WorldGenerator> = Arc::new(get_world_gen_with_overrides(
             seed,
             dimension,
             is_flat,
@@ -239,6 +251,7 @@ impl Level {
             generator_settings_name.as_deref(),
             biome_source.as_ref(),
             structure_overrides.as_deref(),
+            worldgen,
         ));
         if let Some(cache) = world_gen.global_structure_cache() {
             cache.ensure_strongholds_generated();
