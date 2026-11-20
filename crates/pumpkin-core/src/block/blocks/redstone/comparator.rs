@@ -219,20 +219,10 @@ impl RedstoneGateBlock<ComparatorLikeProperties> for ComparatorBlock {
         let mut target_pos = pos.offset(facing.to_offset());
         let (target_block, target_state) = world.get_block_and_state(&target_pos);
 
-        if target_state.has_analog_output_signal() {
-            result_signal = world
-                .block_registry
-                .get_pumpkin_block(target_block.id)
-                .and_then(|pumpkin_block| {
-                    pumpkin_block.get_comparator_output(GetComparatorOutputArgs {
-                        world,
-                        block: target_block,
-                        state: target_state,
-                        position: &target_pos,
-                        direction: read_from,
-                    })
-                })
-                .unwrap_or(0);
+        if let Some(output) =
+            Self::analog_output(world, target_block, target_state, &target_pos, read_from)
+        {
+            result_signal = output;
         } else if result_signal < 15 && target_state.is_solid_block() {
             target_pos = target_pos.offset(facing.to_offset());
             let (target_block, target_state) = world.get_block_and_state(&target_pos);
@@ -240,22 +230,9 @@ impl RedstoneGateBlock<ComparatorLikeProperties> for ComparatorBlock {
             let item_frame_signal =
                 Self::get_attached_itemframe_level(world, facing, target_pos).map(i32::from);
 
-            let block_signal = target_state.has_analog_output_signal().then(|| {
-                let signal = world
-                    .block_registry
-                    .get_pumpkin_block(target_block.id)
-                    .and_then(|pumpkin_block| {
-                        pumpkin_block.get_comparator_output(GetComparatorOutputArgs {
-                            world,
-                            block: target_block,
-                            state: target_state,
-                            position: &target_pos,
-                            direction: read_from,
-                        })
-                    })
-                    .unwrap_or(0);
-                i32::from(signal)
-            });
+            let block_signal =
+                Self::analog_output(world, target_block, target_state, &target_pos, read_from)
+                    .map(i32::from);
 
             let item_frame_or_block_signal = match (item_frame_signal, block_signal) {
                 (Some(frame), Some(block)) => Some(frame.max(block)),
@@ -278,6 +255,38 @@ impl RedstoneGateBlock<ComparatorLikeProperties> for ComparatorBlock {
 }
 
 impl ComparatorBlock {
+    /// Obtain vanilla analog output, including registered custom content blocks whose
+    /// carrier block states do not advertise a vanilla analog-output property.
+    /// Vanilla blocks without that property retain their old fast path.
+    fn analog_output(
+        world: &World,
+        block: &Block,
+        state: &BlockState,
+        position: &BlockPos,
+        direction: BlockDirection,
+    ) -> Option<u8> {
+        if !state.has_analog_output_signal() && block.name.starts_with("minecraft:") {
+            return None;
+        }
+        let value = world
+            .block_registry
+            .get_pumpkin_block(block.id)
+            .and_then(|behaviour| {
+                behaviour.get_comparator_output(GetComparatorOutputArgs {
+                    world,
+                    block,
+                    state,
+                    position,
+                    direction,
+                })
+            });
+        if state.has_analog_output_signal() {
+            Some(value.unwrap_or(0))
+        } else {
+            value
+        }
+    }
+
     fn calculate_output_signal(
         &self,
         world: &World,
