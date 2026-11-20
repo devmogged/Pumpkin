@@ -313,6 +313,16 @@ impl PartialEq for World {
 
 impl Eq for World {}
 
+/// Runs after an entity joins a world, spawned or loaded with its chunk.
+static ENTITY_ADDED: std::sync::OnceLock<fn(&World, &Arc<dyn EntityBase>)> =
+    std::sync::OnceLock::new();
+
+/// Set the hook the embedder runs for every entity that joins a world. Only the first call
+/// installs it.
+pub fn install_entity_added_hook(hook: fn(&World, &Arc<dyn EntityBase>)) -> bool {
+    ENTITY_ADDED.set(hook).is_ok()
+}
+
 impl World {
     const TAB_LIST_ADD_FLAGS: u8 = PlayerInfoFlags::ADD_PLAYER.bits()
         | PlayerInfoFlags::UPDATE_LISTED.bits()
@@ -5550,6 +5560,9 @@ impl World {
         });
         self.record_tick_spawn(entity.get_entity().entity_id);
         self.add_pending_riders(&entity);
+        if let Some(hook) = ENTITY_ADDED.get() {
+            hook(self, &entity);
+        }
     }
 
     pub fn remove_entity(&self, entity: &dyn EntityBase) {
