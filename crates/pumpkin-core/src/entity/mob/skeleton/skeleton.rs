@@ -54,7 +54,9 @@ impl Mob for SkeletonEntity {
         &self.entity.mob_entity
     }
 
-    fn post_tick(&self) {
+    fn mob_tick(&self, _caller: &dyn EntityBase) {
+        // Java Skeleton.tick runs ConversionTracker.tick before super.tick updates
+        // powder-snow contact, not after the base entity tick.
         let entity = self.get_entity();
         let afflicted = entity.is_in_powder_snow.load(Relaxed);
         self.freezing.tick(self, afflicted, || {
@@ -127,6 +129,12 @@ mod tests {
         let mut restored_nbt = NbtCompound::new();
         skeleton.mob_write_nbt(&mut restored_nbt);
         assert_eq!(restored_nbt.get_int("StrayConversionTime"), Some(300));
+        // Java clears a preloaded conversion timer before base-tick snow contact.
+        skeleton.mob_tick(skeleton.as_ref());
+        let mut after_tick = NbtCompound::new();
+        skeleton.mob_write_nbt(&mut after_tick);
+        assert_eq!(after_tick.get_int("StrayConversionTime"), Some(-1));
+        assert_eq!(after_tick.get_int("FreezingTime"), Some(-1));
         world.level.shutdown().await;
         Ok(())
     }
