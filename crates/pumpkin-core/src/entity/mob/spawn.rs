@@ -158,7 +158,11 @@ pub fn finalize_spawn(
     group_data: Option<SpawnGroupData>,
 ) -> Option<SpawnGroupData> {
     match entity.get_mob() {
-        Some(mob) => mob.finalize_spawn(world, reason, group_data),
+        Some(mob) => {
+            // Vanilla equips mobs during finalization; NBT-loaded mobs skip this step.
+            super::equipment::equip_mob_on_spawn(entity.as_ref(), world);
+            mob.finalize_spawn(world, reason, group_data)
+        }
         None => group_data,
     }
 }
@@ -192,5 +196,51 @@ impl MobEntity {
             std::sync::atomic::Ordering::Relaxed,
         );
         entity.refresh_dimensions();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::ai::test_support::world;
+    use crate::entity::r#type::from_type;
+    use pumpkin_data::data_component_impl::EquipmentSlot;
+    use pumpkin_data::entity::EntityType;
+    use pumpkin_data::item::Item;
+    use pumpkin_util::math::vector3::Vector3;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn vanilla_equips_skeleton_only_on_spawn_finalization()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let skeleton = from_type(
+            &EntityType::SKELETON,
+            Vector3::new(8.0, 64.0, 8.0),
+            &world,
+            Uuid::new_v4(),
+        );
+        skeleton.init_data_tracker();
+        let living = skeleton
+            .get_living_entity()
+            .ok_or("skeleton has no living entity")?;
+        {
+            let equipment = living
+                .entity_equipment
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert!(equipment.get(&EquipmentSlot::MAIN_HAND).is_empty());
+        }
+        finalize_spawn(&skeleton, &world, EntitySpawnReason::Command, None);
+        {
+            let equipment = living
+                .entity_equipment
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert_eq!(equipment.get(&EquipmentSlot::MAIN_HAND).item, &Item::BOW);
+        }
+        world.level.shutdown().await;
+        Ok(())
     }
 }

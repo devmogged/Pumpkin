@@ -2889,8 +2889,6 @@ impl<T: Mob + Send + 'static> EntityBase for T {
 
     fn init_data_tracker(&self) {
         self.mob_init_data_tracker();
-        let world = self.get_mob_entity().living_entity.entity.world.load();
-        crate::entity::mob::equipment::equip_mob_on_spawn(self as &dyn EntityBase, &world);
     }
 
     fn set_variant_name(&self, name: &str) {
