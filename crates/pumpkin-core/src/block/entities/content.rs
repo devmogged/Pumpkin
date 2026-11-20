@@ -14,6 +14,8 @@ use std::sync::OnceLock;
 #[derive(Clone, Copy)]
 pub enum Change {
     State(BlockStateId, BlockStateId),
+    /// Replaced by a `BlockFlags::MOVED` write, such as a contraption picking the block up.
+    Moved(BlockStateId, BlockStateId),
     Loaded(BlockStateId),
     Unloaded,
 }
@@ -25,9 +27,20 @@ pub fn observe(observer: Observer) -> bool {
     OBSERVER.set(observer).is_ok()
 }
 
-pub(crate) fn state_changed(world: &World, pos: BlockPos, old: BlockStateId, new: BlockStateId) {
+pub(crate) fn state_changed(
+    world: &World,
+    pos: BlockPos,
+    old: BlockStateId,
+    new: BlockStateId,
+    moved: bool,
+) {
     if old != new && (old.as_u16() >= BlockStateId::COUNT || new.as_u16() >= BlockStateId::COUNT) {
-        notify(world, pos, Change::State(old, new));
+        let change = if moved {
+            Change::Moved(old, new)
+        } else {
+            Change::State(old, new)
+        };
+        notify(world, pos, change);
     }
 }
 
