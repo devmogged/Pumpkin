@@ -23,7 +23,6 @@ use pumpkin_util::random::xoroshiro128::Xoroshiro;
 use pumpkin_util::random::{RandomImpl, get_seed};
 use pumpkin_world::chunk::{ChunkData, ChunkHeightmapType};
 use pumpkin_world::generation::proto_chunk::GenerationCache;
-use rand::seq::IndexedRandom;
 use rand::{RngExt, rng};
 use std::fmt;
 use std::sync::Arc;
@@ -595,8 +594,8 @@ pub fn spawn_mobs_for_chunk_generation(
     let zo = chunk_z << 4;
 
     while rand::random::<f32>() < biome.creature_spawn_probability {
-        let Some(spawner_data) = creatures.choose(&mut rand::rng()) else {
-            continue;
+        let Some(spawner_data) = choose_weighted_spawner(creatures) else {
+            break;
         };
 
         let count = spawner_data.min_count
@@ -957,6 +956,29 @@ pub fn can_spawn_mob_at(
     })
 }
 
+// Vanilla biome spawn lists are weighted, not uniformly distributed.
+fn weighted_spawner_at(spawners: &[Spawner], mut ticket: u64) -> Option<&Spawner> {
+    for spawner in spawners {
+        let weight = u64::try_from(spawner.weight).unwrap_or(0);
+        if ticket < weight {
+            return Some(spawner);
+        }
+        ticket -= weight;
+    }
+    None
+}
+
+fn choose_weighted_spawner(spawners: &[Spawner]) -> Option<&Spawner> {
+    let total_weight: u64 = spawners
+        .iter()
+        .map(|s| u64::try_from(s.weight).unwrap_or(0))
+        .sum();
+    if total_weight == 0 {
+        return None;
+    }
+    weighted_spawner_at(spawners, rng().random_range(0..total_weight))
+}
+
 #[must_use]
 pub fn get_random_spawn_mob_at(
     world: &Arc<World>,
@@ -970,7 +992,7 @@ pub fn get_random_spawn_mob_at(
     {
         None
     } else {
-        match category.id {
+        let spawners = match category.id {
             id if id == MobCategory::MONSTER.id => biome.spawners.monster,
             id if id == MobCategory::CREATURE.id => biome.spawners.creature,
             id if id == MobCategory::AMBIENT.id => biome.spawners.ambient,
@@ -982,8 +1004,8 @@ pub fn get_random_spawn_mob_at(
             id if id == MobCategory::WATER_AMBIENT.id => biome.spawners.water_ambient,
             id if id == MobCategory::MISC.id => biome.spawners.misc,
             _ => biome.spawners.misc,
-        }
-        .choose(&mut rng())
+        };
+        choose_weighted_spawner(spawners)
     }
 }
 
@@ -1239,6 +1261,42 @@ mod tests {
         );
         world.level.shutdown().await;
         Ok(())
+    }
+
+    #[test]
+    fn vanilla_biome_spawn_weights_are_respected() {
+        let spawners = [
+            Spawner {
+                r#type: "minecraft:spider",
+                min_count: 4,
+                max_count: 4,
+                weight: 100,
+            },
+            Spawner {
+                r#type: "minecraft:zombie",
+                min_count: 4,
+                max_count: 4,
+                weight: 90,
+            },
+            Spawner {
+                r#type: "minecraft:zombie_villager",
+                min_count: 1,
+                max_count: 1,
+                weight: 5,
+            },
+        ];
+        let mut counts = [0; 3];
+        for ticket in 0..195 {
+            let selected = weighted_spawner_at(&spawners, ticket).map(|s| s.r#type);
+            match selected {
+                Some("minecraft:spider") => counts[0] += 1,
+                Some("minecraft:zombie") => counts[1] += 1,
+                Some("minecraft:zombie_villager") => counts[2] += 1,
+                _ => panic!("unmatched ticket {ticket}"),
+            }
+        }
+        assert_eq!(counts, [100, 90, 5]);
+        assert!(weighted_spawner_at(&spawners, 195).is_none());
     }
 
     #[test]

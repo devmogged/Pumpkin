@@ -138,6 +138,8 @@ struct Spawner {
     min_count: i32,
     /// Maximum number of entities in a spawn group.
     max_count: i32,
+    /// Relative selection weight from vanilla's biome spawn table.
+    weight: i32,
 }
 
 impl<'de> Deserialize<'de> for Spawner {
@@ -151,6 +153,8 @@ impl<'de> Deserialize<'de> for Spawner {
             max_count: Option<i32>,
             #[serde(default)]
             count: Option<Value>,
+            #[serde(default)]
+            weight: Option<i32>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
@@ -176,6 +180,7 @@ impl<'de> Deserialize<'de> for Spawner {
             r#type: raw.r#type,
             min_count,
             max_count,
+            weight: raw.weight.unwrap_or(1),
         })
     }
 }
@@ -186,11 +191,13 @@ impl Spawner {
         let r#type = &self.r#type;
         let min_count = &self.min_count;
         let max_count = &self.max_count;
+        let weight = &self.weight;
         quote! {
             Spawner {
                 r#type: #r#type,
                 min_count: #min_count,
                 max_count: #max_count,
+                weight: #weight,
             }
         }
     }
@@ -572,6 +579,7 @@ pub fn build() -> TokenStream {
             pub r#type: &'static str,
             pub min_count: i32,
             pub max_count: i32,
+            pub weight: i32,
         }
 
         impl PartialEq for Biome {
@@ -999,5 +1007,30 @@ pub fn build() -> TokenStream {
 
         pub const OVERWORLD_BIOME_SOURCE: BiomeTree = #overworld_tree;
         pub const NETHER_BIOME_SOURCE: BiomeTree = #nether_tree;
+    }
+}
+
+#[cfg(test)]
+mod spawn_weight_tests {
+    use super::Spawner;
+
+    #[test]
+    fn parse_java_26_3_weighted_spawn_data() {
+        let spider: Spawner =
+            serde_json::from_str(r#"{"type":"minecraft:spider","count":4,"weight":100}"#).unwrap();
+        let zombie: Spawner =
+            serde_json::from_str(r#"{"type":"minecraft:zombie","count":4,"weight":90}"#).unwrap();
+        assert_eq!(
+            (spider.weight, spider.min_count, spider.max_count),
+            (100, 4, 4)
+        );
+        assert_eq!(
+            (zombie.weight, zombie.min_count, zombie.max_count),
+            (90, 4, 4)
+        );
+        let legacy: Spawner =
+            serde_json::from_str(r#"{"type":"minecraft:cow","min_count":2,"max_count":4}"#)
+                .unwrap();
+        assert_eq!(legacy.weight, 1);
     }
 }
