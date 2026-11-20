@@ -18,6 +18,18 @@ fn duration_finished(age: i32, wait_time: i32, duration: i32) -> bool {
     duration != -1 && age - wait_time >= duration
 }
 
+// Vanilla AreaEffectCloud.serverTick only applies effects at multiples of five ticks.
+fn should_apply_effects(age: i32, wait_time: i32) -> bool {
+    age >= wait_time && age % 5 == 0
+}
+
+// Cloud height is checked by its half-block bounding box; radius is horizontal only.
+fn within_horizontal_radius(center: &Vector3<f64>, target: &Vector3<f64>, radius: f64) -> bool {
+    let dx = target.x - center.x;
+    let dz = target.z - center.z;
+    dx.mul_add(dx, dz * dz) <= radius * radius
+}
+
 #[derive(Clone)]
 struct ParticleMeta {
     particle_id: pumpkin_protocol::codec::var_int::VarInt,
@@ -398,14 +410,14 @@ impl EntityBase for AreaEffectCloudEntity {
             return;
         }
 
-        // Update radius
-        {
+        // Vanilla only changes and syncs the radius when RadiusPerTick is nonzero.
+        let delta = *self
+            .radius_on_tick
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if delta != 0.0 {
             let mut radius = self
                 .radius
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let delta = *self
-                .radius_on_tick
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *radius = (*radius + delta).min(Self::MAX_RADIUS);
@@ -414,8 +426,6 @@ impl EntityBase for AreaEffectCloudEntity {
                 self.entity.remove();
                 return;
             }
-
-            // Send new radius
             drop(radius);
             self.entity.set_synced_data(
                 pumpkin_data::tracked_data::area_effect_cloud::RADIUS,
@@ -435,14 +445,20 @@ impl EntityBase for AreaEffectCloudEntity {
             });
         }
 
+        // Vanilla only scans and applies effects every five ticks, after the wait period.
+        if !should_apply_effects(age, wait_time) {
+            return;
+        }
+
         // Apply effects to nearby entities if eligible
         let pos = self.entity.pos.load();
         let r = *self
             .radius
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) as f64;
-        let min = Vector3::new(pos.x - r, pos.y - r, pos.z - r);
-        let max = Vector3::new(pos.x + r, pos.y + r, pos.z + r);
+        // Vanilla cloud dimensions have radius*2 width but only 0.5 block height.
+        let min = Vector3::new(pos.x - r, pos.y, pos.z - r);
+        let max = Vector3::new(pos.x + r, pos.y + 0.5, pos.z + r);
         let aabb = BoundingBox::new(min, max);
         let world = self.entity.world.load();
 
@@ -488,15 +504,9 @@ impl EntityBase for AreaEffectCloudEntity {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 as f64;
             let pos_e = cand_clone.get_entity().pos.load();
-            let dx = pos_e.x - pos.x;
-            let dy = pos_e.y - pos.y;
-            let dz = pos_e.z - pos.z;
-            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
-            if dist > radius_f {
+            if !within_horizontal_radius(&pos, &pos_e, radius_f) {
                 continue;
             }
-
-            let scale = 1.0f32 - (dist as f32 / radius_f as f32);
 
             // Decide whether this contact will actually apply an effect
             let effs_clone = self
@@ -531,13 +541,13 @@ impl EntityBase for AreaEffectCloudEntity {
                 continue;
             }
 
-            // Apply scaled effects
+            // Apply cloud-prepared effects without extra distance or duration attenuation.
             if let Some(living) = cand_clone.get_living_entity() {
                 let owner = self.owner.get(&world);
                 crate::item::potion::PotionContents::apply_effects_to(
                     living,
                     effs_clone,
-                    scale,
+                    1.0,
                     crate::item::potion::PotionApplicationSource::AreaEffectCloud,
                     Some(crate::entity::living::EffectSource {
                         direct: self,
@@ -665,6 +675,31 @@ mod tests {
         }
         world.level.shutdown().await;
         Ok(())
+    }
+
+    #[test]
+    fn cloud_effects_only_apply_on_five_tick_boundaries_after_waiting() {
+        assert!(!should_apply_effects(9, 10));
+        assert!(should_apply_effects(10, 10));
+        assert!(!should_apply_effects(11, 10));
+        assert!(!should_apply_effects(12, 10));
+        assert!(should_apply_effects(15, 10));
+        assert!(!should_apply_effects(20, 21));
+    }
+
+    #[test]
+    fn cloud_effect_radius_is_horizontal_after_half_block_vertical_filter() {
+        let center = Vector3::new(0.0, 64.0, 0.0);
+        assert!(within_horizontal_radius(
+            &center,
+            &Vector3::new(1.0, 90.0, 1.0),
+            2.0
+        ));
+        assert!(!within_horizontal_radius(
+            &center,
+            &Vector3::new(2.0, 64.0, 2.0),
+            2.0
+        ));
     }
 
     #[test]

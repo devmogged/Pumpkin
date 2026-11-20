@@ -10,7 +10,7 @@ pub struct PotionContents;
 pub enum PotionApplicationSource {
     /// Normal application (drinking / splash)
     Normal,
-    /// `AreaEffectCloud` application (shorter durations and weaker instant potency)
+    /// `AreaEffectCloud` application (full cloud-scaled durations, fixed instant potency).
     AreaEffectCloud,
     Arrow,
 }
@@ -18,17 +18,15 @@ pub enum PotionApplicationSource {
 impl PotionApplicationSource {
     const fn instant_scale(self, scale: f32) -> Option<f32> {
         match self {
-            Self::AreaEffectCloud => Some(scale * 0.5),
+            Self::AreaEffectCloud => Some(0.5),
             Self::Arrow => None,
             Self::Normal => Some(scale),
         }
     }
 
     const fn duration_scale(self, scale: f32) -> f32 {
-        match self {
-            Self::AreaEffectCloud => scale * 0.25,
-            Self::Arrow | Self::Normal => scale,
-        }
+        let _ = self;
+        scale
     }
 }
 
@@ -176,6 +174,18 @@ mod tests {
     use pumpkin_data::data_component_impl::PotionDurationScaleImpl;
     use pumpkin_data::item::Item;
     use pumpkin_data::item_stack::ItemStack;
+
+    #[test]
+    fn area_effect_cloud_preserves_pre_scaled_duration_and_fixed_instant_potency() {
+        assert_eq!(
+            PotionApplicationSource::AreaEffectCloud.duration_scale(1.0),
+            1.0
+        );
+        assert_eq!(
+            PotionApplicationSource::AreaEffectCloud.instant_scale(1.0),
+            Some(0.5)
+        );
+    }
 
     #[test]
     fn tipped_arrow_scale_shortens_duration_without_reducing_instant_potency() {
