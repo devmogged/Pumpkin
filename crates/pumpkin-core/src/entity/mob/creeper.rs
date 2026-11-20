@@ -126,6 +126,11 @@ impl CreeperEntity {
 }
 
 impl Mob for CreeperEntity {
+    // Vanilla Creeper.doHurtTarget acknowledges the attack without melee damage.
+    fn do_hurt_target(&self, _target: &dyn EntityBase) -> bool {
+        true
+    }
+
     fn cause_fall_damage(
         &self,
         caller: &dyn EntityBase,
@@ -313,5 +318,47 @@ impl CreeperEntity {
 
     pub fn set_explosion_radius(&self, radius: i32) {
         self.explosion_radius.store(radius, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::{ai::test_support::world, r#type::from_type};
+    use pumpkin_util::math::vector3::Vector3;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn creeper_melee_attempt_cannot_damage_a_target() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let creeper = from_type(
+            &EntityType::CREEPER,
+            Vector3::new(0.5, 64.0, 0.5),
+            &world,
+            Uuid::new_v4(),
+        );
+        let pig = from_type(
+            &EntityType::PIG,
+            Vector3::new(1.5, 64.0, 0.5),
+            &world,
+            Uuid::new_v4(),
+        );
+        let Some(creeper_mob) = creeper.get_mob() else {
+            panic!("creeper entity should have Mob behavior");
+        };
+        let Some(pig_living) = pig.get_living_entity() else {
+            panic!("pig entity should be LivingEntity");
+        };
+        let health_before = pig_living.health.load();
+        assert!(creeper_mob.do_hurt_target(pig.as_ref()));
+        assert_eq!(
+            pig_living.health.load(),
+            health_before,
+            "vanilla Creeper.doHurtTarget succeeds without direct melee damage"
+        );
+        world.level.shutdown().await;
+        Ok(())
     }
 }
