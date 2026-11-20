@@ -1586,6 +1586,8 @@ pub struct Entity {
     pub vertical_collision: AtomicBool,
     /// Indicates whether the entity is on the ground (may not always be accurate).
     pub on_ground: AtomicBool,
+    /// Base Entity fall distance for non-living entities; living entities track their own.
+    non_living_fall_distance: AtomicCell<f64>,
     /// Indicates whether the entity is touching water
     pub touching_water: AtomicBool,
     /// Indicates the fluid height
@@ -1879,6 +1881,7 @@ impl Entity {
             entity_uuid,
             entity_type,
             on_ground: AtomicBool::new(false),
+            non_living_fall_distance: AtomicCell::new(0.0),
             touching_water: AtomicBool::new(false),
             water_height: AtomicCell::new(0.0),
             touching_lava: AtomicBool::new(false),
@@ -6190,6 +6193,8 @@ impl Entity {
         }
         nbt.put_short("Fire", self.fire_ticks.load(Relaxed) as i16);
         nbt.put_bool("OnGround", self.on_ground.load(Relaxed));
+        // LivingEntity writes its actual f32 distance after this base NBT pass.
+        nbt.put_double("fall_distance", self.non_living_fall_distance.load());
         nbt.put_bool("Invulnerable", self.invulnerable.load(Relaxed));
         nbt.put_int("PortalCooldown", self.portal_cooldown.load(Relaxed) as i32);
         if let Some(custom_name) = &**self.custom_name.load() {
@@ -6309,6 +6314,8 @@ impl Entity {
         );
         self.on_ground
             .store(nbt.get_bool("OnGround").unwrap_or(false), Relaxed);
+        self.non_living_fall_distance
+            .store(nbt.get_double("fall_distance").unwrap_or(0.0));
         if self.entity_type != &EntityType::PLAYER {
             let air = nbt
                 .get_numeric_short("Air")
