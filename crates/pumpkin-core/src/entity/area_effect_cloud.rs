@@ -7,6 +7,7 @@ use crate::{
 };
 use pumpkin_data::effect::StatusEffect;
 use pumpkin_data::item_stack::ItemStack;
+use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_util::math::boundingbox::BoundingBox;
 use pumpkin_util::math::vector3::Vector3;
 
@@ -159,6 +160,107 @@ impl AreaEffectCloudEntity {
 }
 
 impl EntityBase for AreaEffectCloudEntity {
+    fn write_custom_nbt(&self, nbt: &mut NbtCompound) {
+        nbt.put_int(
+            "Age",
+            *self
+                .age
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_int(
+            "Duration",
+            *self
+                .duration
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_int(
+            "WaitTime",
+            *self
+                .wait_time
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_int(
+            "ReapplicationDelay",
+            *self
+                .reapplication_delay
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_int(
+            "DurationOnUse",
+            *self
+                .duration_on_use
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_float(
+            "RadiusOnUse",
+            *self
+                .radius_on_use
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_float(
+            "RadiusPerTick",
+            *self
+                .radius_on_tick
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        nbt.put_float(
+            "Radius",
+            *self
+                .radius
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+    }
+
+    fn read_custom_nbt(&self, nbt: &NbtCompound) {
+        *self
+            .age
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = nbt.get_int("Age").unwrap_or(0);
+        *self
+            .duration
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_int("Duration").unwrap_or(-1);
+        *self
+            .wait_time
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_int("WaitTime").unwrap_or(20);
+        *self
+            .reapplication_delay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_int("ReapplicationDelay").unwrap_or(20);
+        *self
+            .duration_on_use
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_int("DurationOnUse").unwrap_or(0);
+        *self
+            .radius_on_use
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_float("RadiusOnUse").unwrap_or(0.0);
+        *self
+            .radius_on_tick
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_float("RadiusPerTick").unwrap_or(0.0);
+        *self
+            .radius
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            nbt.get_float("Radius").unwrap_or(3.0);
+    }
+
     fn init_data_tracker(&self) {
         // Send initial radius and particle (color) so clients render correctly
         let radius = *self
@@ -520,6 +622,50 @@ mod tests {
     use super::*;
     use crate::entity::ai::test_support::world;
     use pumpkin_data::entity::EntityType;
+
+    #[tokio::test]
+    async fn cloud_nbt_roundtrips_vanilla_timing_and_radius_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let cloud = AreaEffectCloudEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(2.5, 151.0, 2.5),
+            &EntityType::AREA_EFFECT_CLOUD,
+        ));
+        let mut vanilla = NbtCompound::new();
+        vanilla.put_int("Age", 3);
+        vanilla.put_int("Duration", 65);
+        vanilla.put_int("WaitTime", 7);
+        vanilla.put_int("ReapplicationDelay", 13);
+        vanilla.put_int("DurationOnUse", -5);
+        vanilla.put_float("RadiusOnUse", -0.25);
+        vanilla.put_float("RadiusPerTick", 0.0);
+        vanilla.put_float("Radius", 2.5);
+        vanilla.put_double("fall_distance", 1.25);
+        cloud.read_nbt_non_mut(&vanilla);
+        let mut persisted = NbtCompound::new();
+        cloud.write_nbt(&mut persisted);
+        assert_eq!(persisted.get_double("fall_distance"), Some(1.25));
+        for field in [
+            "Age",
+            "Duration",
+            "WaitTime",
+            "ReapplicationDelay",
+            "DurationOnUse",
+        ] {
+            assert_eq!(persisted.get_int(field), vanilla.get_int(field), "{field}");
+        }
+        for field in ["RadiusOnUse", "RadiusPerTick", "Radius"] {
+            assert_eq!(
+                persisted.get_float(field),
+                vanilla.get_float(field),
+                "{field}"
+            );
+        }
+        world.level.shutdown().await;
+        Ok(())
+    }
 
     #[test]
     fn finite_cloud_duration_starts_after_wait_period() {
