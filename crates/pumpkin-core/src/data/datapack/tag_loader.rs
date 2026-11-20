@@ -11,6 +11,8 @@ use serde::Deserialize;
 pub struct DynamicTagEntry {
     pub id: String,
     pub values: Vec<String>,
+    /// A pack set `replace`, so lower packs and the generated vanilla entries don't count.
+    pub replace: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -135,10 +137,13 @@ fn resolve_tag<S: std::hash::BuildHasher>(
     if depth > MAX_TAG_DEPTH {
         return;
     }
-    if let Some(ids) = get_tag_ids(key, name) {
+    let entry = tags.get(name);
+    if !entry.is_some_and(|entry| entry.replace)
+        && let Some(ids) = get_tag_ids(key, name)
+    {
         out.extend_from_slice(ids);
     }
-    let Some(entry) = tags.get(name) else {
+    let Some(entry) = entry else {
         return;
     };
     for value in &entry.values {
@@ -193,6 +198,7 @@ fn load_tag_category_recursive<S: std::hash::BuildHasher>(
                         DynamicTagEntry {
                             id: tag_id,
                             values: string_values,
+                            replace: true,
                         },
                     );
                 } else {
@@ -202,6 +208,7 @@ fn load_tag_category_recursive<S: std::hash::BuildHasher>(
                             .or_insert_with(|| DynamicTagEntry {
                                 id: tag_id,
                                 values: Vec::new(),
+                                replace: false,
                             });
                     for val in string_values {
                         if !entry.values.contains(&val) {

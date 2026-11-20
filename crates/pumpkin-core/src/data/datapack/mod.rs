@@ -381,8 +381,9 @@ impl DatapackManager {
         names
     }
 
+    /// The merged datapack tag, with whether a pack replaced it.
     #[must_use]
-    pub fn get_tag_values(&self, category: &str, tag_id: &str) -> Option<Vec<String>> {
+    pub fn get_tag(&self, category: &str, tag_id: &str) -> Option<tag_loader::DynamicTagEntry> {
         let guard = self
             .tags
             .read()
@@ -396,7 +397,12 @@ impl DatapackManager {
         cat_map
             .get(&full_id)
             .or_else(|| cat_map.get(tag_id))
-            .map(|e| e.values.clone())
+            .cloned()
+    }
+
+    #[must_use]
+    pub fn get_tag_values(&self, category: &str, tag_id: &str) -> Option<Vec<String>> {
+        self.get_tag(category, tag_id).map(|entry| entry.values)
     }
 
     #[must_use]
