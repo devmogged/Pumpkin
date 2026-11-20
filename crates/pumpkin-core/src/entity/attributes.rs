@@ -55,6 +55,8 @@ pub struct AttributeInstance {
     pub dirty: AtomicBool,
     /// Vanilla `AttributeMap.attributesToUpdate` membership, drained by the owner's tick.
     pub updated: AtomicBool,
+    /// Java `AttributeMap` persists only instances created through `getInstance`.
+    pub materialized: AtomicBool,
 }
 
 impl AttributeInstance {
@@ -67,6 +69,7 @@ impl AttributeInstance {
             cached_value: AtomicU64::new(base_value.to_bits()),
             dirty: AtomicBool::new(true),
             updated: AtomicBool::new(false),
+            materialized: AtomicBool::new(false),
         }
     }
 
@@ -74,6 +77,7 @@ impl AttributeInstance {
     pub fn mark_dirty(&self) {
         self.dirty.store(true, Ordering::Relaxed);
         self.updated.store(true, Ordering::Relaxed);
+        self.materialized.store(true, Ordering::Relaxed);
     }
 
     fn calculate_raw_value(&self) -> f64 {
@@ -173,6 +177,7 @@ impl AttributeInstance {
 
     fn apply(&mut self, packed: &NbtCompound) {
         self.base_value = packed.get_double("base").unwrap_or(0.0);
+        self.materialized.store(true, Ordering::Relaxed);
         for modifier in packed.get_list("modifiers").unwrap_or_default() {
             let Some(modifier) = modifier.extract_compound() else {
                 continue;
@@ -204,6 +209,7 @@ pub fn pack_attributes(living: &LivingEntity) -> Vec<NbtTag> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut packed: Vec<(u8, NbtCompound)> = attributes
         .iter()
+        .filter(|(_, instance)| instance.materialized.load(Ordering::Relaxed))
         .filter_map(|(id, instance)| {
             attributes_by_id(*id).map(|attribute| (*id, instance.pack(attribute)))
         })
@@ -278,8 +284,9 @@ pub fn get_syncable_attributes(living: &crate::entity::living::LivingEntity) -> 
         .attributes
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .keys()
-        .filter_map(|id| attributes_by_id(*id))
+        .iter()
+        .filter(|(_, instance)| instance.materialized.load(Ordering::Relaxed))
+        .filter_map(|(id, _)| attributes_by_id(*id))
         .collect();
     attributes
         .into_iter()
@@ -378,6 +385,7 @@ impl Clone for AttributeInstance {
             cached_value: AtomicU64::new(self.cached_value.load(Ordering::Relaxed)),
             dirty: AtomicBool::new(self.dirty.load(Ordering::Relaxed)),
             updated: AtomicBool::new(self.updated.load(Ordering::Relaxed)),
+            materialized: AtomicBool::new(self.materialized.load(Ordering::Relaxed)),
         }
     }
 }

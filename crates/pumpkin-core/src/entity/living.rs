@@ -85,6 +85,8 @@ pub struct LivingEntity {
     pub entity: Entity,
     /// Tracks the remaining time until the entity can regenerate health.
     pub hurt_cooldown: AtomicI32,
+    /// Java `hurtTime` is independent of the 20-tick damage cooldown.
+    pub hurt_time: AtomicI32,
     /// Arrows sticking out of the entity, synced so the client renders them.
     arrow_count: AtomicI32,
     remove_arrow_time: AtomicI32,
@@ -486,6 +488,7 @@ impl LivingEntity {
             health: AtomicCell::new(max_health), // Initial health value from attributes
             entity,
             hurt_cooldown: AtomicI32::new(0),
+            hurt_time: AtomicI32::new(0),
             arrow_count: AtomicI32::new(0),
             remove_arrow_time: AtomicI32::new(0),
             last_damage_taken: AtomicCell::new(0.0),
@@ -3639,6 +3642,7 @@ impl LivingEntity {
 
         // Fresh damage cooldown, as on a new vanilla player
         self.hurt_cooldown.store(0, Relaxed);
+        self.hurt_time.store(0, Relaxed);
         self.last_damage_taken.store(0f32);
 
         self.entity.portal_cooldown.store(0, Relaxed);
@@ -3718,6 +3722,7 @@ impl LivingEntity {
         }
         nbt.put("Health", NbtTag::Float(self.health.load()));
         nbt.put_short("DeathTime", i16::from(self.death_time.load(Relaxed)));
+        nbt.put_short("HurtTime", self.hurt_time.load(Relaxed) as i16);
         nbt.put("AbsorptionAmount", NbtTag::Float(self.absorption.load()));
         nbt.put_list("attributes", pack_attributes(self));
         {
@@ -3800,6 +3805,8 @@ impl LivingEntity {
         }
         self.hurt_cooldown
             .store(nbt.get_int("invulnerable_time").unwrap_or(0), Relaxed);
+        self.hurt_time
+            .store(i32::from(nbt.get_short("HurtTime").unwrap_or(0)), Relaxed);
 
         self.absorption
             .store(nbt.get_numeric_float("AbsorptionAmount").unwrap_or(0.0));
@@ -4185,6 +4192,7 @@ impl LivingEntity {
             (amount - last_damage, false)
         } else {
             self.hurt_cooldown.store(20, Relaxed);
+            self.hurt_time.store(HURT_DURATION, Relaxed);
             (amount, true)
         };
         self.last_damage_taken.store(amount);
@@ -4811,6 +4819,9 @@ impl EntityBase for LivingEntity {
             }
         }
 
+        if self.hurt_time.load(Relaxed) > 0 {
+            self.hurt_time.fetch_sub(1, Relaxed);
+        }
         if self.hurt_cooldown.load(Relaxed) > 0 {
             self.hurt_cooldown.fetch_sub(1, Relaxed);
         }
@@ -6306,6 +6317,51 @@ mod player_wall_tests {
         living.make_move(&living);
         assert_eq!(living.entity.velocity.load().x, 0.0);
 
+        world.level.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn vanilla_mob_nbt_hurt_time_and_materialized_attributes() -> TestResult {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let living = LivingEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(0.5, 64.0, 0.5),
+            &EntityType::ZOMBIE,
+        ));
+
+        let mut nbt = pumpkin_nbt::compound::NbtCompound::new();
+        living.write_living_nbt(&mut nbt);
+        assert_eq!(nbt.get_short("HurtTime"), Some(0));
+        assert_eq!(nbt.get_list("attributes").map(|a| a.len()), Some(0));
+
+        // Java's AttributeMap.getInstance materializes only the attribute it touches.
+        living.update_attribute(&Attributes::MOVEMENT_SPEED, |_| {});
+        living
+            .hurt_time
+            .store(7, std::sync::atomic::Ordering::Relaxed);
+        living.write_living_nbt(&mut nbt);
+        let attrs = nbt.get_list("attributes").ok_or("missing attributes")?;
+        assert_eq!(attrs.len(), 1);
+        assert_eq!(
+            attrs[0].extract_compound().and_then(|c| c.get_string("id")),
+            Some("minecraft:movement_speed")
+        );
+        assert_eq!(nbt.get_short("HurtTime"), Some(7));
+
+        let restored = LivingEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(0.5, 64.0, 0.5),
+            &EntityType::ZOMBIE,
+        ));
+        restored.read_living_nbt_non_mut(&nbt);
+        assert_eq!(
+            restored
+                .hurt_time
+                .load(std::sync::atomic::Ordering::Relaxed),
+            7
+        );
         world.level.shutdown().await;
         Ok(())
     }
