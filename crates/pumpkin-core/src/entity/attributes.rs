@@ -3,6 +3,9 @@ use pumpkin_data::attributes::Attributes;
 use pumpkin_data::entity::EntityType;
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
+use pumpkin_protocol::codec::var_int::VarInt;
+use pumpkin_protocol::java::client::play::AttributeModifier as JeAttrMod;
+use pumpkin_protocol::java::client::play::Property as JeProperty;
 use rustc_hash::FxHashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -235,6 +238,55 @@ pub fn apply_attributes(living: &LivingEntity, packed: &[NbtTag]) {
     }
 }
 
+/// Builds the Java `ClientboundUpdateAttributesPacket` property for one attribute,
+/// or `None` when the attribute is not client syncable.
+fn java_attribute_property(
+    living: &crate::entity::living::LivingEntity,
+    attribute: &Attributes,
+) -> Option<JeProperty> {
+    if !attribute.client_syncable {
+        return None;
+    }
+
+    let mut modifiers = Vec::new();
+    if let Some(inst) = living
+        .attributes
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&attribute.id)
+    {
+        for mod_inst in &inst.modifiers {
+            modifiers.push(JeAttrMod::new(
+                mod_inst.id.clone(),
+                mod_inst.amount,
+                mod_inst.operation as i8,
+            ));
+        }
+    }
+
+    Some(JeProperty::new(
+        VarInt(i32::from(attribute.id)),
+        living.get_attribute_base(attribute),
+        modifiers,
+    ))
+}
+
+/// Vanilla `AttributeMap.getSyncableAttributes`, encoded as Java attribute properties.
+#[must_use]
+pub fn get_syncable_attributes(living: &crate::entity::living::LivingEntity) -> Vec<JeProperty> {
+    let attributes: Vec<&'static Attributes> = living
+        .attributes
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .keys()
+        .filter_map(|id| attributes_by_id(*id))
+        .collect();
+    attributes
+        .into_iter()
+        .filter_map(|attribute| java_attribute_property(living, attribute))
+        .collect()
+}
+
 /// Send updates for multiple attributes in a single packet for the given living entity.
 pub fn send_attribute_updates_for_living(
     living: &crate::entity::living::LivingEntity,
@@ -243,11 +295,8 @@ pub fn send_attribute_updates_for_living(
     use pumpkin_protocol::bedrock::client::update_attributes::{
         AttributeData as BeAttribute, CUpdateAttributes as BePacket,
     };
-    use pumpkin_protocol::codec::var_int::VarInt;
     use pumpkin_protocol::codec::var_ulong::VarULong;
-    use pumpkin_protocol::java::client::play::AttributeModifier as JeAttrMod;
     use pumpkin_protocol::java::client::play::CUpdateAttributes as JePacket;
-    use pumpkin_protocol::java::client::play::Property as JeProperty;
 
     let mut je_properties: Vec<JeProperty> = Vec::with_capacity(attributes.len());
     let mut be_attributes: Vec<BeAttribute> = Vec::with_capacity(attributes.len());
@@ -256,30 +305,8 @@ pub fn send_attribute_updates_for_living(
         let base_value = living.get_attribute_base(&attribute);
         let effective_value = living.get_attribute_value(&attribute);
 
-        if attribute.client_syncable {
-            // Pull modifiers for this attribute
-            let mut modifiers = Vec::new();
-            if let Some(inst) = living
-                .attributes
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&attribute.id)
-            {
-                for mod_inst in &inst.modifiers {
-                    modifiers.push(JeAttrMod::new(
-                        mod_inst.id.clone(),
-                        mod_inst.amount,
-                        mod_inst.operation as i8,
-                    ));
-                }
-            }
-
-            // Move modifiers into the property
-            je_properties.push(JeProperty::new(
-                VarInt(i32::from(attribute.id)),
-                base_value,
-                modifiers,
-            ));
+        if let Some(property) = java_attribute_property(living, &attribute) {
+            je_properties.push(property);
         }
 
         let name = match attribute.id {

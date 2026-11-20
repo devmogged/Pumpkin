@@ -22,8 +22,8 @@ use pumpkin_protocol::codec::var_long::VarLong;
 use pumpkin_protocol::codec::var_ulong::VarULong;
 use pumpkin_protocol::java::client::play::{
     CEntityPositionSync, CEntityVelocity, CHeadRot, CRemoveEntities, CSetEntityMetadata,
-    CSetEquipment, CSetPassengers, CUpdateEntityPos, CUpdateEntityPosRot, CUpdateEntityRot,
-    Metadata,
+    CSetEquipment, CSetPassengers, CUpdateAttributes, CUpdateEntityPos, CUpdateEntityPosRot,
+    CUpdateEntityRot, Metadata,
 };
 use pumpkin_protocol::{BClientPacket, ClientPacket};
 use pumpkin_util::GameMode;
@@ -684,6 +684,19 @@ impl TrackedEntity {
                 if let Ok(packet_data) = JavaClient::serialize_packet_for_version(&packet, version)
                 {
                     client.try_enqueue_packet(packet_data);
+                }
+            }
+        }
+
+        // Vanilla `ServerEntity.sendPairingData` syncs attributes after the entity data.
+        if let Some(living) = self.entity.get_living_entity()
+            && let ClientPlatform::Java(client) = player.client.as_ref()
+        {
+            let attributes = crate::entity::attributes::get_syncable_attributes(living);
+            if !attributes.is_empty() {
+                let packet = CUpdateAttributes::new(self.entity_id.into(), attributes);
+                if let Ok(data) = client.serialize_packet(&packet) {
+                    client.try_enqueue_packet(data);
                 }
             }
         }
