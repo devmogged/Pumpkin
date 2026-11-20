@@ -13,6 +13,7 @@ use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_protocol::codec::var_int::VarInt;
 
 use crate::entity::ai::behavior::hunting::{self, Hunt};
+use crate::entity::area_effect_cloud::AreaEffectCloudEntity;
 use crate::entity::{
     Entity, EntityBase,
     ai::behavior::fleeing::{self, Flee},
@@ -120,8 +121,58 @@ impl CreeperEntity {
             radius * multiplier,
             crate::world::ExplosionInteraction::Mob,
         );
-        // TODO: spawn area effect cloud with potion effects
+        self.spawn_lingering_cloud();
         entity.remove();
+    }
+
+    // Vanilla Creeper.spawnLingeringCloud: preserve each active effect at 1/4 duration.
+    fn spawn_lingering_cloud(&self) {
+        let effects: Vec<_> = self
+            .mob_entity
+            .living_entity
+            .active_effects
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .map(|effect| {
+                let duration = if effect.duration == -1 || effect.duration == 0 {
+                    effect.duration
+                } else {
+                    ((effect.duration as f32) * 0.25).floor().max(1.0) as i32
+                };
+                (
+                    effect.effect_type,
+                    duration,
+                    effect.amplifier,
+                    effect.ambient,
+                    effect.show_particles,
+                    effect.show_icon,
+                )
+            })
+            .collect();
+        if effects.is_empty() {
+            return;
+        }
+
+        let entity = &self.mob_entity.living_entity.entity;
+        let world = entity.world.load();
+        let cloud_entity = Entity::new(
+            world.clone(),
+            entity.pos.load(),
+            &EntityType::AREA_EFFECT_CLOUD,
+        );
+        let cloud = AreaEffectCloudEntity::create(
+            cloud_entity,
+            ItemStack::new(0, &Item::GLASS_BOTTLE),
+            effects,
+            300,  // duration
+            2.5,  // initial radius
+            20,   // reapplication delay
+            10,   // wait time
+            -0.5, // radius on use
+            0,    // duration on use
+        );
+        world.spawn_entity(cloud);
     }
 }
 
@@ -325,8 +376,85 @@ impl CreeperEntity {
 mod tests {
     use super::*;
     use crate::entity::{ai::test_support::world, r#type::from_type};
-    use pumpkin_util::math::vector3::Vector3;
+    use pumpkin_data::{effect::StatusEffect, potion::Effect};
+    use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn creeper_cloud_only_spawns_with_active_effects_and_uses_vanilla_settings()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let creeper = CreeperEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(2.5, 151.0, 2.5),
+            &EntityType::CREEPER,
+        ));
+        let bounds = BoundingBox::new(Vector3::new(0.0, 149.0, 0.0), Vector3::new(5.0, 155.0, 5.0));
+        creeper.spawn_lingering_cloud();
+        assert!(world.get_entities_at_box(&bounds).is_empty());
+
+        creeper.mob_entity.living_entity.add_effect(Effect {
+            effect_type: &StatusEffect::SPEED,
+            duration: 200,
+            amplifier: 1,
+            ambient: false,
+            show_particles: true,
+            show_icon: true,
+            blend: false,
+        });
+        creeper.spawn_lingering_cloud();
+        let spawned = world.get_entities_at_box(&bounds);
+        assert_eq!(spawned.len(), 1);
+        let Some(cloud) = spawned[0]
+            .cast_any()
+            .downcast_ref::<AreaEffectCloudEntity>()
+        else {
+            panic!("an effect-bearing creeper should spawn an area effect cloud");
+        };
+        assert_eq!(
+            *cloud
+                .duration
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            300
+        );
+        assert_eq!(
+            *cloud
+                .wait_time
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            10
+        );
+        assert_eq!(
+            *cloud
+                .radius
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            2.5
+        );
+        assert_eq!(
+            *cloud
+                .radius_on_use
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            -0.5
+        );
+        let effects = cloud
+            .effects
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].0.id, StatusEffect::SPEED.id);
+        assert_eq!(
+            effects[0].1, 50,
+            "Java's potion-duration scale is one quarter"
+        );
+        assert_eq!(effects[0].2, 1);
+        drop(effects);
+        world.level.shutdown().await;
+        Ok(())
+    }
 
     #[tokio::test]
     async fn creeper_melee_attempt_cannot_damage_a_target() -> Result<(), Box<dyn std::error::Error>>
