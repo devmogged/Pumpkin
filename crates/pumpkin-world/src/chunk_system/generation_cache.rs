@@ -739,11 +739,7 @@ impl Cache {
             },
             StagedChunkEnum::Features => match generator {
                 generator::WorldGenerator::Noise(noise_gen) => {
-                    ProtoChunk::generate_features_and_structure(
-                        self,
-                        block_registry,
-                        &noise_gen.random_config,
-                    );
+                    ProtoChunk::generate_features_and_structure(self, block_registry, noise_gen);
                 }
                 generator::WorldGenerator::Flat(_) => {
                     self.chunks[mid].get_proto_chunk_mut().stage = StagedChunkEnum::Features;

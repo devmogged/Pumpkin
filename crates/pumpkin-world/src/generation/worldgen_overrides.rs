@@ -13,6 +13,7 @@ use pumpkin_data::{
     material_rule::{MaterialRule, VANILLA_MATERIAL_CONDITIONS, VANILLA_MATERIAL_RULES},
     noise_router::{BaseNoiseRouters, VANILLA_DENSITY_JSON},
     noise_settings::{GenerationShapeConfig, NoiseSettings, VANILLA_SETTINGS_JSON},
+    placed_feature::PlacedFeature,
     registry::RegistryEntryData,
 };
 use pumpkin_worldgen_model::{
@@ -29,6 +30,8 @@ use serde_json::Value;
 #[path = "worldgen_dimensions.rs"]
 mod dimensions;
 
+use super::worldgen_feature::FeatureFiles;
+
 /// Worldgen settings selected once when the level opens.
 pub struct RuntimeNoiseSettings {
     pub(crate) settings: &'static NoiseSettings,
@@ -44,6 +47,9 @@ pub struct WorldgenOverrides {
     dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
     carvers: BTreeMap<String, PathBuf>,
+    configured_features: BTreeMap<String, PathBuf>,
+    placed_features: BTreeMap<String, PathBuf>,
+    state_providers: BTreeMap<String, PathBuf>,
     biome_tags: BTreeMap<String, Vec<u16>>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
@@ -79,6 +85,9 @@ impl WorldgenOverrides {
                 for (kind, registry) in [
                     ("biome", &mut overrides.biomes),
                     ("carver", &mut overrides.carvers),
+                    ("feature", &mut overrides.configured_features),
+                    ("placed_feature", &mut overrides.placed_features),
+                    ("block_state_provider", &mut overrides.state_providers),
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
                     ("noise", &mut overrides.noises),
@@ -94,7 +103,10 @@ impl WorldgenOverrides {
 
     #[must_use]
     pub fn has_biome_generation_overrides(&self) -> bool {
-        !self.biomes.is_empty() || !self.carvers.is_empty()
+        !self.biomes.is_empty()
+            || !self.carvers.is_empty()
+            || !self.configured_features.is_empty()
+            || !self.placed_features.is_empty()
     }
 
     /// Saves the merged tags at the biome IDs installed for this world generation run.
@@ -112,6 +124,20 @@ impl WorldgenOverrides {
         }
 
         let carvers = self.build_carvers();
+        let features = FeatureFiles {
+            configured: &self.configured_features,
+            placed: &self.placed_features,
+            providers: &self.state_providers,
+        }
+        .build();
+        let mut unknown_features = BTreeSet::new();
+        let mut feature = |name: &str| {
+            let id = features.id(name).or_else(|| PlacedFeature::from_name(name));
+            if id.is_none() && unknown_features.insert(name.to_owned()) {
+                tracing::warn!("Skipping unknown placed feature {name}");
+            }
+            id
+        };
         let mut unknown = BTreeSet::new();
         let mut carver = |name: &str| {
             let id = resource_id(name);
@@ -159,7 +185,7 @@ impl WorldgenOverrides {
             };
             let name = vanilla.map_or(key.as_ref(), |biome| biome.registry_id);
             match read_json(path).and_then(|json| {
-                crate::biome::registry::build_biome(id as u8, name, json, &mut carver)
+                crate::biome::registry::build_biome(id as u8, name, json, &mut carver, &mut feature)
             }) {
                 Ok(biome) => custom.push(biome),
                 Err(error) => tracing::warn!("Skipping biome {key}: {error}"),
@@ -167,7 +193,7 @@ impl WorldgenOverrides {
         }
 
         if Biome::install_runtime_biomes(registry.len(), custom) {
-            Ok(())
+            features.install()
         } else {
             Err("could not install synchronized biome IDs".into())
         }
@@ -329,7 +355,7 @@ fn index_json(dir: &Path, prefix: &str, outputs: &mut BTreeMap<String, PathBuf>)
     }
 }
 
-fn read_json(path: &Path) -> Result<Value, String> {
+pub(super) fn read_json(path: &Path) -> Result<Value, String> {
     const MAX_WORLDGEN_JSON_SIZE: u64 = 8 * 1024 * 1024;
     let mut text = String::new();
     std::fs::File::open(path)

@@ -2,6 +2,7 @@ pub mod biome;
 pub mod biome_data;
 pub mod carver;
 pub mod dimension;
+pub mod feature_data;
 pub mod material;
 pub mod noise_parameter;
 pub mod noise_router;

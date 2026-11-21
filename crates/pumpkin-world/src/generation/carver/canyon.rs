@@ -1,5 +1,5 @@
-use super::cave::get_height;
 use super::{Carver, CarverOutput};
+use crate::generation::height_provider::sample;
 use pumpkin_data::carver::{CarverAdditionalConfig, CarverConfig};
 use pumpkin_util::math::vector2::Vector2;
 use pumpkin_util::random::{RandomGenerator, RandomImpl};
@@ -27,7 +27,7 @@ impl Carver for CanyonCarver {
         let max_distance = (4 * 2 - 1) * 16;
 
         let x = (carver_chunk_pos.x << 4) + random.next_bounded_i32(16);
-        let y = get_height(&config.y, random, min_gen_y, gen_depth, sea_level);
+        let y = sample(&config.y, random, min_gen_y, gen_depth, sea_level);
         let z = (carver_chunk_pos.y << 4) + random.next_bounded_i32(16);
 
         let horizontal_rotation = random.next_f32() * PI * 2.0;

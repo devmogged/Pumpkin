@@ -324,12 +324,11 @@ fn value_to_template_feature(config: &Value) -> TokenStream {
 /// # Arguments
 /// – `v` – the JSON object for the feature, expected to contain `"type"` and `"config"` fields.
 pub fn value_to_configured_feature(v: &Value) -> TokenStream {
-    let type_str = v["type"].as_str().unwrap_or("");
-    let config = if v.get("config").is_some_and(Value::is_object) {
-        &v["config"]
-    } else {
-        v
-    };
+    let data = pumpkin_worldgen_model::feature_data::ConfiguredFeature::parse(v)
+        .expect("invalid vanilla configured feature");
+    let type_name = format!("minecraft:{}", data.kind);
+    let type_str = type_name.as_str();
+    let config = data.config;
     match type_str {
         "minecraft:no_op" => quote! { ConfiguredFeature::NoOp },
         "minecraft:bamboo" => {
@@ -2069,7 +2068,7 @@ fn value_to_feature_ref(v: &Value) -> TokenStream {
         }
         Value::Object(_) => {
             let cf = value_to_configured_feature(v);
-            quote! { Feature::Inlined(Box::new(#cf)) }
+            quote! { Feature::Inlined(std::sync::Arc::new(#cf)) }
         }
         _ => quote! { Feature::Named(pumpkin_data::configured_feature::ConfiguredFeature::NoOp) },
     }

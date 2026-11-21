@@ -3,6 +3,78 @@ use std::sync::LazyLock;
 
 use pumpkin_data::chunk::Biome;
 use pumpkin_data::placed_feature::PlacedFeature;
+use rustc_hash::FxHashSet;
+
+use crate::{biome::ActiveBiomeSupplier, world_info::BiomeSource};
+
+pub struct FeatureOrder {
+    biomes: HashSet<u8>,
+    per_step: Vec<Vec<PlacedFeature>>,
+}
+
+impl FeatureOrder {
+    pub fn for_source(
+        supplier: &ActiveBiomeSupplier,
+        source: Option<&BiomeSource>,
+        possible_biomes: &FxHashSet<u16>,
+    ) -> Option<Self> {
+        let mut biomes = match supplier {
+            ActiveBiomeSupplier::DirectMultiNoise(_) => {
+                let Some(BiomeSource::WithBiomes { biomes, .. }) = source else {
+                    return None;
+                };
+                biomes
+                    .as_array()?
+                    .iter()
+                    .filter_map(|entry| {
+                        let id = entry.get("biome")?.as_str()?;
+                        Biome::from_name(id.strip_prefix("minecraft:").unwrap_or(id))
+                    })
+                    .collect()
+            }
+            ActiveBiomeSupplier::Checkerboard { biomes, .. } => biomes.to_vec(),
+            ActiveBiomeSupplier::Fixed(supplier) => vec![supplier.biome],
+            ActiveBiomeSupplier::End(_) => overridden_biomes(END_BIOMES)?,
+            ActiveBiomeSupplier::MultiNoise(_) => {
+                let stock = if possible_biomes.contains(&u16::from(Biome::NETHER_WASTES.id)) {
+                    NETHER_BIOMES
+                } else {
+                    OVERWORLD_BIOMES
+                };
+                overridden_biomes(stock)?
+            }
+        };
+        let mut biome_ids = HashSet::with_capacity(biomes.len());
+        biomes.retain(|biome| biome_ids.insert(biome.id));
+        let per_step = sort_features_per_step(&biomes).unwrap_or_else(|feature| {
+            tracing::warn!(
+                "Skipping feature generation after ordering cycle at {}",
+                feature.to_name()
+            );
+            Vec::new()
+        });
+        Some(Self {
+            biomes: biome_ids,
+            per_step,
+        })
+    }
+
+    pub fn select(&self, biome_ids: &[u8], step: usize) -> Vec<(usize, PlacedFeature)> {
+        select_features_for_dimension(biome_ids, step, &self.biomes, &self.per_step)
+    }
+}
+
+fn overridden_biomes(vanilla: &[&Biome]) -> Option<Vec<&'static Biome>> {
+    let biomes = vanilla
+        .iter()
+        .filter_map(|biome| Biome::from_id(biome.id))
+        .collect::<Vec<_>>();
+    biomes
+        .iter()
+        .zip(vanilla)
+        .any(|(actual, stock)| actual.features != stock.features)
+        .then_some(biomes)
+}
 
 // The order of biomes in this array is used by FeatureSorter to break ties between otherwise independent features.
 const OVERWORLD_BIOMES: &[&Biome] = &[
@@ -104,17 +176,17 @@ const END_BIOMES: &[&Biome] = &[
 ];
 
 static OVERWORLD_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
-    LazyLock::new(|| sort_features_per_step(OVERWORLD_BIOMES));
+    LazyLock::new(|| sort_features_per_step(OVERWORLD_BIOMES).unwrap_or_default());
 static OVERWORLD_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| OVERWORLD_BIOMES.iter().map(|biome| biome.id).collect());
 
 static NETHER_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
-    LazyLock::new(|| sort_features_per_step(NETHER_BIOMES));
+    LazyLock::new(|| sort_features_per_step(NETHER_BIOMES).unwrap_or_default());
 static NETHER_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| NETHER_BIOMES.iter().map(|biome| biome.id).collect());
 
 static END_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
-    LazyLock::new(|| sort_features_per_step(END_BIOMES));
+    LazyLock::new(|| sort_features_per_step(END_BIOMES).unwrap_or_default());
 static END_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| END_BIOMES.iter().map(|biome| biome.id).collect());
 
@@ -166,7 +238,7 @@ fn select_features_for_dimension(
         .collect()
 }
 
-fn sort_features_per_step(biomes: &[&Biome]) -> Vec<Vec<PlacedFeature>> {
+fn sort_features_per_step(biomes: &[&Biome]) -> Result<Vec<Vec<PlacedFeature>>, PlacedFeature> {
     let mut feature_indices = HashMap::new();
     let mut edges: BTreeMap<FeatureData, BTreeSet<FeatureData>> = BTreeMap::new();
     let mut max_steps = 0;
@@ -198,7 +270,7 @@ fn sort_features_per_step(biomes: &[&Biome]) -> Vec<Vec<PlacedFeature>> {
     let mut visiting = BTreeSet::new();
     let mut sorted = Vec::with_capacity(edges.len());
     for &feature in edges.keys() {
-        visit_feature(feature, &edges, &mut discovered, &mut visiting, &mut sorted);
+        visit_feature(feature, &edges, &mut discovered, &mut visiting, &mut sorted)?;
     }
     sorted.reverse();
 
@@ -206,7 +278,7 @@ fn sort_features_per_step(biomes: &[&Biome]) -> Vec<Vec<PlacedFeature>> {
     for feature in sorted {
         per_step[feature.step].push(feature.feature);
     }
-    per_step
+    Ok(per_step)
 }
 
 fn visit_feature(
@@ -215,22 +287,22 @@ fn visit_feature(
     discovered: &mut BTreeSet<FeatureData>,
     visiting: &mut BTreeSet<FeatureData>,
     sorted: &mut Vec<FeatureData>,
-) {
+) -> Result<(), PlacedFeature> {
     if discovered.contains(&feature) {
-        return;
+        return Ok(());
     }
-    assert!(
-        visiting.insert(feature),
-        "feature order cycle contains {feature:?}"
-    );
+    if !visiting.insert(feature) {
+        return Err(feature.feature);
+    }
     if let Some(next_features) = edges.get(&feature) {
         for &next in next_features {
-            visit_feature(next, edges, discovered, visiting, sorted);
+            visit_feature(next, edges, discovered, visiting, sorted)?;
         }
     }
     visiting.remove(&feature);
     discovered.insert(feature);
     sorted.push(feature);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -716,11 +716,7 @@ fn verify_stage_parity(seed: u64, stage_dumps: &[ChunkStageDump]) {
             chunks: chunks_3x3,
         };
 
-        ProtoChunk::generate_features_and_structure(
-            &mut grid_cache,
-            &block_registry,
-            &generator.random_config,
-        );
+        ProtoChunk::generate_features_and_structure(&mut grid_cache, &block_registry, generator);
 
         let center = grid_cache.chunks.get(&(cx, cz)).unwrap();
         if let Some(expected) = chunk_dump.stages.get("minecraft:features") {

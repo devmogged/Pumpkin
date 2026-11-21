@@ -1,6 +1,6 @@
 use super::CarverOutput;
 use super::{Carver, overworld_carve_state, place_carved_block};
-use pumpkin_data::carver::{CarverAdditionalConfig, CarverConfig, HeightProvider};
+use pumpkin_data::carver::{CarverAdditionalConfig, CarverConfig};
 use pumpkin_util::math::vector2::Vector2;
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_util::random::{RandomGenerator, RandomImpl};
@@ -30,7 +30,9 @@ impl Carver for CaveCarver {
 
         for _ in 0..cave_count {
             let x = (carver_chunk_pos.x << 4) + random.next_bounded_i32(16);
-            let y = get_height(&config.y, random, min_gen_y, gen_depth, sea_level) as f64;
+            let y = super::super::height_provider::sample(
+                &config.y, random, min_gen_y, gen_depth, sea_level,
+            ) as f64;
             let z = (carver_chunk_pos.y << 4) + random.next_bounded_i32(16);
 
             let horizontal_radius_multiplier =
@@ -263,58 +265,6 @@ impl CaveCarver {
         );
 
         true
-    }
-}
-
-pub fn get_height(
-    p: &HeightProvider,
-    random: &mut RandomGenerator,
-    min_y: i8,
-    height: u16,
-    sea_level: i32,
-) -> i32 {
-    let resolve = |anchor: &pumpkin_util::y_offset::YOffset| {
-        anchor.resolve_y(i16::from(min_y), height, sea_level)
-    };
-    match p {
-        HeightProvider::Constant(anchor) => resolve(anchor),
-        HeightProvider::Uniform(p) => {
-            let min = resolve(&p.min_inclusive);
-            let max = resolve(&p.max_inclusive);
-            if min > max {
-                min
-            } else {
-                random.next_inbetween_i32(min, max)
-            }
-        }
-        HeightProvider::Trapezoid(p) => {
-            let i = resolve(&p.min_inclusive);
-            let j = resolve(&p.max_inclusive);
-            if i > j {
-                return i;
-            }
-            let plateau = p.plateau.unwrap_or(0);
-            let k = j - i;
-            if plateau >= k {
-                random.next_inbetween_i32(i, j)
-            } else {
-                let l = (k - plateau) / 2;
-                let m = k - l;
-                i + random.next_inbetween_i32(0, m) + random.next_inbetween_i32(0, l)
-            }
-        }
-        HeightProvider::VeryBiasedToBottom(p) => {
-            let min = resolve(&p.min_inclusive);
-            let max = resolve(&p.max_inclusive);
-            let inner = p.inner.map_or(1, std::num::NonZero::get) as i32;
-            if max - min - inner < 0 {
-                min
-            } else {
-                let upper_inclusive = random.next_inbetween_i32(min + inner, max);
-                let biased_upper_inclusive = random.next_inbetween_i32(min, upper_inclusive - 1);
-                random.next_inbetween_i32(min, biased_upper_inclusive - 1 + inner)
-            }
-        }
     }
 }
 

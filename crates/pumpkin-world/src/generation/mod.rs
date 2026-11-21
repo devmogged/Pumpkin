@@ -17,7 +17,9 @@ pub mod proto_chunk_test;
 pub mod rule;
 pub mod structure;
 mod surface;
+mod worldgen_feature;
 pub mod worldgen_overrides;
+mod worldgen_placement;
 mod worldgen_surface;
 
 use generator::VanillaGenerator;

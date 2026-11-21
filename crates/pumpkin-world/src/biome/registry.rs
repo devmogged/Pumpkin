@@ -1,6 +1,7 @@
 use pumpkin_data::{
     biome::{Biome, SpawnCosts, SpawnCostsLookup, SpawnGroups, Spawner},
     carver::CarverConfig,
+    placed_feature::PlacedFeature,
 };
 use pumpkin_util::biome::{TemperatureModifier, Weather};
 use pumpkin_worldgen_model::biome_data::{
@@ -12,6 +13,7 @@ pub fn build_biome(
     name: &str,
     json: serde_json::Value,
     carver: impl FnMut(&str) -> Option<&'static CarverConfig>,
+    mut placed_feature: impl FnMut(&str) -> Option<PlacedFeature>,
 ) -> Result<Biome, String> {
     let mut biome: BiomeFile = serde_json::from_value(json).map_err(|error| error.to_string())?;
     biome.apply_natural_mob_spawns();
@@ -54,8 +56,22 @@ pub fn build_biome(
             temperature_modifier,
             biome.downfall,
         ),
-        // shortcut: runtime features are wired after carvers in E2d.
-        features: base.map_or(&[], |base| base.features),
+        features: Box::leak(
+            biome
+                .features
+                .into_iter()
+                .map(|step| {
+                    &*Box::leak(
+                        step.iter()
+                            .map(String::as_str)
+                            .filter_map(&mut placed_feature)
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        ),
         carvers: Box::leak(carvers.collect::<Vec<_>>().into_boxed_slice()),
         creature_spawn_probability: biome.creature_spawn_probability.unwrap_or(0.1),
         increased_fire_burnout,
@@ -97,6 +113,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn datapack_biome_preserves_placed_features_by_step() {
+        let biome = build_biome(
+            250,
+            "fixture:features",
+            serde_json::json!({
+                "has_precipitation": false,
+                "temperature": 0.5,
+                "downfall": 0.0,
+                "carvers": [],
+                "features": [["minecraft:lake_lava_underground"], [], ["minecraft:ore_diamond", "minecraft:ore_gold"]],
+            }),
+            CarverConfig::from_name,
+            PlacedFeature::from_name,
+        )
+        .unwrap();
+        assert_eq!(
+            biome.features,
+            &[
+                &[PlacedFeature::LakeLavaUnderground][..],
+                &[],
+                &[PlacedFeature::OreDiamond, PlacedFeature::OreGold],
+            ],
+        );
+    }
+
+    #[test]
     fn datapack_biome_applies_its_carvers_in_order() {
         let biome = build_biome(
             250,
@@ -109,6 +151,7 @@ mod tests {
                 "features": [],
             }),
             CarverConfig::from_name,
+            PlacedFeature::from_name,
         )
         .unwrap();
         assert_eq!(biome.carvers.len(), 2);

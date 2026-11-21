@@ -22,8 +22,9 @@ use rustc_hash::FxHashMap;
 use super::{
     GlobalRandomConfig, biome_coords,
     blender::{Blender, BlenderImpl},
-    feature::placed_features::PLACED_FEATURES,
+    feature::placed_features::PlacedFeature,
     feature_order::select_features,
+    generator::VanillaGenerator,
     noise::router::{
         multi_noise_sampler::MultiNoiseSampler, proto_noise_router::DoublePerlinNoiseBuilder,
         surface_height_sampler::SurfaceHeightEstimateSampler,
@@ -1420,8 +1421,9 @@ impl ProtoChunk {
     pub fn generate_features_and_structure<T: GenerationCache>(
         cache: &mut T,
         block_registry: &dyn WorldPortalExt,
-        random_config: &GlobalRandomConfig,
+        generator: &VanillaGenerator,
     ) {
+        let random_config = &generator.random_config;
         let (center_x, center_z, min_y, generation_min_y, generation_height) = {
             let chunk = cache.get_center_chunk();
             (
@@ -1475,10 +1477,13 @@ impl ProtoChunk {
                 random_config.seed as i64,
             );
 
-            let selected = select_features(&possible_biomes, step);
+            let selected = generator.feature_order.as_ref().map_or_else(
+                || select_features(&possible_biomes, step),
+                |order| order.select(&possible_biomes, step),
+            );
 
             for (global_index, feature_enum) in selected {
-                if let Some(feature) = PLACED_FEATURES.get(&feature_enum) {
+                if let Some(feature) = PlacedFeature::lookup(&feature_enum) {
                     let decorator_seed =
                         get_decorator_seed(population_seed, global_index as u64, step as u64);
                     let mut random =

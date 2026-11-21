@@ -58,6 +58,7 @@ pub fn build_enum() -> TokenStream {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum PlacedFeature {
             #(#variants)*
+            Runtime(&'static str),
         }
 
         impl PlacedFeature {
@@ -72,6 +73,7 @@ pub fn build_enum() -> TokenStream {
             pub const fn to_name(&self) -> &'static str {
                 match self {
                     #(#to_name_arms)*
+                    Self::Runtime(name) => name,
                 }
             }
 
@@ -135,11 +137,10 @@ pub fn build() -> TokenStream {
 /// # Arguments
 /// – `v` – the JSON object for the entry, expected to contain `"feature"` and `"placement"` fields.
 fn value_to_placed_feature(v: &Value) -> TokenStream {
-    let feature = value_to_feature(&v["feature"]);
-    let placement_arr = v["placement"]
-        .as_array()
-        .map(|a| a.as_slice())
-        .unwrap_or(&[]);
+    let data = pumpkin_worldgen_model::feature_data::PlacedFeature::parse(v)
+        .expect("invalid vanilla placed feature");
+    let feature = value_to_feature(data.feature);
+    let placement_arr = data.placement;
     let placement: Vec<TokenStream> = placement_arr
         .iter()
         .map(value_to_placement_modifier)
@@ -168,7 +169,7 @@ fn value_to_feature(v: &Value) -> TokenStream {
         }
         Value::Object(_) => {
             let cf = value_to_inline_configured_feature(v);
-            quote! { Feature::Inlined(Box::new(#cf)) }
+            quote! { Feature::Inlined(std::sync::Arc::new(#cf)) }
         }
         _ => panic!("Wrong feature value"),
     }

@@ -3,7 +3,7 @@ use pumpkin_data::{Block, BlockDirection, BlockStateId};
 use pumpkin_util::HeightMap;
 use std::collections::HashMap;
 use std::iter;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use pumpkin_util::biome::FOLIAGE_NOISE;
 use pumpkin_util::math::int_provider::IntProvider;
@@ -45,10 +45,25 @@ pub struct PlacedFeature {
 
 pub enum Feature {
     Named(pumpkin_data::configured_feature::ConfiguredFeature),
-    Inlined(Box<ConfiguredFeature>),
+    Inlined(Arc<ConfiguredFeature>),
 }
 
 impl PlacedFeature {
+    pub fn lookup(id: &pumpkin_data::placed_feature::PlacedFeature) -> Option<&'static Self> {
+        super::super::worldgen_feature::RuntimeFeatures::placed(id)
+            .map_or_else(|| PLACED_FEATURES.get(id), Option::as_ref)
+    }
+
+    fn configured(&self) -> Option<&ConfiguredFeature> {
+        match &self.feature {
+            Feature::Named(name) => {
+                super::super::worldgen_feature::RuntimeFeatures::configured(*name)
+                    .map_or_else(|| CONFIGURED_FEATURES.get(name), Option::as_deref)
+            }
+            Feature::Inlined(feature) => Some(feature),
+        }
+    }
+
     pub fn generate_in_proto_chunk(
         &self,
         chunk: &mut crate::ProtoChunk,
@@ -57,10 +72,7 @@ impl PlacedFeature {
         random: &mut RandomGenerator,
         pos: BlockPos,
     ) -> bool {
-        let Some(feature) = (match &self.feature {
-            Feature::Named(name) => CONFIGURED_FEATURES.get(name),
-            Feature::Inlined(feature) => Some(feature.as_ref()),
-        }) else {
+        let Some(feature) = self.configured() else {
             return false;
         };
         if let ConfiguredFeature::SculkPatch(feature) = feature {
@@ -91,10 +103,7 @@ impl PlacedFeature {
         random: &mut RandomGenerator,
         pos: BlockPos,
     ) -> bool {
-        let feature = match &self.feature {
-            Feature::Named(name) => CONFIGURED_FEATURES.get(name),
-            Feature::Inlined(feature) => Some(feature.as_ref()),
-        };
+        let feature = self.configured();
 
         generate_with_modifiers(
             chunk,
@@ -238,11 +247,19 @@ impl PlacementModifier {
             Self::CountOnEveryLayer(modifier) => modifier.get_positions(random, chunk, pos),
             Self::EnvironmentScan(modifier) => modifier.get_positions(chunk, block_registry, pos),
             Self::Heightmap(modifier) => modifier.get_positions(chunk, min_y, height, random, pos),
-            Self::HeightRange(modifier) => modifier.get_positions(min_y, height, random, pos),
+            Self::HeightRange(modifier) => {
+                modifier.get_positions(min_y, height, chunk.get_sea_level(), random, pos)
+            }
             Self::InSquare(_) => SquarePlacementModifier::get_positions(random, pos),
             Self::RandomOffset(modifier) => modifier.get_positions(random, pos),
             Self::Offset(modifier) => modifier.get_positions(random, pos),
-            Self::FixedPlacement(positions) => Box::new(positions.clone().into_iter()),
+            Self::FixedPlacement(positions) => {
+                let chunk_x = pos.0.x >> 4;
+                let chunk_z = pos.0.z >> 4;
+                Box::new(positions.clone().into_iter().filter(move |position| {
+                    position.0.x >> 4 == chunk_x && position.0.z >> 4 == chunk_z
+                }))
+            }
         }
     }
 }
@@ -613,11 +630,13 @@ impl HeightRangePlacementModifier {
         &self,
         min_y: i8,
         height: u16,
+        sea_level: i32,
         random: &mut RandomGenerator,
         pos: BlockPos,
     ) -> Box<dyn Iterator<Item = BlockPos>> {
         let mut pos = pos;
-        pos.0.y = self.height.get(random, min_y, height);
+        pos.0.y =
+            super::super::height_provider::sample(&self.height, random, min_y, height, sea_level);
         Box::new(iter::once(pos))
     }
 }

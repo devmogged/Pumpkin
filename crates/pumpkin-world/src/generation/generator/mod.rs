@@ -163,6 +163,7 @@ pub struct VanillaGenerator {
     pub enabled_structure_sets: FxHashSet<usize>,
     pub uniform_carvers: Option<&'static [&'static pumpkin_data::carver::CarverConfig]>,
     pub possible_biomes: FxHashSet<u16>,
+    pub(crate) feature_order: Option<super::feature_order::FeatureOrder>,
 }
 
 impl VanillaGenerator {
@@ -287,9 +288,7 @@ impl VanillaGenerator {
         );
         let terrain_cache = TerrainCache::from_random(&random_config);
 
-        let default_block = settings.default_block;
         let base_router = ProtoNoiseRouters::generate(base, &random_config);
-        let biome_mixer_seed = crate::biome::hash_seed(seed.0);
 
         let mut structure_allowed_biomes = FxHashMap::default();
         for (i, set) in StructureSet::ALL.iter().enumerate() {
@@ -354,14 +353,19 @@ impl VanillaGenerator {
             settings,
             surface_rule,
             biome_supplier,
-            biome_mixer_seed,
+            biome_mixer_seed: crate::biome::hash_seed(seed.0),
             terrain_cache,
-            default_block,
+            default_block: settings.default_block,
             global_structure_cache,
             structure_calculator: StructurePlacementCalculator::new(seed.0 as i64),
             structure_allowed_biomes,
             enabled_structure_sets,
             uniform_carvers,
+            feature_order: super::feature_order::FeatureOrder::for_source(
+                &biome_supplier,
+                biome_source,
+                &possible_biomes,
+            ),
             possible_biomes,
         }
     }
