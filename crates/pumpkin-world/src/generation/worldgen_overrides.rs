@@ -9,14 +9,18 @@ use pumpkin_data::{
     biome::{Biome, Parameter, ParameterPoint},
     chunk::DoublePerlinNoiseParameters,
     dimension::Dimension,
+    material_rule::{MaterialRule, VANILLA_MATERIAL_CONDITIONS, VANILLA_MATERIAL_RULES},
     noise_router::{BaseNoiseRouters, VANILLA_DENSITY_JSON},
     noise_settings::{GenerationShapeConfig, NoiseSettings, VANILLA_SETTINGS_JSON},
     registry::RegistryEntryData,
 };
 use pumpkin_worldgen_model::{
+    material::{MaterialRegistry, resolve_rule},
     noise_parameter::NoiseParameterJson,
     noise_router::parse_noise_router,
-    noise_settings::{BlockStateCodecStruct, NoiseSettingsStruct, ParameterStruct},
+    noise_settings::{
+        BlockStateCodecStruct, NoiseSettingsFileStruct, NoiseSettingsStruct, ParameterStruct,
+    },
 };
 use serde_json::Value;
 
@@ -27,6 +31,7 @@ mod dimensions;
 pub struct RuntimeNoiseSettings {
     pub(crate) settings: &'static NoiseSettings,
     pub(crate) router: BaseNoiseRouters,
+    pub(crate) surface_rule: Option<&'static MaterialRule>,
 }
 
 /// Merged worldgen resources from enabled datapacks in priority order.
@@ -36,9 +41,12 @@ pub struct WorldgenOverrides {
     dimension_types: BTreeMap<String, PathBuf>,
     dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
+    biome_tags: BTreeMap<String, Vec<u16>>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
     noises: BTreeMap<String, PathBuf>,
+    material_rules: BTreeMap<String, PathBuf>,
+    material_conditions: BTreeMap<String, PathBuf>,
 }
 
 impl WorldgenOverrides {
@@ -70,6 +78,8 @@ impl WorldgenOverrides {
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
                     ("noise", &mut overrides.noises),
+                    ("material_rule", &mut overrides.material_rules),
+                    ("material_condition", &mut overrides.material_conditions),
                 ] {
                     index_json(&worldgen.join(kind), &prefix, registry);
                 }
@@ -81,6 +91,11 @@ impl WorldgenOverrides {
     #[must_use]
     pub fn has_datapack_biomes(&self) -> bool {
         !self.biomes.is_empty()
+    }
+
+    /// Saves the merged tags at the biome IDs installed for this world generation run.
+    pub fn set_biome_tags(&mut self, tags: BTreeMap<String, Vec<u16>>) {
+        self.biome_tags = tags;
     }
 
     /// Installs biome definitions at the same IDs as the server's synced registry.
@@ -146,13 +161,12 @@ impl WorldgenOverrides {
         name: Option<&str>,
         dimension: &Dimension,
     ) -> Option<RuntimeNoiseSettings> {
-        if self.settings.is_empty() && self.densities.is_empty() && self.noises.is_empty() {
-            return None;
-        }
         let name = resource_id(name.unwrap_or_else(|| default_settings_id(dimension)));
         if !self.settings.contains_key(name.as_ref())
             && self.densities.is_empty()
             && self.noises.is_empty()
+            && self.material_rules.is_empty()
+            && self.material_conditions.is_empty()
         {
             return None;
         }
@@ -193,7 +207,42 @@ impl WorldgenOverrides {
                 Err(error) => tracing::warn!("Skipping density function {id}: {error}"),
             }
         }
-        build_settings(name, settings, &densities, &self.noises)
+        build_settings(name, settings, &densities, self)
+    }
+
+    fn material_json(&self, registry: MaterialRegistry, id: &str) -> Result<Value, String> {
+        let (datapack, vanilla) = match registry {
+            MaterialRegistry::Rule => (&self.material_rules, VANILLA_MATERIAL_RULES),
+            MaterialRegistry::Condition => (&self.material_conditions, VANILLA_MATERIAL_CONDITIONS),
+        };
+        if let Some(path) = datapack.get(id) {
+            return read_json(path);
+        }
+        let json = vanilla
+            .binary_search_by_key(&id, |&(name, _)| name)
+            .ok()
+            .map(|index| vanilla[index].1)
+            .ok_or_else(|| format!("unknown {} {id}", registry.directory()))?;
+        serde_json::from_str(json).map_err(|error| format!("{id}: {error}"))
+    }
+
+    fn surface_rule(
+        &self,
+        settings: &str,
+        json: Value,
+        resolve_noise: &impl Fn(&str) -> Result<DoublePerlinNoiseParameters, String>,
+    ) -> Option<&'static MaterialRule> {
+        let built =
+            resolve_rule(json, |registry, id| self.material_json(registry, id)).and_then(|rule| {
+                super::worldgen_surface::compile(rule, resolve_noise, &self.biome_tags)
+            });
+        match built {
+            Ok(rule) => Some(Box::leak(Box::new(rule))),
+            Err(error) => {
+                tracing::warn!("Skipping material rule for {settings}: {error}");
+                None
+            }
+        }
     }
 }
 
@@ -246,7 +295,7 @@ fn read_json(path: &Path) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-fn resource_id(id: &str) -> std::borrow::Cow<'_, str> {
+pub(super) fn resource_id(id: &str) -> std::borrow::Cow<'_, str> {
     if id.contains(':') {
         id.into()
     } else {
@@ -254,7 +303,7 @@ fn resource_id(id: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-fn block_state(codec: BlockStateCodecStruct) -> Result<&'static BlockState, String> {
+pub(super) fn block_state(codec: BlockStateCodecStruct) -> Result<&'static BlockState, String> {
     let (name, properties) = match codec {
         BlockStateCodecStruct::Name(name) => (name, None),
         BlockStateCodecStruct::Structured { name, properties } => (name, properties),
@@ -286,17 +335,17 @@ fn build_settings(
     name: &str,
     json: Value,
     densities: &BTreeMap<String, Value>,
-    noises: &BTreeMap<String, PathBuf>,
+    overrides: &WorldgenOverrides,
 ) -> Result<RuntimeNoiseSettings, String> {
     let parsed = parse_noise_router(
         name.strip_prefix("minecraft:").unwrap_or(name),
         &json,
         densities,
     )?;
-    let data = NoiseSettingsStruct::from_json(
-        name,
-        serde_json::from_value(json).map_err(|error| error.to_string())?,
-    );
+    let mut source: NoiseSettingsFileStruct =
+        serde_json::from_value(json).map_err(|error| error.to_string())?;
+    let surface_rule_json = source.material_rule.take().or(source.surface_rule.take());
+    let data = NoiseSettingsStruct::from_json(name, source);
     let default_block = block_state(data.default_block)?;
     let default_fluid = block_state(data.default_fluid)?;
     let shape = GenerationShapeConfig {
@@ -317,10 +366,10 @@ fn build_settings(
     }
 
     let resolved_noises = std::cell::RefCell::new(BTreeMap::new());
-    let router = parsed.build_runtime(|id| {
+    let resolve_noise = |id: &str| {
         let full = resource_id(id);
         let vanilla = DoublePerlinNoiseParameters::id_to_parameters(id);
-        let Some(path) = noises.get(full.as_ref()) else {
+        let Some(path) = overrides.noises.get(full.as_ref()) else {
             return vanilla
                 .copied()
                 .ok_or_else(|| format!("unknown noise {full}"));
@@ -335,8 +384,12 @@ fn build_settings(
             .map_err(|error| format!("{full}: {error}"))?;
         let digest = md5::compute(full.as_bytes()).0;
         let [lo, hi] = [0, 8].map(|i| u64::from_be_bytes(std::array::from_fn(|j| digest[i + j])));
+        let id = vanilla.map_or_else(
+            || DoublePerlinNoiseParameters::COUNT + resolved_noises.borrow().len(),
+            |parameters| parameters.id,
+        );
         let parameters = DoublePerlinNoiseParameters::new(
-            vanilla.map_or(usize::MAX, |parameters| parameters.id),
+            id,
             octave,
             Box::leak(amplitudes.into_boxed_slice()),
             lo,
@@ -347,7 +400,10 @@ fn build_settings(
             .borrow_mut()
             .insert(full.into_owned(), parameters);
         Ok(parameters)
-    })?;
+    };
+    let router = parsed.build_runtime(resolve_noise)?;
+    let surface_rule =
+        surface_rule_json.and_then(|json| overrides.surface_rule(name, json, &resolve_noise));
     let parameter = |raw: ParameterStruct| {
         let (min, max) = raw.quantized();
         Parameter::new(min, max)
@@ -375,7 +431,11 @@ fn build_settings(
         shape,
         spawn_target: Box::leak(spawn_target.into_boxed_slice()),
     }));
-    Ok(RuntimeNoiseSettings { settings, router })
+    Ok(RuntimeNoiseSettings {
+        settings,
+        router,
+        surface_rule,
+    })
 }
 
 #[cfg(test)]
@@ -399,7 +459,110 @@ mod tests {
                 NoiseSettings::from_name(name).unwrap(),
                 "{name}"
             );
+            assert_eq!(
+                runtime.surface_rule,
+                MaterialRule::from_name(name),
+                "{name}"
+            );
         }
+    }
+
+    #[test]
+    fn vanilla_material_registry_rebuilds_all_generated_rules() {
+        let registry = WorldgenOverrides::default();
+        let noise = |id: &str| {
+            DoublePerlinNoiseParameters::id_to_parameters(id)
+                .copied()
+                .ok_or_else(|| format!("unknown noise {id}"))
+        };
+        for name in [
+            "bedrock_floor",
+            "bedrock_roof",
+            "end",
+            "nether",
+            "overworld",
+            "overworld_caves",
+            "overworld_floating_islands",
+        ] {
+            let rule = resolve_rule(Value::String(name.into()), |kind, id| {
+                registry.material_json(kind, id)
+            })
+            .unwrap();
+            assert_eq!(
+                &super::super::worldgen_surface::compile(rule, &noise, &registry.biome_tags)
+                    .unwrap(),
+                MaterialRule::from_name(name).unwrap(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn higher_pack_replaces_a_referenced_surface_rule() {
+        use crate::generation::generator::VanillaGenerator;
+        use pumpkin_data::material_rule::{MaterialCondition, MaterialRule};
+
+        let lower = tempfile::tempdir().unwrap();
+        let higher = tempfile::tempdir().unwrap();
+        let write = |root: &Path, path: &str, contents: &str| {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        };
+        let path = "data/minecraft/worldgen/material_rule/overworld.json";
+        write(lower.path(), path, "\"fixture:surface\"");
+        let path = "data/fixture/worldgen/material_rule/surface.json";
+        write(
+            lower.path(),
+            path,
+            r#"{"type":"minecraft:block","result_state":"minecraft:gold_block"}"#,
+        );
+        write(
+            higher.path(),
+            path,
+            r#"{"type":"minecraft:condition","if_true":"fixture:in_desert","then_run":{"type":"minecraft:block","result_state":{"id":"minecraft:oak_log","properties":{"axis":"x"}}}}"#,
+        );
+        write(
+            lower.path(),
+            "data/fixture/worldgen/material_condition/in_desert.json",
+            r##"{"type":"minecraft:biome","biome_is":"#fixture:dry"}"##,
+        );
+
+        let mut registry = WorldgenOverrides::from_packs([lower.path(), higher.path()]);
+        registry.set_biome_tags(BTreeMap::from([(
+            "fixture:dry".into(),
+            vec![u16::from(Biome::DESERT.id)],
+        )]));
+        let runtime = registry.settings(None, &Dimension::OVERWORLD);
+        let generator = VanillaGenerator::new_with_runtime_settings(
+            pumpkin_util::world_seed::Seed(42),
+            Dimension::OVERWORLD,
+            None,
+            None,
+            Some(&[]),
+            runtime.as_ref(),
+        );
+        let MaterialRule::Condition(condition) = generator.surface_rule else {
+            panic!("expected the datapack's conditional rule");
+        };
+        let MaterialCondition::Biome(biomes) = &condition.if_true else {
+            panic!("expected the datapack's biome condition");
+        };
+        assert_eq!(biomes.biome_is, &[&Biome::DESERT]);
+        let MaterialRule::Block(block) = condition.then_run else {
+            panic!("expected the datapack's block rule");
+        };
+        assert_eq!(
+            Block::from_state_id(block.result_state.id).id,
+            Block::OAK_LOG.id
+        );
+        let props = Block::OAK_LOG.properties(block.result_state.id).unwrap();
+        assert!(
+            props
+                .to_props()
+                .iter()
+                .any(|property| { property.key_str() == "axis" && property.value_str() == "x" })
+        );
     }
     #[test]
     fn priority_replaces_dimension_biome_source_and_survives_save() {

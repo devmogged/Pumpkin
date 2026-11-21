@@ -13,9 +13,9 @@ use {
 pub enum BlockStateCodecStruct {
     Name(String),
     Structured {
-        #[serde(rename = "Name")]
+        #[serde(rename = "Name", alias = "id")]
         name: String,
-        #[serde(rename = "Properties")]
+        #[serde(rename = "Properties", alias = "properties")]
         properties: Option<BTreeMap<String, String>>,
     },
 }

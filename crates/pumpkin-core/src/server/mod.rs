@@ -312,6 +312,7 @@ impl Server {
                 )
                 .map_err(WorldInfoError::DeserializationError)?;
         }
+        worldgen.set_biome_tags(datapack_manager.worldgen_biome_tags());
         let dimensions = worldgen
             .resolve_dimensions(
                 dimensions,

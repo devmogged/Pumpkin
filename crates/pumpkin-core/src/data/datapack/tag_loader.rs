@@ -126,7 +126,7 @@ type IdLookup = fn(&str) -> Option<u16>;
 /// Vanilla rejects deeper or cyclic references; this only has to stop.
 const MAX_TAG_DEPTH: u8 = 32;
 
-fn resolve_tag<S: std::hash::BuildHasher>(
+pub(super) fn resolve_tag<S: std::hash::BuildHasher>(
     tags: &HashMap<String, DynamicTagEntry, S>,
     key: RegistryKey,
     lookup: IdLookup,

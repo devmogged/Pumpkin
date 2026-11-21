@@ -61,14 +61,18 @@ pub struct MaterialRuleContext<'a> {
     steep_material_condition: Option<bool>,
     /// Noise samplers built by [`test_noise_threshold`], keyed by noise parameter id.
     ///
-    /// For generated constants, `DoublePerlinNoiseParameters::id` uniquely identifies
-    /// the complete parameter set; generated surface rules only reference those constants.
-    ///
     /// Building one is expensive and only depends on `random_deriver`, so they are
     /// reused for the lifetime of the context. Surface rules reference very few
     /// distinct noises, so a linear scan beats hashing here.
-    noise_threshold_samplers: Vec<(usize, DoublePerlinNoiseSampler)>,
+    noise_threshold_samplers: Vec<NoiseThresholdSampler>,
     pub vein_context: Option<&'a mut VeinContext<'a>>,
+}
+
+struct NoiseThresholdSampler {
+    id: usize,
+    sampler: DoublePerlinNoiseSampler,
+    position: [i32; 3],
+    value: f32,
 }
 
 pub struct VeinContext<'a> {
@@ -310,7 +314,10 @@ pub fn test_condition(
             BiomeMaterialCondition::test(biome.biome_is, chunk, context)
         }
         MaterialCondition::NoiseThreshold(noise_threshold) => {
-            test_noise_threshold(noise_threshold, context)
+            test_noise_threshold(noise_threshold, 0, context)
+        }
+        MaterialCondition::NoiseThreshold3d(noise_threshold) => {
+            test_noise_threshold(noise_threshold, context.block_pos_y, context)
         }
         MaterialCondition::VerticalGradient(vertical_gradient) => {
             test_vertical_gradient(vertical_gradient, context)
@@ -383,7 +390,9 @@ pub const fn test_above_y_material(
         } else {
             0
         }
-        >= condition.anchor.get_y(context.min_y as i16, context.height)
+        >= condition
+            .anchor
+            .resolve_y(context.min_y as i16, context.height, context.sea_level)
             + context.run_depth * condition.surface_depth_multiplier
 }
 
@@ -473,14 +482,17 @@ impl BiomeMaterialCondition {
     }
 }
 
-pub fn test_noise_threshold(
+fn test_noise_threshold(
     condition: &NoiseThresholdMaterialCondition,
+    y: i32,
     context: &mut MaterialRuleContext,
 ) -> bool {
+    let position = [context.block_pos_x, y, context.block_pos_z];
+    let [x, y, z] = position.map(f64::from);
     let cached = context
         .noise_threshold_samplers
         .iter()
-        .position(|(id, _)| *id == condition.noise.id);
+        .position(|noise| noise.id == condition.noise.id);
     let index = cached.unwrap_or_else(|| {
         let sampler = DoublePerlinNoiseBuilder::get_noise_sampler(
             context.random_deriver,
@@ -490,14 +502,20 @@ pub fn test_noise_threshold(
         );
         context
             .noise_threshold_samplers
-            .push((condition.noise.id, sampler));
+            .push(NoiseThresholdSampler {
+                id: condition.noise.id,
+                value: sampler.sample(x, y, z),
+                sampler,
+                position,
+            });
         context.noise_threshold_samplers.len() - 1
     });
-    let value = f64::from(context.noise_threshold_samplers[index].1.sample(
-        context.block_pos_x as f64,
-        0.0,
-        context.block_pos_z as f64,
-    ));
+    let cache = &mut context.noise_threshold_samplers[index];
+    if cache.position != position {
+        cache.value = cache.sampler.sample(x, y, z);
+        cache.position = position;
+    }
+    let value = f64::from(cache.value);
     value >= condition.min_threshold && value <= condition.max_threshold
 }
 
@@ -545,12 +563,16 @@ pub fn test_vertical_gradient(
     condition: &VerticalGradientMaterialCondition,
     context: &MaterialRuleContext,
 ) -> bool {
-    let true_at = condition
-        .true_at_and_below
-        .get_y(context.min_y as i16, context.height);
-    let false_at = condition
-        .false_at_and_above
-        .get_y(context.min_y as i16, context.height);
+    let true_at = condition.true_at_and_below.resolve_y(
+        context.min_y as i16,
+        context.height,
+        context.sea_level,
+    );
+    let false_at = condition.false_at_and_above.resolve_y(
+        context.min_y as i16,
+        context.height,
+        context.sea_level,
+    );
 
     let block_y = context.block_pos_y;
     if block_y <= true_at {
@@ -559,28 +581,23 @@ pub fn test_vertical_gradient(
     if block_y >= false_at {
         return false;
     }
-    let mapped = pumpkin_util::math::map(block_y as f32, true_at as f32, false_at as f32, 1.0, 0.0);
+    let mapped = 1.0 - f64::from(block_y - true_at) / f64::from(false_at - true_at);
     if context.legacy_random_source {
         use pumpkin_util::random::{RandomImpl, hash_block_pos, legacy_rand::LegacyRand};
-        let name_hash = match condition.random_lo {
-            13544455532117611141 => 2042456806i32, // minecraft:bedrock_floor
-            10285458612719284684 => 343340730i32,  // minecraft:bedrock_roof
-            10411719568726253007 => -112689504i32, // minecraft:deepslate
-            _ => 0i32,
-        };
         let mut root = LegacyRand::from_seed(context.world_seed);
         let root_seed = root.next_i64();
-        let mut derived = LegacyRand::from_seed((name_hash as i64 ^ root_seed) as u64);
+        let mut derived =
+            LegacyRand::from_seed((i64::from(condition.random_hash) ^ root_seed) as u64);
         let derived_seed = derived.next_i64() as u64;
         let pos_seed = hash_block_pos(context.block_pos_x, block_y, context.block_pos_z) as u64;
         let mut block_rand = LegacyRand::from_seed(pos_seed ^ derived_seed);
-        block_rand.next_f32() < mapped
+        f64::from(block_rand.next_f32()) < mapped
     } else {
         let splitter = context
             .random_deriver
             .from_lo_and_hi(condition.random_lo, condition.random_hi)
             .next_splitter();
         let mut random = splitter.split_pos(context.block_pos_x, block_y, context.block_pos_z);
-        random.next_f32() < mapped
+        f64::from(random.next_f32()) < mapped
     }
 }

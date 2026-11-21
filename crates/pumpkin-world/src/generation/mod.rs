@@ -18,6 +18,7 @@ pub mod rule;
 pub mod structure;
 mod surface;
 pub mod worldgen_overrides;
+mod worldgen_surface;
 
 use generator::VanillaGenerator;
 use pumpkin_data::dimension::Dimension;

@@ -269,8 +269,9 @@ impl VanillaGenerator {
             },
             |runtime| runtime.settings,
         );
-        let surface_rule = settings_name
-            .and_then(MaterialRule::from_name)
+        let surface_rule = runtime
+            .and_then(|runtime| runtime.surface_rule)
+            .or_else(|| settings_name.and_then(MaterialRule::from_name))
             .unwrap_or_else(|| MaterialRule::from_dimension(&dimension));
         let biome_supplier =
             crate::biome::ActiveBiomeSupplier::from_biome_source(biome_source, &dimension);

@@ -419,6 +419,35 @@ impl DatapackManager {
         })
     }
 
+    pub(crate) fn worldgen_biome_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
+        use pumpkin_data::{biome::Biome, tag::RegistryKey};
+
+        let tags = self
+            .tags
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(biome_tags) = tags.get("worldgen/biome") else {
+            return std::collections::BTreeMap::new();
+        };
+        biome_tags
+            .keys()
+            .map(|name| {
+                let mut ids = Vec::new();
+                tag_loader::resolve_tag(
+                    biome_tags,
+                    RegistryKey::WorldgenBiome,
+                    |name| Biome::from_name(name).map(|biome| u16::from(biome.id)),
+                    name,
+                    0,
+                    &mut ids,
+                );
+                ids.sort_unstable();
+                ids.dedup();
+                (name.clone(), ids)
+            })
+            .collect()
+    }
+
     pub fn get_advancement(
         &self,
         id: &str,

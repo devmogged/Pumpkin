@@ -13,6 +13,7 @@ codegen = ["dep:heck", "dep:proc-macro2", "dep:quote", "dep:syn"]
 pumpkin-data = { path = "../pumpkin-data", optional = true }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
+md5.workspace = true
 heck = { version = "0.5", optional = true }
 proc-macro2 = { version = "1.0", optional = true }
 quote = { version = "1.0", optional = true }
