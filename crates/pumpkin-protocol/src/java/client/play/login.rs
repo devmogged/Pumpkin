@@ -309,12 +309,7 @@ impl ClientPacket for CLogin<'_> {
             write.write_bool(self.enabled_respawn_screen)?;
             if v1_20_2 {
                 write.write_bool(self.limited_crafting)?;
-                if v1_20_5 {
-                    write.write_var_int(&VarInt(self.spawn_data.dimension.id as i32))?;
-                } else {
-                    write.write_string(self.spawn_data.dimension.minecraft_name)?;
-                }
-                write.write_string(self.spawn_data.dimension.minecraft_name)?;
+                self.spawn_data.write_dimension(&mut write, *version)?;
                 write.write_i64_be(self.spawn_data.hashed_seed)?;
                 write_game_modes(
                     &mut write,
@@ -386,6 +381,56 @@ impl ClientPacket for CLogin<'_> {
 mod tests {
     use super::*;
     use pumpkin_data::dimension::Dimension;
+
+    #[test]
+    fn modern_spawn_info_writes_registry_id_and_level_key_independently() {
+        use crate::java::client::play::CRespawn;
+
+        let version = JavaMinecraftVersion::V_26_3;
+        let mut level = Dimension::OVERWORLD;
+        level.minecraft_name = "fixture:deep";
+        let spawn = PlayerSpawnData::new(
+            level,
+            0x0102_0304_0506_0708,
+            1,
+            -1,
+            false,
+            true,
+            None,
+            VarInt(89),
+            VarInt(63),
+        )
+        .with_dimension_type_id(VarInt(130));
+        let respawn = CRespawn::new(spawn.clone(), CRespawn::KEEP_ALL_DATA);
+        let worlds = ["fixture:deep".into()];
+        let login = CLogin::new(
+            42,
+            false,
+            &worlds,
+            VarInt(20),
+            VarInt(10),
+            VarInt(8),
+            false,
+            true,
+            false,
+            spawn,
+            false,
+            false,
+        );
+        let spawn_bytes = [
+            &[0x82, 0x01, 12][..],
+            b"fixture:deep",
+            &[1, 2, 3, 4, 5, 6, 7, 8],
+            &[1, 0, 0, 1, 0, 89, 63],
+        ]
+        .concat();
+        let mut data = Vec::new();
+        respawn.write_packet_data(&mut data, &version).unwrap();
+        assert_eq!(data, [spawn_bytes.as_slice(), &[3]].concat());
+        data.clear();
+        login.write_packet_data(&mut data, &version).unwrap();
+        assert!(data.ends_with(&[spawn_bytes.as_slice(), &[0, 0]].concat()));
+    }
 
     #[test]
     #[allow(clippy::too_many_lines)]

@@ -53,6 +53,7 @@ pub(super) fn read_game_modes(
 pub struct PlayerSpawnData {
     /// The Dimension for the current dimension's properties (lighting, sky color).
     pub dimension: Dimension,
+    dimension_type_id: VarInt,
     /// Used by the client to seed local biome noise and decoration algorithms.
     pub hashed_seed: i64,
     pub game_mode: u8,
@@ -85,6 +86,7 @@ impl PlayerSpawnData {
         sealevel: VarInt,
     ) -> Self {
         Self {
+            dimension_type_id: VarInt(dimension.id as i32),
             dimension,
             hashed_seed,
             game_mode,
@@ -97,21 +99,38 @@ impl PlayerSpawnData {
         }
     }
 
+    /// Sets the raw ID in the synced `dimension_type` registry for Java 26.3.
+    #[must_use]
+    pub const fn with_dimension_type_id(mut self, id: VarInt) -> Self {
+        self.dimension_type_id = id;
+        self
+    }
+
+    pub(super) fn write_dimension(
+        &self,
+        mut write: impl std::io::Write,
+        version: JavaMinecraftVersion,
+    ) -> Result<(), WritingError> {
+        if version >= JavaMinecraftVersion::V_26_3 {
+            write.write_var_int(&self.dimension_type_id)?;
+        } else if version >= JavaMinecraftVersion::V_1_20_5 {
+            write.write_var_int(&VarInt(i32::from(self.dimension.id)))?;
+        } else if version >= JavaMinecraftVersion::V_1_16 {
+            write.write_string(self.dimension.minecraft_name)?;
+        } else if version >= JavaMinecraftVersion::V_1_9 {
+            write.write_i32_be(i32::from(self.dimension.id))?;
+        } else {
+            write.write_i8(self.dimension.id as i8)?;
+        }
+        write.write_string(self.dimension.minecraft_name)
+    }
+
     pub fn write_packet_data(
         &self,
         mut write: impl std::io::Write,
         version: &JavaMinecraftVersion,
     ) -> Result<(), WritingError> {
-        if version >= &JavaMinecraftVersion::V_1_20_5 {
-            write.write_var_int(&VarInt(self.dimension.id as i32))?;
-        } else if version >= &JavaMinecraftVersion::V_1_16 {
-            write.write_string(self.dimension.minecraft_name)?;
-        } else if version >= &JavaMinecraftVersion::V_1_9 {
-            write.write_i32_be(self.dimension.id as i32)?;
-        } else {
-            write.write_i8(self.dimension.id as i8)?;
-        }
-        write.write_string(self.dimension.minecraft_name)?;
+        self.write_dimension(&mut write, *version)?;
         write.write_i64_be(self.hashed_seed)?;
         write_game_modes(&mut write, self.game_mode, self.previous_gamemode, *version)?;
         write.write_bool(self.debug)?;
@@ -133,9 +152,11 @@ impl PlayerSpawnData {
     }
 
     pub fn read(read: &mut &[u8], version: &JavaMinecraftVersion) -> Result<Self, ReadingError> {
+        let mut wire_type_id = None;
         let dimension = if version >= &JavaMinecraftVersion::V_1_20_5 {
-            let id = read.get_var_int()?.0 as u8;
-            match id {
+            let id = read.get_var_int()?;
+            wire_type_id = Some(id);
+            match id.0 as u8 {
                 1 => Dimension::OVERWORLD_CAVES,
                 2 => Dimension::THE_END,
                 3 => Dimension::THE_NETHER,
@@ -193,6 +214,7 @@ impl PlayerSpawnData {
         };
 
         Ok(Self {
+            dimension_type_id: wire_type_id.unwrap_or(VarInt(i32::from(dimension.id))),
             dimension,
             hashed_seed,
             game_mode,
