@@ -125,7 +125,10 @@ fn first_greater_location(points: &[SplinePoint], location: f32) -> usize {
 }
 
 #[inline]
-fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -> f32) -> f32 {
+fn sample_spline_with<const ORDERED: bool>(
+    spline: &SplineRepr,
+    location_of: &mut impl FnMut(usize) -> f32,
+) -> f32 {
     match spline {
         SplineRepr::Fixed { value } => *value,
         SplineRepr::Standard {
@@ -135,17 +138,21 @@ fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -
             let location = location_of(*location_function_index);
 
             let n = points.len();
-            let index_greater_than_x = first_greater_location(points, location);
+            let index_greater_than_x = if ORDERED {
+                points.partition_point(|point| location >= point.location)
+            } else {
+                first_greater_location(points, location)
+            };
 
             if index_greater_than_x == 0 {
                 let point = &points[0];
-                let val = sample_spline_with(point.value, location_of);
+                let val = sample_spline_with::<ORDERED>(point.value, location_of);
                 return sample_outside_range(point, location, val);
             }
 
             if index_greater_than_x == n {
                 let point = &points[n - 1];
-                let val = sample_spline_with(point.value, location_of);
+                let val = sample_spline_with::<ORDERED>(point.value, location_of);
                 return sample_outside_range(point, location, val);
             }
 
@@ -155,8 +162,8 @@ fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -
             let start_x = previous.location;
             let end_x = current.location;
 
-            let start_value = sample_spline_with(previous.value, location_of);
-            let end_value = sample_spline_with(current.value, location_of);
+            let start_value = sample_spline_with::<ORDERED>(previous.value, location_of);
+            let end_value = sample_spline_with::<ORDERED>(current.value, location_of);
 
             let start_derivative = previous.derivative;
             let end_derivative = current.derivative;
@@ -179,11 +186,26 @@ fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -
     }
 }
 
+fn locations_are_ordered(spline: &SplineRepr) -> bool {
+    match spline {
+        SplineRepr::Fixed { .. } => true,
+        SplineRepr::Standard { points, .. } => {
+            points
+                .windows(2)
+                .all(|pair| pair[0].location <= pair[1].location)
+                && points
+                    .iter()
+                    .all(|point| locations_are_ordered(point.value))
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct SplineFunction {
     spline: &'static SplineRepr,
     min_value: f32,
     max_value: f32,
+    ordered: bool,
 }
 
 impl SplineFunction {
@@ -196,6 +218,7 @@ impl SplineFunction {
             spline,
             min_value,
             max_value,
+            ordered: locations_are_ordered(spline),
         }
     }
 }
@@ -207,12 +230,32 @@ impl StaticChunkNoiseFunctionComponentImpl for SplineFunction {
         component_stack: &mut [ChunkNoiseFunctionComponent],
         pos: &Vector3<i32>,
     ) -> f32 {
-        sample_spline_with(self.spline, &mut |index| {
+        let mut location_of = |index| {
             ChunkNoiseFunctionComponent::sample_from_stack(&mut component_stack[..=index], pos)
-        })
+        };
+        if self.ordered {
+            sample_spline_with::<true>(self.spline, &mut location_of)
+        } else {
+            sample_spline_with::<false>(self.spline, &mut location_of)
+        }
     }
 
     fn sample_volume(
+        &self,
+        component_stack: &mut [ChunkNoiseFunctionComponent],
+        buffer: &mut [f32],
+        volume: &DensityVolume,
+    ) {
+        if self.ordered {
+            self.sample_volume_with::<true>(component_stack, buffer, volume);
+        } else {
+            self.sample_volume_with::<false>(component_stack, buffer, volume);
+        }
+    }
+}
+
+impl SplineFunction {
+    fn sample_volume_with<const ORDERED: bool>(
         &self,
         component_stack: &mut [ChunkNoiseFunctionComponent],
         buffer: &mut [f32],
@@ -229,7 +272,7 @@ impl StaticChunkNoiseFunctionComponentImpl for SplineFunction {
                 *value = last_value;
                 continue;
             }
-            last_value = sample_spline_with(self.spline, &mut |location_index| {
+            last_value = sample_spline_with::<ORDERED>(self.spline, &mut |location_index| {
                 let position = coordinates
                     .iter()
                     .position(|(coordinate_index, _)| *coordinate_index == location_index)
@@ -301,8 +344,9 @@ mod tests {
             location_function_index: 0,
             points: &POINTS,
         };
+        assert!(!locations_are_ordered(&spline));
         assert_eq!(
-            sample_spline_with(&spline, &mut |_| 3.0).to_bits(),
+            sample_spline_with::<false>(&spline, &mut |_| 3.0).to_bits(),
             64.0f32.to_bits()
         );
     }
