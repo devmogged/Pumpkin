@@ -397,7 +397,10 @@ impl CountOnEveryLayerPlacementModifier {
 
         loop {
             bl = false;
-            for _j in 0..self.count.get(random) {
+            // A variable provider samples again at each loop condition.
+            let mut attempt = 0;
+            while attempt < self.count.get(random) {
+                attempt += 1;
                 let x = random.next_bounded_i32(16) + pos.0.x;
                 let z = random.next_bounded_i32(16) + pos.0.z;
                 let y = chunk.top_motion_blocking_block_height_exclusive(x, z);
@@ -719,6 +722,42 @@ mod tests {
     use pumpkin_util::random::xoroshiro128::Xoroshiro;
 
     use super::*;
+
+    #[test]
+    fn placement_rng_resamples_count_per_attempt() {
+        use pumpkin_data::dimension::Dimension;
+        use pumpkin_util::{
+            math::int_provider::{NormalIntProvider, UniformIntProvider},
+            random::legacy_rand::LegacyRand,
+            world_seed::Seed,
+        };
+
+        let generator = crate::generation::get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut chunk = crate::ProtoChunk::new(0, 0, &generator);
+        for x in 0..16 {
+            for z in 0..16 {
+                chunk.set_block_state(x, 120, z, Block::STONE.default_state);
+            }
+        }
+        let modifier = CountOnEveryLayerPlacementModifier {
+            count: IntProvider::Object(NormalIntProvider::Uniform(UniformIntProvider {
+                min_inclusive: 1,
+                max_inclusive: 4,
+            })),
+        };
+        let mut random = RandomGenerator::Legacy(LegacyRand::from_seed(42));
+        let positions: Vec<_> = modifier
+            .get_positions(&mut random, &chunk, BlockPos::ZERO)
+            .collect();
+        assert_eq!(positions, [BlockPos::new(0, 121, 10)]);
+        assert_eq!(random.next_i32(), 1_184_328_952);
+    }
 
     #[test]
     fn hollow_cuboid_keeps_only_face_centres() {
