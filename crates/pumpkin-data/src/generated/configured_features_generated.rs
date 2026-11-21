@@ -147,7 +147,6 @@ fn build_configured_features()
         random_block_state_match::RandomBlockStateMatchRuleTest, tag_match::TagMatchRuleTest,
     };
     use pumpkin_data::{Block, BlockDirection};
-    use pumpkin_util::DoublePerlinNoiseParametersCodec;
     use pumpkin_util::HeightMap;
     use pumpkin_util::math::int_provider::{
         BiasedToBottomIntProvider, ClampedIntProvider, ClampedNormalIntProvider,
@@ -2142,14 +2141,16 @@ fn build_configured_features()
         pumpkin_data::configured_feature::ConfiguredFeature::FlowerFlowerForest,
         ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
             to_place: BlockStateProvider::NoiseProvider(NoiseBlockStateProvider {
-                base: NoiseBlockStateProviderBase {
-                    seed: 2345i64,
-                    noise: DoublePerlinNoiseParametersCodec {
-                        first_octave: 0i32,
-                        amplitudes: vec![1f64],
+                base: NoiseBlockStateProviderBase::new(
+                    2345i64,
+                    0i32,
+                    &[1f64],
+                    pumpkin_util::noise::perlin::NormalNoiseSettings {
+                        base_amplitude: 0.955388882960065f64,
+                        normalization: pumpkin_util::noise::perlin::NoiseNormalization::Enabled,
                     },
-                    scale: 0.020833334f32,
-                },
+                    0.020833334f32,
+                ),
                 states: vec![
                     pumpkin_data::Block::DANDELION.default_state,
                     pumpkin_data::Block::POPPY.default_state,
@@ -2172,14 +2173,16 @@ fn build_configured_features()
         ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
             to_place: BlockStateProvider::DualNoise(DualNoiseBlockStateProvider {
                 base: NoiseBlockStateProvider {
-                    base: NoiseBlockStateProviderBase {
-                        seed: 2345i64,
-                        noise: DoublePerlinNoiseParametersCodec {
-                            first_octave: -3i32,
-                            amplitudes: vec![1f64],
+                    base: NoiseBlockStateProviderBase::new(
+                        2345i64,
+                        -3i32,
+                        &[1f64],
+                        pumpkin_util::noise::perlin::NormalNoiseSettings {
+                            base_amplitude: 0.955388882960065f64,
+                            normalization: pumpkin_util::noise::perlin::NoiseNormalization::Enabled,
                         },
-                        scale: 1f32,
-                    },
+                        1f32,
+                    ),
                     states: vec![
                         pumpkin_data::Block::TALL_GRASS.default_state,
                         pumpkin_data::Block::ALLIUM.default_state,
@@ -2191,12 +2194,17 @@ fn build_configured_features()
                         pumpkin_data::Block::SHORT_GRASS.default_state,
                     ],
                 },
-                variety: [1u32, 3u32],
-                slow_noise: DoublePerlinNoiseParametersCodec {
-                    first_octave: -10i32,
-                    amplitudes: vec![1f64],
-                },
-                slow_scale: 1f64,
+                variety: [1u8, 3u8],
+                slow_noise: NoiseBlockStateProviderBase::new(
+                    2345i64,
+                    -10i32,
+                    &[1f64],
+                    pumpkin_util::noise::perlin::NormalNoiseSettings {
+                        base_amplitude: 0.955388882960065f64,
+                        normalization: pumpkin_util::noise::perlin::NoiseNormalization::Enabled,
+                    },
+                    1f32,
+                ),
             }),
             schedule_tick: None,
         }),
@@ -2214,14 +2222,16 @@ fn build_configured_features()
         pumpkin_data::configured_feature::ConfiguredFeature::FlowerPlain,
         ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
             to_place: BlockStateProvider::NoiseThreshold(NoiseThresholdBlockStateProvider {
-                base: NoiseBlockStateProviderBase {
-                    seed: 2345i64,
-                    noise: DoublePerlinNoiseParametersCodec {
-                        first_octave: 0i32,
-                        amplitudes: vec![1f64],
+                base: NoiseBlockStateProviderBase::new(
+                    2345i64,
+                    0i32,
+                    &[1f64],
+                    pumpkin_util::noise::perlin::NormalNoiseSettings {
+                        base_amplitude: 0.955388882960065f64,
+                        normalization: pumpkin_util::noise::perlin::NoiseNormalization::Enabled,
                     },
-                    scale: 0.005f32,
-                },
+                    0.005f32,
+                ),
                 threshold: -0.8f32,
                 high_chance: 0.33333334f32,
                 default_state: pumpkin_data::Block::DANDELION.default_state,

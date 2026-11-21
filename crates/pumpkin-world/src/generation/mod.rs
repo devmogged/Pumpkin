@@ -20,6 +20,7 @@ mod surface;
 mod worldgen_composite_feature;
 mod worldgen_feature;
 mod worldgen_feature_loader;
+mod worldgen_noise_provider;
 pub mod worldgen_overrides;
 mod worldgen_placement;
 mod worldgen_surface;

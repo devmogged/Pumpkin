@@ -1,16 +1,15 @@
 use pumpkin_data::{Block, BlockState};
 use pumpkin_util::{
-    DoublePerlinNoiseParametersCodec,
     math::{
         clamped_map,
         int_provider::IntProvider,
         pool::{Pool, Weighted},
         position::BlockPos,
     },
+    noise::perlin::{Noise, NormalNoise, NormalNoiseSettings},
     random::{RandomGenerator, RandomImpl, legacy_rand::LegacyRand},
 };
 
-use super::noise::perlin::DoublePerlinNoiseSampler;
 use crate::generation::block_predicate::BlockPredicate;
 use crate::generation::proto_chunk::GenerationCache;
 use crate::world::{BlockAccessor, WorldPortalExt};
@@ -277,52 +276,35 @@ impl PillarBlockStateProvider {
 
 pub struct DualNoiseBlockStateProvider {
     pub base: NoiseBlockStateProvider,
-    pub variety: [u32; 2],
-    pub slow_noise: DoublePerlinNoiseParametersCodec,
-    pub slow_scale: f64,
+    pub variety: [u8; 2],
+    pub slow_noise: NoiseBlockStateProviderBase,
 }
 
 impl DualNoiseBlockStateProvider {
     #[must_use]
     pub fn get(&self, pos: BlockPos) -> &'static BlockState {
-        let sampler = DoublePerlinNoiseSampler::new(
-            &mut RandomGenerator::Legacy(LegacyRand::from_seed(self.base.base.seed as u64)),
-            self.slow_noise.first_octave,
-            &self.slow_noise.amplitudes,
-            false,
-        );
-        let slow_noise =
-            self.get_slow_noise(pos.0.x as f64, pos.0.y as f64, pos.0.z as f64, &sampler);
-        let mapped = clamped_map(
-            slow_noise,
+        let local_variety = clamped_map(
+            f64::from(self.get_slow_noise(pos)),
             -1.0,
             1.0,
-            self.variety[0] as f64,
-            self.variety[1] as f64 + 1.0,
-        ) as i32;
-        let mut list = Vec::with_capacity(mapped as usize);
-        for i in 0..mapped {
-            let value = self.get_slow_noise(
-                (pos.0.x + i * 54545) as f64,
-                pos.0.y as f64,
-                (pos.0.z + i * 34234) as f64,
-                &sampler,
-            );
-            list.push(NoiseBlockStateProvider::get_state_by_value(
-                &self.base.states,
-                value,
-            ));
-        }
-        let value = self.base.base.get_noise(pos);
-        NoiseBlockStateProvider::get_state_by_value(&list, value)
+            f64::from(self.variety[0]),
+            f64::from(self.variety[1]) + 1.0,
+        ) as usize;
+        let selected =
+            NoiseBlockStateProvider::state_index(local_variety, self.base.base.get_noise(pos))
+                as i32;
+        // Sampling candidates has no side effects, so evaluate only the one selected.
+        let value = self.get_slow_noise(pos.add(selected * 54545, 0, selected * 34234));
+        self.base.states[NoiseBlockStateProvider::state_index(self.base.states.len(), value)]
     }
 
-    fn get_slow_noise(&self, x: f64, y: f64, z: f64, sampler: &DoublePerlinNoiseSampler) -> f64 {
-        f64::from(sampler.sample(
-            x * self.slow_scale,
-            y * self.slow_scale,
-            z * self.slow_scale,
-        ))
+    fn get_slow_noise(&self, pos: BlockPos) -> f32 {
+        let scale = self.slow_noise.scale;
+        self.slow_noise.noise.get(
+            f64::from(pos.0.x as f32 * scale),
+            f64::from(pos.0.y as f32 * scale),
+            f64::from(pos.0.z as f32 * scale),
+        )
     }
 }
 
@@ -350,25 +332,40 @@ impl SimpleStateProvider {
 }
 
 pub struct NoiseBlockStateProviderBase {
-    pub seed: i64,
-    pub noise: DoublePerlinNoiseParametersCodec,
-    pub scale: f32,
+    noise: Box<NormalNoise>,
+    scale: f32,
 }
 
 impl NoiseBlockStateProviderBase {
     #[must_use]
-    pub fn get_noise(&self, pos: BlockPos) -> f64 {
-        let sampler = DoublePerlinNoiseSampler::new(
-            &mut RandomGenerator::Legacy(LegacyRand::from_seed(self.seed as u64)),
-            self.noise.first_octave,
-            &self.noise.amplitudes,
+    pub fn new(
+        seed: i64,
+        first_octave: i32,
+        amplitudes: &[f64],
+        settings: NormalNoiseSettings,
+        scale: f32,
+    ) -> Self {
+        let noise = NormalNoise::from_parameters(
+            &mut LegacyRand::from_seed(seed as u64),
+            first_octave,
+            amplitudes,
+            settings,
             false,
         );
-        f64::from(sampler.sample(
-            pos.0.x as f64 * f64::from(self.scale),
-            pos.0.y as f64 * f64::from(self.scale),
-            pos.0.z as f64 * f64::from(self.scale),
-        ))
+        Self {
+            noise: Box::new(noise),
+            scale,
+        }
+    }
+
+    #[must_use]
+    pub fn get_noise(&self, pos: BlockPos) -> f32 {
+        let scale = f64::from(self.scale);
+        self.noise.get(
+            f64::from(pos.0.x) * scale,
+            f64::from(pos.0.y) * scale,
+            f64::from(pos.0.z) * scale,
+        )
     }
 }
 
@@ -380,13 +377,12 @@ pub struct NoiseBlockStateProvider {
 impl NoiseBlockStateProvider {
     #[must_use]
     pub fn get(&self, pos: BlockPos) -> &'static BlockState {
-        let value = self.base.get_noise(pos);
-        Self::get_state_by_value(&self.states, value)
+        self.states[Self::state_index(self.states.len(), self.base.get_noise(pos))]
     }
 
-    fn get_state_by_value(states: &[&'static BlockState], value: f64) -> &'static BlockState {
-        let val = f64::midpoint(1.0, value).clamp(0.0, 0.9999);
-        states[(val * states.len() as f64) as usize]
+    fn state_index(length: usize, noise: f32) -> usize {
+        let scaled = f32::midpoint(1.0, noise).clamp(0.0, 0.9999);
+        (scaled * length as f32) as usize
     }
 }
 
@@ -402,7 +398,7 @@ pub struct NoiseThresholdBlockStateProvider {
 impl NoiseThresholdBlockStateProvider {
     pub fn get(&self, random: &mut RandomGenerator, pos: BlockPos) -> &'static BlockState {
         let value = self.base.get_noise(pos);
-        if value < self.threshold as f64 {
+        if value < self.threshold {
             return self.low_states[random.next_bounded_i32(self.low_states.len() as i32) as usize];
         }
         if random.next_f32() < self.high_chance {

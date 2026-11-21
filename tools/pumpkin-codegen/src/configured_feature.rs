@@ -151,7 +151,6 @@ pub fn build() -> TokenStream {
                 WeightedBlockStateProvider,
             };
             use pumpkin_util::math::pool::Weighted;
-            use pumpkin_util::DoublePerlinNoiseParametersCodec;
             use crate::generation::rule::{
                 RuleTest,
                 block_match::BlockMatchRuleTest,
@@ -1335,11 +1334,10 @@ fn value_to_block_state_provider(v: &Value) -> TokenStream {
             quote! { BlockStateProvider::Pillar(PillarBlockStateProvider { state: #state }) }
         }
         "minecraft:noise_provider" | "minecraft:noise" => {
-            let base = value_to_noise_base(v);
-            let states: Vec<TokenStream> = v["states"]
-                .as_array()
-                .map(|arr| arr.iter().map(value_to_block_state).collect())
-                .unwrap_or_default();
+            let config: pumpkin_worldgen_model::state_provider::NoisePalette =
+                serde_json::from_value(v.clone()).expect("invalid vanilla noise palette");
+            let base = value_to_noise_base(config.source);
+            let states = config.states.iter().map(value_to_block_state);
             quote! {
                 BlockStateProvider::NoiseProvider(NoiseBlockStateProvider {
                     base: #base,
@@ -1348,40 +1346,34 @@ fn value_to_block_state_provider(v: &Value) -> TokenStream {
             }
         }
         "minecraft:dual_noise_provider" | "minecraft:dual_noise" => {
-            let base_provider = value_to_noise_base(v);
-            let states: Vec<TokenStream> = v["states"]
-                .as_array()
-                .map(|arr| arr.iter().map(value_to_block_state).collect())
-                .unwrap_or_default();
-            let base_noise_provider = quote! {
-                NoiseBlockStateProvider { base: #base_provider, states: vec![#(#states),*] }
-            };
-            let v0 = v["variety"][0].as_u64().unwrap_or(2) as u32;
-            let v1 = v["variety"][1].as_u64().unwrap_or(4) as u32;
-            let slow_noise = value_to_dpnp(&v["slow_noise"]);
-            let slow_scale = v["slow_scale"].as_f64().unwrap_or(1.0);
+            let config: pumpkin_worldgen_model::state_provider::DualNoisePalette =
+                serde_json::from_value(v.clone()).expect("invalid vanilla dual-noise palette");
+            let slow_noise =
+                value_to_noise_base(pumpkin_worldgen_model::state_provider::NoiseSource {
+                    seed: config.palette.source.seed,
+                    noise: config.slow_noise,
+                    scale: config.slow_scale,
+                });
+            let base = value_to_noise_base(config.palette.source);
+            let states = config.palette.states.iter().map(value_to_block_state);
+            let [min, max] = config.variety;
             quote! {
                 BlockStateProvider::DualNoise(DualNoiseBlockStateProvider {
-                    base: #base_noise_provider,
-                    variety: [#v0, #v1],
+                    base: NoiseBlockStateProvider { base: #base, states: vec![#(#states),*] },
+                    variety: [#min, #max],
                     slow_noise: #slow_noise,
-                    slow_scale: #slow_scale,
                 })
             }
         }
         "minecraft:noise_threshold_provider" | "minecraft:noise_threshold" => {
-            let base = value_to_noise_base(v);
-            let threshold = v["threshold"].as_f64().unwrap_or(0.0) as f32;
-            let high_chance = v["high_chance"].as_f64().unwrap_or(0.0) as f32;
-            let default = value_to_block_state(&v["default_state"]);
-            let low: Vec<TokenStream> = v["low_states"]
-                .as_array()
-                .map(|a| a.iter().map(value_to_block_state).collect())
-                .unwrap_or_default();
-            let high: Vec<TokenStream> = v["high_states"]
-                .as_array()
-                .map(|a| a.iter().map(value_to_block_state).collect())
-                .unwrap_or_default();
+            let config: pumpkin_worldgen_model::state_provider::NoiseThresholdPalette =
+                serde_json::from_value(v.clone()).expect("invalid vanilla noise-threshold palette");
+            let base = value_to_noise_base(config.source);
+            let threshold = config.threshold;
+            let high_chance = config.high_chance;
+            let default = value_to_block_state(&config.default_state);
+            let low = config.low_states.iter().map(value_to_block_state);
+            let high = config.high_states.iter().map(value_to_block_state);
             quote! {
                 BlockStateProvider::NoiseThreshold(NoiseThresholdBlockStateProvider {
                     base: #base,
@@ -1444,43 +1436,32 @@ fn value_to_block_state_provider(v: &Value) -> TokenStream {
     }
 }
 
-/// Converts a noise-provider JSON object into a `NoiseBlockStateProviderBase` token stream.
-///
-/// # Arguments
-/// – `v` – the JSON object containing `"seed"`, `"noise"`, and `"scale"` fields.
-fn value_to_noise_base(v: &Value) -> TokenStream {
-    let seed = v["seed"].as_i64().unwrap_or(0);
-    let noise = value_to_dpnp(&v["noise"]);
-    let scale = v["scale"].as_f64().unwrap_or(1.0) as f32;
-    quote! {
-        NoiseBlockStateProviderBase { seed: #seed, noise: #noise, scale: #scale }
-    }
-}
+fn value_to_noise_base(source: pumpkin_worldgen_model::state_provider::NoiseSource) -> TokenStream {
+    use pumpkin_util::noise::perlin::NoiseNormalization;
 
-/// Converts a double-perlin-noise parameters JSON object into a `DoublePerlinNoiseParametersCodec` token stream.
-///
-/// # Arguments
-/// - `v` - the JSON object containing `"firstOctave"` and `"amplitudes"` fields.
-fn value_to_dpnp(v: &Value) -> TokenStream {
-    let first_octave = v["firstOctave"]
-        .as_i64()
-        .or_else(|| v["base_octave"].as_i64())
-        .unwrap_or(-7) as i32;
-    let amplitudes: Vec<f64> = v["amplitudes"]
-        .as_array()
-        .or_else(|| v["amplitude_modifiers"].as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_f64()).collect())
-        .or_else(|| {
-            v["octave_count"]
-                .as_u64()
-                .map(|n| vec![1.0; n.max(1) as usize])
-        })
-        .unwrap_or_else(|| vec![1.0]);
+    let (octave, amplitudes, settings) = source
+        .noise
+        .into_runtime_parameters()
+        .expect("invalid vanilla state-provider noise parameters");
+    let seed = source.seed;
+    let scale = source.scale;
+    let base_amplitude = settings.base_amplitude;
+    let normalization = match settings.normalization {
+        NoiseNormalization::Enabled => quote! { Enabled },
+        NoiseNormalization::Disabled => quote! { Disabled },
+        NoiseNormalization::Legacy => quote! { Legacy },
+    };
     quote! {
-        DoublePerlinNoiseParametersCodec {
-            first_octave: #first_octave,
-            amplitudes: vec![#(#amplitudes),*],
-        }
+        NoiseBlockStateProviderBase::new(
+            #seed,
+            #octave,
+            &[#(#amplitudes),*],
+            pumpkin_util::noise::perlin::NormalNoiseSettings {
+                base_amplitude: #base_amplitude,
+                normalization: pumpkin_util::noise::perlin::NoiseNormalization::#normalization,
+            },
+            #scale,
+        )
     }
 }
 

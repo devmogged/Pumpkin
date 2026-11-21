@@ -275,7 +275,7 @@ impl FeatureFiles<'_> {
                     .transpose()?;
                 BlockStateProvider::Rule(RuleBasedBlockStateProvider { fallback, rules })
             }
-            kind => return Err(format!("unsupported block-state provider {kind}")),
+            kind => return super::worldgen_noise_provider::compile(kind, value),
         })
     }
 }
@@ -458,6 +458,58 @@ mod tests {
             chunk.flat_block_map
         };
         assert_eq!(place(&runtime), place(generated));
+    }
+
+    #[test]
+    fn runtime_noise_provider_matches_java_normalization() {
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &BTreeMap::new(),
+            block_tags: &BTreeMap::new(),
+        };
+        let positions = [
+            BlockPos::new(1024, 292, 1024),
+            BlockPos::new(1027, 293, 1029),
+            BlockPos::new(18_001_033, 294, -18_001_038),
+        ];
+        // Java 26.3 NormalNoise with WorldgenRandom backed by LegacyRandomSource(2345).
+        for (normalization, expected) in [
+            (
+                serde_json::json!(true),
+                [0xbe6f_53bb, 0xbeb9_bf1a, 0xbe3c_196e],
+            ),
+            (
+                serde_json::json!(false),
+                [0xbed1_6942, 0xbf22_8737, 0xbea4_9641],
+            ),
+            (
+                serde_json::json!("legacy"),
+                [0xbe03_29b8, 0xbe4b_98ac, 0xbdce_2ce0],
+            ),
+        ] {
+            let value = serde_json::json!({
+                "type": "minecraft:noise",
+                "seed": 2345,
+                "scale": 0.125,
+                "states": ["minecraft:gold_block", "minecraft:iron_block"],
+                "noise": {
+                    "base_octave": -3,
+                    "octave_count": 3,
+                    "amplitude_modifiers": [1.0, 0.5, 3.0],
+                    "base_amplitude": 0.6,
+                    "normalize": normalization
+                }
+            });
+            let BlockStateProvider::NoiseProvider(provider) = files.provider(&value).unwrap()
+            else {
+                unreachable!();
+            };
+            assert_eq!(
+                positions.map(|pos| provider.base.get_noise(pos).to_bits()),
+                expected
+            );
+        }
     }
 
     #[test]
