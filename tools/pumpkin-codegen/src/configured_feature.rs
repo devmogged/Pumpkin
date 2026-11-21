@@ -348,7 +348,8 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
     match type_str {
         "minecraft:no_op" => quote! { ConfiguredFeature::NoOp },
         "minecraft:bamboo" => {
-            let prob = config["probability"].as_f64().unwrap_or(0.0) as f32;
+            let prob = pumpkin_worldgen_model::feature_data::probability(config, "probability")
+                .expect("invalid vanilla bamboo probability");
             quote! { ConfiguredFeature::Bamboo(BambooFeature { probability: #prob }) }
         }
         "minecraft:seagrass" => {
@@ -450,21 +451,16 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             }
         }
         "minecraft:block_column" => {
-            let layers: Vec<TokenStream> = config["layers"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .map(|l| {
-                            let h = value_to_int_provider(&l["height"]);
-                            let p = value_to_block_state_provider(&l["provider"]);
-                            quote! { Layer { height: #h, provider: #p } }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let dir = value_to_block_direction(config["direction"].as_str().unwrap_or("up"));
-            let allowed = value_to_block_predicate(&config["allowed_placement"]);
-            let tip = config["prioritize_tip"].as_bool().unwrap_or(false);
+            let column: pumpkin_worldgen_model::feature_data::BlockColumn =
+                serde_json::from_value(config.clone()).expect("invalid vanilla block column");
+            let layers = column.layers.iter().map(|layer| {
+                let height = &layer.height;
+                let provider = value_to_block_state_provider(&layer.provider);
+                quote! { Layer { height: #height, provider: #provider } }
+            });
+            let dir = value_to_block_direction(&column.direction);
+            let allowed = value_to_block_predicate(&column.allowed_placement);
+            let tip = column.prioritize_tip;
             quote! {
                 ConfiguredFeature::BlockColumn(BlockColumnFeature {
                     layers: vec![#(#layers),*],

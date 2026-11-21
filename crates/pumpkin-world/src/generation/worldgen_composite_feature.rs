@@ -1,4 +1,5 @@
 use pumpkin_util::math::vertical_surface_type::VerticalSurfaceType;
+use pumpkin_worldgen_model::feature_data::probability;
 use serde_json::Value;
 
 use super::{
@@ -132,13 +133,4 @@ fn entries(config: &Value) -> Result<&[Value], String> {
         .as_array()
         .map(Vec::as_slice)
         .ok_or_else(|| "features must be a list of holders".to_owned())
-}
-
-fn probability(config: &Value, key: &str) -> Result<f32, String> {
-    let value = field(config, key)?;
-    if (0.0..=1.0).contains(&value) {
-        Ok(value)
-    } else {
-        Err(format!("{key} must be within 0..=1"))
-    }
 }

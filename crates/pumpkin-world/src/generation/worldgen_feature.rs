@@ -9,7 +9,9 @@ use pumpkin_data::{
 
 use pumpkin_data::Block;
 use pumpkin_util::math::pool::Weighted;
-use pumpkin_worldgen_model::feature_data::{ConfiguredFeature as FeatureJson, codec_kind};
+use pumpkin_worldgen_model::feature_data::{
+    BlockColumn, ConfiguredFeature as FeatureJson, codec_kind, probability,
+};
 use serde_json::Value;
 
 use super::{
@@ -20,6 +22,8 @@ use super::{
     feature::{
         configured_features::{ConfiguredFeature, VANILLA_BLOCK_STATE_PROVIDERS_JSON},
         features::{
+            bamboo::BambooFeature,
+            block_column::{BlockColumnFeature, Layer},
             block_pile::BlockPileFeature,
             fill_layer::FillLayerFeature,
             netherrack_replace_blobs::ReplaceBlobsFeature,
@@ -37,7 +41,7 @@ use super::{
     },
     worldgen_feature_loader::FeatureLoader,
     worldgen_overrides::{read_json, resource_id},
-    worldgen_placement::{BlockTags, block_tag, field, predicate, state},
+    worldgen_placement::{BlockTags, block_tag, field, predicate, read, state},
 };
 
 #[derive(Default)]
@@ -128,6 +132,27 @@ impl FeatureFiles<'_> {
                 height: field(config, "height")?,
                 state: state(&config["state"])?,
             }),
+            "bamboo" => ConfiguredFeature::Bamboo(BambooFeature {
+                probability: probability(config, "probability")?,
+            }),
+            "block_column" => {
+                let column: BlockColumn = read(config)?;
+                ConfiguredFeature::BlockColumn(BlockColumnFeature {
+                    layers: column
+                        .layers
+                        .into_iter()
+                        .map(|layer| {
+                            Ok(Layer {
+                                height: layer.height,
+                                provider: self.provider(&layer.provider)?,
+                            })
+                        })
+                        .collect::<Result<_, String>>()?,
+                    direction: read(&Value::String(column.direction))?,
+                    allowed_placement: predicate(&column.allowed_placement, self.block_tags)?,
+                    prioritize_tip: column.prioritize_tip,
+                })
+            }
             "block_pile" => ConfiguredFeature::BlockPile(BlockPileFeature {
                 state_provider: self.provider(&config["state_provider"])?,
             }),
@@ -433,6 +458,69 @@ mod tests {
             chunk.flat_block_map
         };
         assert_eq!(place(&runtime), place(generated));
+    }
+
+    #[test]
+    fn runtime_block_column_keeps_tip_at_a_blocked_column() {
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &BTreeMap::new(),
+            block_tags: &BTreeMap::new(),
+        };
+        let json = serde_json::json!({
+            "type": "minecraft:block_column",
+            "direction": "up",
+            "allowed_placement": {"type": "minecraft:matching_blocks", "blocks": "minecraft:air"},
+            "prioritize_tip": true,
+            "layers": [
+                {"height": 3, "provider": {"id":"minecraft:iron_block"}},
+                {"height": 1, "provider": {"id":"minecraft:gold_block"}}
+            ]
+        });
+        let ConfiguredFeature::BlockColumn(column) = files
+            .configured(&json, &mut |_| Err("unexpected placed holder".into()))
+            .unwrap()
+        else {
+            unreachable!();
+        };
+        let generator = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut chunk = crate::ProtoChunk::new(0, 0, &generator);
+        chunk.set_block_state(8, 122, 8, Block::STONE.default_state);
+        let mut random = RandomGenerator::Worldgen(WorldgenRandom::from_seed(42));
+        assert!(column.generate(
+            &mut chunk,
+            &TestBlockRegistry,
+            -64,
+            384,
+            PlacedId::Runtime("fixture:column"),
+            &mut random,
+            BlockPos::new(8, 120, 8)
+        ));
+        assert_eq!(
+            chunk
+                .get_block_state(&BlockPos::new(8, 120, 8).0)
+                .to_block_id(),
+            Block::GOLD_BLOCK.id
+        );
+        assert!(
+            chunk
+                .get_block_state(&BlockPos::new(8, 121, 8).0)
+                .to_state()
+                .is_air()
+        );
+        assert_eq!(
+            chunk
+                .get_block_state(&BlockPos::new(8, 122, 8).0)
+                .to_block_id(),
+            Block::STONE.id
+        );
     }
 
     #[test]

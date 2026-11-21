@@ -1,4 +1,43 @@
+use pumpkin_util::math::int_provider::IntProvider;
+use serde::Deserialize;
 use serde_json::Value;
+
+#[derive(Deserialize)]
+pub struct BlockColumn {
+    pub layers: Vec<BlockColumnLayer>,
+    pub direction: String,
+    pub allowed_placement: Value,
+    pub prioritize_tip: bool,
+}
+
+#[derive(Deserialize)]
+pub struct BlockColumnLayer {
+    #[serde(deserialize_with = "nonnegative_height")]
+    pub height: IntProvider,
+    pub provider: Value,
+}
+
+fn nonnegative_height<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<IntProvider, D::Error> {
+    let provider = IntProvider::deserialize(deserializer)?;
+    let min = provider.get_min();
+    if min < 0 || provider.get_max() < min {
+        return Err(serde::de::Error::custom("layer height must be nonnegative"));
+    }
+    Ok(provider)
+}
+
+pub fn probability(config: &Value, key: &str) -> Result<f32, String> {
+    let value = config[key]
+        .as_f64()
+        .ok_or_else(|| format!("missing or invalid {key}"))? as f32;
+    if (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!("{key} must be within 0..=1"))
+    }
+}
 
 /// A configured feature's dispatch key and parameters.
 pub struct ConfiguredFeature<'a> {
