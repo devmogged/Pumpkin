@@ -28,7 +28,7 @@ impl SequenceFeature {
         self.features.iter().all(|feature_wrapper| {
             let (target_feature_name, placed_feature) = match feature_wrapper {
                 PlacedFeatureWrapper::Named(name) => (*name, PLACED_FEATURES.get(name)),
-                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature)),
+                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature.as_ref())),
             };
             placed_feature.is_some_and(|placed_feature| {
                 placed_feature.generate(

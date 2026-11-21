@@ -23,7 +23,7 @@ pub static PLACED_FEATURES: LazyLock<
 > = LazyLock::new(build_placed_features);
 
 pub enum PlacedFeatureWrapper {
-    Direct(PlacedFeature),
+    Direct(Arc<PlacedFeature>),
     Named(pumpkin_data::placed_feature::PlacedFeature),
 }
 
@@ -51,7 +51,7 @@ pub enum Feature {
 impl PlacedFeature {
     pub fn lookup(id: &pumpkin_data::placed_feature::PlacedFeature) -> Option<&'static Self> {
         super::super::worldgen_feature::RuntimeFeatures::placed(id)
-            .map_or_else(|| PLACED_FEATURES.get(id), Option::as_ref)
+            .map_or_else(|| PLACED_FEATURES.get(id), Option::as_deref)
     }
 
     fn configured(&self) -> Option<&ConfiguredFeature> {

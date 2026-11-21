@@ -13,7 +13,7 @@ use crate::world::WorldPortalExt;
 pub struct VegetationPatchFeature {
     pub replaceable: BlockPredicate,
     pub ground_state: BlockStateProvider,
-    pub vegetation_feature: Box<crate::generation::feature::placed_features::PlacedFeature>,
+    pub vegetation_feature: Box<crate::generation::feature::placed_features::PlacedFeatureWrapper>,
     pub surface: VerticalSurfaceType,
     pub depth: pumpkin_util::math::int_provider::IntProvider,
     pub extra_bottom_block_chance: f32,
@@ -205,12 +205,15 @@ impl VegetationPatchFeature {
         feature_name: pumpkin_data::placed_feature::PlacedFeature,
         surface: &JavaBlockPosHashSet,
     ) {
+        let Some(feature) = self.vegetation_feature.get() else {
+            return;
+        };
         let opposite_dir = self.surface_direction().opposite();
 
         for &surface_pos in surface {
             if self.vegetation_chance > 0.0 && random.next_f32() < self.vegetation_chance {
                 let placement_pos = surface_pos.offset(opposite_dir.to_offset());
-                let _ = self.vegetation_feature.generate(
+                let _ = feature.generate(
                     chunk,
                     block_registry,
                     min_y,

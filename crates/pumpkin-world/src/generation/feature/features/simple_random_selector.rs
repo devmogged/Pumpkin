@@ -4,10 +4,10 @@ use pumpkin_util::{
 };
 
 use crate::generation::proto_chunk::GenerationCache;
-use crate::{generation::feature::placed_features::PlacedFeature, world::WorldPortalExt};
+use crate::{generation::feature::placed_features::PlacedFeatureWrapper, world::WorldPortalExt};
 
 pub struct SimpleRandomFeature {
-    pub features: Vec<PlacedFeature>,
+    pub features: Vec<PlacedFeatureWrapper>,
 }
 
 impl SimpleRandomFeature {
@@ -23,7 +23,9 @@ impl SimpleRandomFeature {
         pos: BlockPos,
     ) -> bool {
         let i = random.next_bounded_i32(self.features.len() as i32);
-        let feature = &self.features[i as usize];
+        let Some(feature) = self.features[i as usize].get() else {
+            return false;
+        };
         feature.generate(
             chunk,
             block_registry,

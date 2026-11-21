@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use pumpkin_data::{
@@ -9,9 +9,7 @@ use pumpkin_data::{
 
 use pumpkin_data::Block;
 use pumpkin_util::math::pool::Weighted;
-use pumpkin_worldgen_model::feature_data::{
-    ConfiguredFeature as FeatureJson, PlacedFeature as PlacedJson, codec_kind,
-};
+use pumpkin_worldgen_model::feature_data::{ConfiguredFeature as FeatureJson, codec_kind};
 use serde_json::Value;
 
 use super::{
@@ -20,7 +18,7 @@ use super::{
         SimpleStateProvider, WeightedBlockStateProvider,
     },
     feature::{
-        configured_features::ConfiguredFeature,
+        configured_features::{ConfiguredFeature, VANILLA_BLOCK_STATE_PROVIDERS_JSON},
         features::{
             block_pile::BlockPileFeature,
             fill_layer::FillLayerFeature,
@@ -30,21 +28,22 @@ use super::{
             scattered_ore::ScatteredOreFeature,
             simple_block::SimpleBlockFeature,
         },
-        placed_features::{Feature, PlacedFeature},
+        placed_features::{PlacedFeature, PlacedFeatureWrapper},
     },
     rule::{
         RuleTest, block_match::BlockMatchRuleTest, block_state_match::BlockStateMatchRuleTest,
         random_block_match::RandomBlockMatchRuleTest,
         random_block_state_match::RandomBlockStateMatchRuleTest, tag_match::TagMatchRuleTest,
     },
+    worldgen_feature_loader::FeatureLoader,
     worldgen_overrides::{read_json, resource_id},
-    worldgen_placement::{BlockTags, block_tag, field, modifier, predicate, state},
+    worldgen_placement::{BlockTags, block_tag, field, predicate, state},
 };
 
 #[derive(Default)]
 pub(super) struct RuntimeFeatures {
     names: BTreeMap<String, PlacedId>,
-    placed: BTreeMap<PlacedId, Option<PlacedFeature>>,
+    placed: BTreeMap<PlacedId, Option<Arc<PlacedFeature>>>,
     configured: BTreeMap<ConfiguredId, Option<Arc<ConfiguredFeature>>>,
 }
 
@@ -55,7 +54,7 @@ impl RuntimeFeatures {
         self.names.get(resource_id(name).as_ref()).copied()
     }
 
-    pub fn placed(id: &PlacedId) -> Option<&'static Option<PlacedFeature>> {
+    pub fn placed(id: &PlacedId) -> Option<&'static Option<Arc<PlacedFeature>>> {
         RUNTIME_FEATURES.get()?.placed.get(id)
     }
 
@@ -82,82 +81,37 @@ pub(super) struct FeatureFiles<'a> {
 
 impl FeatureFiles<'_> {
     pub fn build(&self) -> RuntimeFeatures {
-        let configured = self
-            .configured
-            .iter()
-            .map(|(id, path)| {
-                let result = read_json(path).and_then(|json| self.configured(&json));
-                let feature = match result {
-                    Ok(feature) => Some(Arc::new(feature)),
-                    Err(error) => {
-                        tracing::warn!("Skipping configured feature {id}: {error}");
-                        None
-                    }
-                };
-                (id.as_str(), feature)
-            })
-            .collect::<BTreeMap<_, _>>();
+        let mut loader = FeatureLoader::new(self);
+        for key in self.configured.keys() {
+            let _ = loader.configured_holder(&Value::String(key.clone()));
+        }
+        for key in self.placed.keys() {
+            let _ = loader.placed_holder(&Value::String(key.clone()));
+        }
         let mut result = RuntimeFeatures {
-            configured: configured
-                .iter()
-                .filter_map(|(&id, feature)| {
-                    ConfiguredId::from_name(id).map(|id| (id, feature.clone()))
+            configured: loader
+                .configured
+                .into_iter()
+                .filter_map(|(name, feature)| {
+                    ConfiguredId::from_name(&name).map(|id| (id, feature))
                 })
                 .collect(),
             ..RuntimeFeatures::default()
         };
-        for (name, path) in self.placed {
-            let id = PlacedId::from_name(name)
+        for (name, feature) in loader.placed {
+            let id = PlacedId::from_name(&name)
                 .unwrap_or_else(|| PlacedId::Runtime(Box::leak(name.clone().into_boxed_str())));
-            result.names.insert(name.clone(), id);
-            match self.placed(path, &configured) {
-                Ok(feature) => {
-                    result.placed.insert(id, Some(feature));
-                }
-                Err(error) => {
-                    tracing::warn!("Skipping placed feature {name}: {error}");
-                    result.placed.insert(id, None);
-                }
-            }
+            result.names.insert(name, id);
+            result.placed.insert(id, feature);
         }
         result
     }
 
-    fn placed(
+    pub fn configured(
         &self,
-        path: &Path,
-        configured: &BTreeMap<&str, Option<Arc<ConfiguredFeature>>>,
-    ) -> Result<PlacedFeature, String> {
-        let json = read_json(path)?;
-        let json = PlacedJson::parse(&json)?;
-        let feature = if let Some(name) = json.feature.as_str() {
-            let id = resource_id(name);
-            if let Some(feature) = configured.get(id.as_ref()) {
-                Feature::Inlined(
-                    feature
-                        .clone()
-                        .ok_or_else(|| format!("unavailable configured feature {id}"))?,
-                )
-            } else {
-                Feature::Named(
-                    ConfiguredId::from_name(name)
-                        .ok_or_else(|| format!("unknown configured feature {id}"))?,
-                )
-            }
-        } else {
-            Feature::Inlined(Arc::new(self.configured(json.feature)?))
-        };
-        Ok(PlacedFeature {
-            feature,
-            placement: json
-                .placement
-                .iter()
-                .map(|value| modifier(value, self.block_tags))
-                .collect::<Result<_, _>>()?,
-        })
-    }
-
-    pub fn configured(&self, json: &Value) -> Result<ConfiguredFeature, String> {
+        json: &Value,
+        placed: &mut impl FnMut(&Value) -> Result<PlacedFeatureWrapper, String>,
+    ) -> Result<ConfiguredFeature, String> {
         let FeatureJson { kind, config } = FeatureJson::parse(json)?;
         Ok(match kind {
             "no_op" => ConfiguredFeature::NoOp,
@@ -211,7 +165,15 @@ impl FeatureFiles<'_> {
                     })
                 }
             }
-            _ => return Err(format!("unsupported configured feature type {kind}")),
+            _ => {
+                return super::worldgen_composite_feature::compile(
+                    kind,
+                    config,
+                    self.block_tags,
+                    &|provider| self.provider(provider),
+                    placed,
+                );
+            }
         })
     }
 
@@ -228,6 +190,13 @@ impl FeatureFiles<'_> {
             let id = resource_id(name);
             if let Some(path) = self.providers.get(id.as_ref()) {
                 return self.decode_provider(&read_json(path)?, depth + 1);
+            }
+            if let Ok(index) = VANILLA_BLOCK_STATE_PROVIDERS_JSON
+                .binary_search_by_key(&id.as_ref(), |&(name, _)| name)
+            {
+                let json = serde_json::from_str(VANILLA_BLOCK_STATE_PROVIDERS_JSON[index].1)
+                    .map_err(|error| format!("{id}: {error}"))?;
+                return self.decode_provider(&json, depth + 1);
             }
         }
         if value.get("type").is_none() {
@@ -354,6 +323,8 @@ fn rule(json: &Value, tags: &BlockTags) -> Result<RuleTest, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::generation::{get_world_gen, proto_chunk_test::stage_parity::TestBlockRegistry};
     use pumpkin_data::dimension::Dimension;
@@ -392,7 +363,10 @@ mod tests {
                 ]
             }
         });
-        let ConfiguredFeature::SimpleBlock(feature) = files.configured(&config).unwrap() else {
+        let ConfiguredFeature::SimpleBlock(feature) = files
+            .configured(&config, &mut |_| Err("unexpected placed holder".into()))
+            .unwrap()
+        else {
             unreachable!();
         };
         let generator = get_world_gen(
@@ -420,18 +394,17 @@ mod tests {
     fn runtime_oak_matches_generated_oak() {
         let assets = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../assets/datapack/data/minecraft/worldgen");
-        let providers = BTreeMap::from([(
-            "minecraft:soil_beneath_tree".into(),
-            assets.join("block_state_provider/soil_beneath_tree.json"),
-        )]);
         let files = FeatureFiles {
             configured: &BTreeMap::new(),
             placed: &BTreeMap::new(),
-            providers: &providers,
+            providers: &BTreeMap::new(),
             block_tags: &BTreeMap::new(),
         };
         let json = read_json(&assets.join("feature/oak.json")).unwrap();
-        let ConfiguredFeature::Tree(runtime) = files.configured(&json).unwrap() else {
+        let ConfiguredFeature::Tree(runtime) = files
+            .configured(&json, &mut |_| Err("unexpected placed holder".into()))
+            .unwrap()
+        else {
             unreachable!();
         };
         let Some(ConfiguredFeature::Tree(generated)) =

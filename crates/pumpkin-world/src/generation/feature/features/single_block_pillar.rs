@@ -49,7 +49,7 @@ impl SingleBlockPillarFeature {
         if let Some(cap) = &self.cap_feature {
             let (cap_feature_name, placed_feature) = match cap {
                 PlacedFeatureWrapper::Named(name) => (*name, PLACED_FEATURES.get(name)),
-                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature)),
+                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature.as_ref())),
             };
             if let Some(feature) = placed_feature {
                 feature.generate(

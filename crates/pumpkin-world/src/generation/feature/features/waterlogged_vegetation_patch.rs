@@ -105,7 +105,10 @@ impl WaterloggedVegetationPatchFeature {
         random: &mut RandomGenerator,
         placement_pos: BlockPos,
     ) -> bool {
-        if self.base.vegetation_feature.generate(
+        let Some(feature) = self.base.vegetation_feature.get() else {
+            return false;
+        };
+        if feature.generate(
             chunk,
             block_registry,
             min_y,

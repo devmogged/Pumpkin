@@ -28,7 +28,7 @@ impl OverlayFeature {
         for feature_wrapper in &self.features {
             let (target_feature_name, placed_feature) = match feature_wrapper {
                 PlacedFeatureWrapper::Named(name) => (*name, PLACED_FEATURES.get(name)),
-                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature)),
+                PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature.as_ref())),
             };
             if let Some(placed_feature) = placed_feature {
                 placed_any |= placed_feature.generate(

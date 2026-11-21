@@ -126,6 +126,19 @@ pub(super) fn block_tag(value: &str, tags: &BlockTags) -> Result<pumpkin_data::t
         .ok_or_else(|| format!("unknown block tag {name}"))
 }
 
+pub(super) fn block_set(value: &Value, tags: &BlockTags) -> Result<BlockPredicate, String> {
+    let offset = OffsetBlocksBlockPredicate { offset: None };
+    if let Some(name) = value.as_str().and_then(|name| name.strip_prefix('#')) {
+        return tag(name, offset, tags);
+    }
+    Ok(BlockPredicate::MatchingBlocks(
+        MatchingBlocksBlockPredicate {
+            offset,
+            blocks: matching(value)?,
+        },
+    ))
+}
+
 fn tag(
     value: &str,
     offset: OffsetBlocksBlockPredicate,

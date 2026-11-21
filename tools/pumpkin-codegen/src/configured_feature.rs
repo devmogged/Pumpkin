@@ -94,6 +94,20 @@ pub fn build_enum() -> TokenStream {
 pub fn build() -> TokenStream {
     let json = load_configured_features();
 
+    let mut providers = BTreeMap::new();
+    collect_configured_features(
+        Path::new("../../assets/datapack/data/minecraft/worldgen/block_state_provider"),
+        "",
+        &mut providers,
+    );
+    let providers = providers.keys().map(|name| {
+        let id = format!("minecraft:{name}");
+        let file = format!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/{name}.json"
+        );
+        quote! { (#id, include_str!(#file)) }
+    });
+
     let entries: Vec<TokenStream> = json
         .iter()
         .map(|(name, value)| {
@@ -106,6 +120,8 @@ pub fn build() -> TokenStream {
         .collect();
 
     quote! {
+        pub(crate) const VANILLA_BLOCK_STATE_PROVIDERS_JSON: &[(&str, &str)] = &[#(#providers),*];
+
         #[allow(clippy::all, unused_imports, dead_code, clippy::large_stack_frames, clippy::too_many_lines)]
         fn build_configured_features() -> std::collections::HashMap<pumpkin_data::configured_feature::ConfiguredFeature, ConfiguredFeature> {
             use crate::generation::block_predicate::{
@@ -550,7 +566,7 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
         "minecraft:simple_random_selector" => {
             let features: Vec<TokenStream> = config["features"]
                 .as_array()
-                .map(|arr| arr.iter().map(value_to_inline_placed_feature).collect())
+                .map(|arr| arr.iter().map(value_to_placed_feature_wrapper).collect())
                 .unwrap_or_default();
             quote! {
                 ConfiguredFeature::SimpleRandomSelector(SimpleRandomFeature {
@@ -713,7 +729,7 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
         "minecraft:vegetation_patch" | "minecraft:waterlogged_vegetation_patch" => {
             let replaceable = value_to_block_predicate(&config["replaceable"]);
             let ground_state = value_to_block_state_provider(&config["ground_state"]);
-            let vegetation_feature = value_to_inline_placed_feature(&config["vegetation_feature"]);
+            let vegetation_feature = value_to_placed_feature_wrapper(&config["vegetation_feature"]);
             let surface = match config["surface"].as_str().unwrap_or("floor") {
                 "ceiling" => {
                     quote! { pumpkin_util::math::vertical_surface_type::VerticalSurfaceType::Ceiling }
@@ -2044,7 +2060,7 @@ fn value_to_placed_feature_wrapper(v: &Value) -> TokenStream {
         Value::Object(_) => {
             // It might be a PlacedFeature object
             let pf = value_to_inline_placed_feature(v);
-            quote! { PlacedFeatureWrapper::Direct(#pf) }
+            quote! { PlacedFeatureWrapper::Direct(std::sync::Arc::new(#pf)) }
         }
         _ => {
             quote! { PlacedFeatureWrapper::Named(pumpkin_data::placed_feature::PlacedFeature::Acacia) }
