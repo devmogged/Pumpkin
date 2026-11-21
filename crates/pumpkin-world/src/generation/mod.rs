@@ -21,6 +21,7 @@ mod worldgen_feature;
 pub mod worldgen_overrides;
 mod worldgen_placement;
 mod worldgen_surface;
+mod worldgen_tree;
 
 use generator::VanillaGenerator;
 use pumpkin_data::dimension::Dimension;

@@ -422,25 +422,35 @@ impl DatapackManager {
     pub(crate) fn worldgen_biome_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
         use pumpkin_data::{biome::Biome, tag::RegistryKey};
 
+        self.worldgen_tags("worldgen/biome", RegistryKey::WorldgenBiome, |name| {
+            Biome::from_name(name).map(|biome| u16::from(biome.id))
+        })
+    }
+
+    pub(crate) fn worldgen_block_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
+        self.worldgen_tags("block", pumpkin_data::tag::RegistryKey::Block, |name| {
+            pumpkin_data::Block::from_registry_key(name).map(|block| block.id.as_u16())
+        })
+    }
+
+    fn worldgen_tags(
+        &self,
+        category: &str,
+        registry: pumpkin_data::tag::RegistryKey,
+        id: fn(&str) -> Option<u16>,
+    ) -> std::collections::BTreeMap<String, Vec<u16>> {
         let tags = self
             .tags
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(biome_tags) = tags.get("worldgen/biome") else {
+        let Some(category_tags) = tags.get(category) else {
             return std::collections::BTreeMap::new();
         };
-        biome_tags
+        category_tags
             .keys()
             .map(|name| {
                 let mut ids = Vec::new();
-                tag_loader::resolve_tag(
-                    biome_tags,
-                    RegistryKey::WorldgenBiome,
-                    |name| Biome::from_name(name).map(|biome| u16::from(biome.id)),
-                    name,
-                    0,
-                    &mut ids,
-                );
+                tag_loader::resolve_tag(category_tags, registry, id, name, 0, &mut ids);
                 ids.sort_unstable();
                 ids.dedup();
                 (name.clone(), ids)

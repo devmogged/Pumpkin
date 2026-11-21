@@ -6,4 +6,4 @@ pub mod configured_features;
 pub mod placed_features;
 
 pub mod features;
-mod size;
+pub(super) mod size;

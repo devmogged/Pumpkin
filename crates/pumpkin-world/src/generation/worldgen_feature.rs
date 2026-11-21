@@ -16,8 +16,8 @@ use serde_json::Value;
 
 use super::{
     block_state_provider::{
-        BlockStateProvider, PillarBlockStateProvider, SimpleStateProvider,
-        WeightedBlockStateProvider,
+        BlockStateProvider, BlockStateRule, PillarBlockStateProvider, RuleBasedBlockStateProvider,
+        SimpleStateProvider, WeightedBlockStateProvider,
     },
     feature::{
         configured_features::ConfiguredFeature,
@@ -38,7 +38,7 @@ use super::{
         random_block_state_match::RandomBlockStateMatchRuleTest, tag_match::TagMatchRuleTest,
     },
     worldgen_overrides::{read_json, resource_id},
-    worldgen_placement::{block_tag, field, modifier, state},
+    worldgen_placement::{BlockTags, block_tag, field, modifier, predicate, state},
 };
 
 #[derive(Default)]
@@ -77,6 +77,7 @@ pub(super) struct FeatureFiles<'a> {
     pub configured: &'a BTreeMap<String, PathBuf>,
     pub placed: &'a BTreeMap<String, PathBuf>,
     pub providers: &'a BTreeMap<String, PathBuf>,
+    pub block_tags: &'a BlockTags,
 }
 
 impl FeatureFiles<'_> {
@@ -151,7 +152,7 @@ impl FeatureFiles<'_> {
             placement: json
                 .placement
                 .iter()
-                .map(modifier)
+                .map(|value| modifier(value, self.block_tags))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -160,6 +161,11 @@ impl FeatureFiles<'_> {
         let FeatureJson { kind, config } = FeatureJson::parse(json)?;
         Ok(match kind {
             "no_op" => ConfiguredFeature::NoOp,
+            "tree" => ConfiguredFeature::Tree(Box::new(super::worldgen_tree::compile(
+                config,
+                self.block_tags,
+                &|value| self.provider(value),
+            )?)),
             "simple_block" => ConfiguredFeature::SimpleBlock(SimpleBlockFeature {
                 to_place: self.provider(&config["to_place"])?,
                 schedule_tick: field(config, "schedule_tick")?,
@@ -173,7 +179,7 @@ impl FeatureFiles<'_> {
             }),
             "replace_single_block" => {
                 ConfiguredFeature::ReplaceSingleBlock(ReplaceSingleBlockFeature {
-                    targets: targets(config)?,
+                    targets: targets(config, self.block_tags)?,
                 })
             }
             "netherrack_replace_blobs" => {
@@ -190,7 +196,7 @@ impl FeatureFiles<'_> {
                 }
                 let discard_chance_on_air_exposure =
                     field(config, "discard_chance_on_air_exposure")?;
-                let targets = targets(config)?;
+                let targets = targets(config, self.block_tags)?;
                 if kind == "ore" {
                     ConfiguredFeature::Ore(OreFeature {
                         size,
@@ -210,62 +216,82 @@ impl FeatureFiles<'_> {
     }
 
     fn provider(&self, value: &Value) -> Result<BlockStateProvider, String> {
+        self.decode_provider(value, 0)
+    }
+
+    fn decode_provider(&self, value: &Value, depth: usize) -> Result<BlockStateProvider, String> {
+        const MAX_PROVIDER_DEPTH: usize = 64;
+        if depth >= MAX_PROVIDER_DEPTH {
+            return Err("block-state provider nesting exceeds 64".into());
+        }
         if let Some(name) = value.as_str() {
             let id = resource_id(name);
             if let Some(path) = self.providers.get(id.as_ref()) {
-                return inline_provider(&read_json(path)?);
+                return self.decode_provider(&read_json(path)?, depth + 1);
             }
         }
-        inline_provider(value)
-    }
-}
-
-fn inline_provider(value: &Value) -> Result<BlockStateProvider, String> {
-    if value.get("type").is_none() {
-        return Ok(BlockStateProvider::Simple(SimpleStateProvider {
-            state: state(value)?,
-        }));
-    }
-    Ok(match codec_kind(value)? {
-        "simple" | "simple_state_provider" => BlockStateProvider::Simple(SimpleStateProvider {
-            state: state(&value["state"])?,
-        }),
-        "rotated" | "rotated_block_provider" => {
-            BlockStateProvider::Pillar(PillarBlockStateProvider {
+        if value.get("type").is_none() {
+            return Ok(BlockStateProvider::Simple(SimpleStateProvider {
+                state: state(value)?,
+            }));
+        }
+        Ok(match codec_kind(value)? {
+            "simple" | "simple_state_provider" => BlockStateProvider::Simple(SimpleStateProvider {
                 state: state(&value["state"])?,
-            })
-        }
-        "weighted" | "weighted_state_provider" => {
-            let mut total = 0i32;
-            let entries = entries(value, "entries")?
-                .iter()
-                .map(|entry| {
-                    let weight = field::<i32>(entry, "weight")?;
-                    total = total
-                        .checked_add(weight)
-                        .filter(|_| weight > 0)
-                        .ok_or("invalid weighted provider weight")?;
-                    Ok(Weighted {
-                        data: state(&entry["data"])?,
-                        weight,
-                    })
+            }),
+            "rotated" | "rotated_block_provider" => {
+                BlockStateProvider::Pillar(PillarBlockStateProvider {
+                    state: state(&value["state"])?,
                 })
-                .collect::<Result<Vec<_>, String>>()?;
-            if entries.is_empty() {
-                return Err("empty weighted block-state provider".into());
             }
-            BlockStateProvider::Weighted(WeightedBlockStateProvider { entries })
-        }
-        kind => return Err(format!("unsupported block-state provider {kind}")),
-    })
+            "weighted" | "weighted_state_provider" => {
+                let mut total = 0i32;
+                let entries = entries(value, "entries")?
+                    .iter()
+                    .map(|entry| {
+                        let weight = field::<i32>(entry, "weight")?;
+                        total = total
+                            .checked_add(weight)
+                            .filter(|_| weight > 0)
+                            .ok_or("invalid weighted provider weight")?;
+                        Ok(Weighted {
+                            data: state(&entry["data"])?,
+                            weight,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                if entries.is_empty() {
+                    return Err("empty weighted block-state provider".into());
+                }
+                BlockStateProvider::Weighted(WeightedBlockStateProvider { entries })
+            }
+            "rule_based" | "rule_based_state_provider" => {
+                let rules = entries(value, "rules")?
+                    .iter()
+                    .map(|rule| {
+                        Ok(BlockStateRule {
+                            if_true: predicate(&rule["if_true"], self.block_tags)?,
+                            then: self.decode_provider(&rule["then"], depth + 1)?,
+                        })
+                    })
+                    .collect::<Result<_, String>>()?;
+                let fallback = value
+                    .get("fallback")
+                    .map(|value| self.decode_provider(value, depth + 1).map(Box::new))
+                    .transpose()?;
+                BlockStateProvider::Rule(RuleBasedBlockStateProvider { fallback, rules })
+            }
+            kind => return Err(format!("unsupported block-state provider {kind}")),
+        })
+    }
 }
 
-fn targets(config: &Value) -> Result<Vec<OreTarget>, String> {
+fn targets(config: &Value, tags: &BlockTags) -> Result<Vec<OreTarget>, String> {
     entries(config, "targets")?
         .iter()
         .map(|entry| {
             Ok(OreTarget {
-                target: rule(&entry["target"])?,
+                target: rule(&entry["target"], tags)?,
                 state: state(&entry["state"])?,
             })
         })
@@ -279,7 +305,7 @@ fn entries<'a>(value: &'a Value, name: &str) -> Result<&'a [Value], String> {
         .ok_or_else(|| format!("missing or invalid {name}"))
 }
 
-fn rule(json: &Value) -> Result<RuleTest, String> {
+fn rule(json: &Value, tags: &BlockTags) -> Result<RuleTest, String> {
     let kind = json["predicate_type"]
         .as_str()
         .ok_or("missing predicate_type")?;
@@ -287,7 +313,7 @@ fn rule(json: &Value) -> Result<RuleTest, String> {
     let rules = || {
         entries(json, "rules")?
             .iter()
-            .map(rule)
+            .map(|value| rule(value, tags))
             .collect::<Result<_, _>>()
     };
     let block = || {
@@ -300,7 +326,7 @@ fn rule(json: &Value) -> Result<RuleTest, String> {
         "always_true" => RuleTest::AlwaysTrue,
         "block_match" => RuleTest::BlockMatch(BlockMatchRuleTest { block: block()? }),
         "tag_match" => RuleTest::TagMatch(TagMatchRuleTest {
-            tag: block_tag(json["tag"].as_str().ok_or("missing tag")?)?,
+            tag: block_tag(json["tag"].as_str().ok_or("missing tag")?, tags)?,
         }),
         "blockstate_match" => RuleTest::BlockStateMatch(BlockStateMatchRuleTest {
             block_state: state(&json["block_state"])?.id,
@@ -317,7 +343,7 @@ fn rule(json: &Value) -> Result<RuleTest, String> {
         }
         "any_of" => RuleTest::AnyOf(rules()?),
         "all_of" => RuleTest::AllOf(rules()?),
-        "not" => RuleTest::Not(Box::new(rule(&json["rule"])?)),
+        "not" => RuleTest::Not(Box::new(rule(&json["rule"], tags)?)),
         "height_match" => RuleTest::HeightMatch {
             min_inclusive: field::<Option<i32>>(json, "min_inclusive")?.unwrap_or(i32::MIN),
             max_inclusive: field::<Option<i32>>(json, "max_inclusive")?.unwrap_or(i32::MAX),
@@ -336,6 +362,105 @@ mod tests {
         random::{RandomGenerator, worldgen_random::WorldgenRandom},
         world_seed::Seed,
     };
+
+    #[test]
+    fn rule_based_provider_uses_first_matching_rule_then_fallback() {
+        const TAG: &str = "minecraft:base_stone_overworld";
+        const REPLACE_WITH: &[u16] = &[Block::DIRT.id.as_u16()];
+        let replacement: pumpkin_data::tag::Tag = (&[], REPLACE_WITH, TAG);
+        let tags = BlockTags::from([(TAG.into(), replacement)]);
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &BTreeMap::new(),
+            block_tags: &tags,
+        };
+        let config = serde_json::json!({
+            "type": "minecraft:simple_block",
+            "to_place": {
+                "type": "minecraft:rule_based",
+                "fallback": {"type": "minecraft:simple", "state": "minecraft:diamond_block"},
+                "rules": [
+                    {
+                        "if_true": {"type": "minecraft:matching_blocks", "blocks": "#minecraft:base_stone_overworld"},
+                        "then": {"type": "minecraft:simple", "state": "minecraft:gold_block"}
+                    },
+                    {
+                        "if_true": {"type": "minecraft:matching_blocks", "blocks": ["minecraft:stone", "minecraft:dirt"]},
+                        "then": {"type": "minecraft:simple", "state": "minecraft:iron_block"}
+                    }
+                ]
+            }
+        });
+        let ConfiguredFeature::SimpleBlock(feature) = files.configured(&config).unwrap() else {
+            unreachable!();
+        };
+        let generator = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut chunk = crate::ProtoChunk::new(0, 0, &generator);
+        let mut random = RandomGenerator::Worldgen(WorldgenRandom::from_seed(42));
+        let pos = BlockPos::new(0, 120, 0);
+        for (from, expected) in [
+            (Block::STONE, Block::IRON_BLOCK),
+            (Block::DIRT, Block::GOLD_BLOCK),
+            (Block::AIR, Block::DIAMOND_BLOCK),
+        ] {
+            chunk.set_block_state(pos.0.x, pos.0.y, pos.0.z, from.default_state);
+            assert!(feature.generate(&TestBlockRegistry, &mut chunk, &mut random, pos));
+            assert_eq!(chunk.get_block_state(&pos.0).to_block_id(), expected.id);
+        }
+    }
+
+    #[test]
+    fn runtime_oak_matches_generated_oak() {
+        let assets = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/datapack/data/minecraft/worldgen");
+        let providers = BTreeMap::from([(
+            "minecraft:soil_beneath_tree".into(),
+            assets.join("block_state_provider/soil_beneath_tree.json"),
+        )]);
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &providers,
+            block_tags: &BTreeMap::new(),
+        };
+        let json = read_json(&assets.join("feature/oak.json")).unwrap();
+        let ConfiguredFeature::Tree(runtime) = files.configured(&json).unwrap() else {
+            unreachable!();
+        };
+        let Some(ConfiguredFeature::Tree(generated)) =
+            crate::generation::feature::configured_features::CONFIGURED_FEATURES
+                .get(&ConfiguredId::Oak)
+        else {
+            unreachable!();
+        };
+        let generator = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let place = |tree: &super::super::feature::features::tree::TreeFeature| {
+            let mut chunk = crate::ProtoChunk::new(0, 0, &generator);
+            chunk.set_block_state(8, 119, 8, Block::GRASS_BLOCK.default_state);
+            let mut random = RandomGenerator::Worldgen(WorldgenRandom::from_seed(42));
+            assert!(tree.generate(
+                &TestBlockRegistry,
+                &mut chunk,
+                &mut random,
+                BlockPos::new(8, 120, 8)
+            ));
+            chunk.flat_block_map
+        };
+        assert_eq!(place(&runtime), place(generated));
+    }
 
     #[test]
     fn named_runtime_feature_uses_the_origin_chunk_for_fixed_placement() {
@@ -362,6 +487,7 @@ mod tests {
             configured: &BTreeMap::from([("fixture:marker".into(), configured)]),
             placed: &BTreeMap::from([("fixture:fixed".into(), placed)]),
             providers: &BTreeMap::new(),
+            block_tags: &BTreeMap::new(),
         }
         .build();
         let id = features.id("fixture:fixed").unwrap();

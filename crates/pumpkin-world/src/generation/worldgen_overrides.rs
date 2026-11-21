@@ -30,7 +30,7 @@ use serde_json::Value;
 #[path = "worldgen_dimensions.rs"]
 mod dimensions;
 
-use super::worldgen_feature::FeatureFiles;
+use super::{worldgen_feature::FeatureFiles, worldgen_placement::BlockTags};
 
 /// Worldgen settings selected once when the level opens.
 pub struct RuntimeNoiseSettings {
@@ -51,6 +51,7 @@ pub struct WorldgenOverrides {
     placed_features: BTreeMap<String, PathBuf>,
     state_providers: BTreeMap<String, PathBuf>,
     biome_tags: BTreeMap<String, Vec<u16>>,
+    block_tags: BlockTags,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
     noises: BTreeMap<String, PathBuf>,
@@ -114,6 +115,19 @@ impl WorldgenOverrides {
         self.biome_tags = tags;
     }
 
+    /// Keeps the resolved block tag membership used to compile generation rules.
+    pub fn set_block_tags(&mut self, tags: BTreeMap<String, Vec<u16>>) {
+        self.block_tags = tags
+            .into_iter()
+            .map(|(name, ids)| {
+                let key: &'static str = Box::leak(name.clone().into_boxed_str());
+                let ids: &'static [u16] = Box::leak(ids.into_boxed_slice());
+                let tag: pumpkin_data::tag::Tag = (&[], ids, key);
+                (name, tag)
+            })
+            .collect();
+    }
+
     /// Installs biome definitions at the same IDs as the server's synced registry.
     pub fn install_biomes(&self, registry: &[RegistryEntryData]) -> Result<(), String> {
         if registry.len() > usize::from(u8::MAX) + 1 {
@@ -128,6 +142,7 @@ impl WorldgenOverrides {
             configured: &self.configured_features,
             placed: &self.placed_features,
             providers: &self.state_providers,
+            block_tags: &self.block_tags,
         }
         .build();
         let mut unknown_features = BTreeSet::new();

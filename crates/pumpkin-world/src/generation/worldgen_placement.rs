@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use pumpkin_data::{
     Block, BlockDirection, BlockState,
     tag::{RegistryKey, get_registry_key_tags},
@@ -103,18 +105,6 @@ fn offset(value: &Value) -> Result<Option<Vector3<i32>>, String> {
     Ok(field::<Option<[i32; 3]>>(value, "offset")?.map(|[x, y, z]| Vector3::new(x, y, z)))
 }
 
-fn direction(value: &Value, key: &str) -> Result<BlockDirection, String> {
-    match value[key].as_str() {
-        Some("up") => Ok(BlockDirection::Up),
-        Some("down") => Ok(BlockDirection::Down),
-        Some("north") => Ok(BlockDirection::North),
-        Some("south") => Ok(BlockDirection::South),
-        Some("east") => Ok(BlockDirection::East),
-        Some("west") => Ok(BlockDirection::West),
-        _ => Err(format!("invalid block direction {key}")),
-    }
-}
-
 fn matching(value: &Value) -> Result<MatchingBlocksWrapper, String> {
     if let Some(id) = value.as_str() {
         Ok(MatchingBlocksWrapper::Single(id.to_owned()))
@@ -123,26 +113,36 @@ fn matching(value: &Value) -> Result<MatchingBlocksWrapper, String> {
     }
 }
 
-pub(super) fn block_tag(value: &str) -> Result<pumpkin_data::tag::Tag, String> {
+pub(super) type BlockTags = BTreeMap<String, pumpkin_data::tag::Tag>;
+
+pub(super) fn block_tag(value: &str, tags: &BlockTags) -> Result<pumpkin_data::tag::Tag, String> {
     let name = resource_id(value.strip_prefix('#').unwrap_or(value));
-    get_registry_key_tags(JavaMinecraftVersion::V_26_3, RegistryKey::Block)
-        .and_then(|tags| tags.get(name.as_ref()).map(|tag| **tag))
+    tags.get(name.as_ref())
+        .copied()
+        .or_else(|| {
+            get_registry_key_tags(JavaMinecraftVersion::V_26_3, RegistryKey::Block)
+                .and_then(|tags| tags.get(name.as_ref()).map(|tag| **tag))
+        })
         .ok_or_else(|| format!("unknown block tag {name}"))
 }
 
-fn tag(value: &str, offset: OffsetBlocksBlockPredicate) -> Result<BlockPredicate, String> {
+fn tag(
+    value: &str,
+    offset: OffsetBlocksBlockPredicate,
+    tags: &BlockTags,
+) -> Result<BlockPredicate, String> {
     Ok(BlockPredicate::MatchingBlockTag(
         MatchingBlockTagPredicate {
             offset,
-            tag: block_tag(value)?,
+            tag: block_tag(value, tags)?,
         },
     ))
 }
 
-pub(super) fn predicate(value: &Value) -> Result<BlockPredicate, String> {
+pub(super) fn predicate(value: &Value, tags: &BlockTags) -> Result<BlockPredicate, String> {
     if let Some(name) = value.as_str() {
         return match name.strip_prefix('#') {
-            Some(id) => tag(id, OffsetBlocksBlockPredicate { offset: None }),
+            Some(id) => tag(id, OffsetBlocksBlockPredicate { offset: None }, tags),
             None if name == "true" => Ok(BlockPredicate::AlwaysTrue),
             None => Err(format!("unsupported block predicate {name}")),
         };
@@ -156,16 +156,26 @@ pub(super) fn predicate(value: &Value) -> Result<BlockPredicate, String> {
             .as_array()
             .ok_or_else(|| "missing predicates".to_owned())?
             .iter()
-            .map(predicate)
+            .map(|value| predicate(value, tags))
             .collect::<Result<Vec<_>, _>>()
     };
     Ok(match kind {
-        "matching_blocks" => BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
-            offset,
-            blocks: matching(&value["blocks"])?,
-        }),
+        "matching_blocks" => {
+            let blocks = &value["blocks"];
+            if let Some(name) = blocks.as_str().and_then(|name| name.strip_prefix('#')) {
+                return tag(name, offset, tags);
+            }
+            BlockPredicate::MatchingBlocks(MatchingBlocksBlockPredicate {
+                offset,
+                blocks: matching(blocks)?,
+            })
+        }
         "matching_block_tag" => {
-            return tag(value["tag"].as_str().ok_or("missing block tag")?, offset);
+            return tag(
+                value["tag"].as_str().ok_or("missing block tag")?,
+                offset,
+                tags,
+            );
         }
         "matching_fluids" => BlockPredicate::MatchingFluids(MatchingFluidsBlockPredicate {
             offset,
@@ -173,7 +183,7 @@ pub(super) fn predicate(value: &Value) -> Result<BlockPredicate, String> {
         }),
         "has_sturdy_face" => BlockPredicate::HasSturdyFace(HasSturdyFacePredicate {
             offset,
-            direction: direction(value, "direction")?,
+            direction: field(value, "direction")?,
         }),
         "solid" => BlockPredicate::Solid(SolidBlockPredicate { offset }),
         "replaceable" => BlockPredicate::Replaceable(ReplaceableBlockPredicate { offset }),
@@ -197,7 +207,7 @@ pub(super) fn predicate(value: &Value) -> Result<BlockPredicate, String> {
             predicates: predicates()?,
         }),
         "not" => BlockPredicate::Not(NotBlockPredicate {
-            predicate: Box::new(predicate(&value["predicate"])?),
+            predicate: Box::new(predicate(&value["predicate"], tags)?),
         }),
         "unobstructed" => BlockPredicate::Unobstructed(UnobstructedBlockPredicate {
             offset: offset.offset,
@@ -222,8 +232,8 @@ pub(super) fn bounded_int(
     }
 }
 
-fn environment_scan(value: &Value) -> Result<PlacementModifier, String> {
-    let direction_of_search = direction(value, "direction_of_search")?;
+fn environment_scan(value: &Value, tags: &BlockTags) -> Result<PlacementModifier, String> {
+    let direction_of_search = field(value, "direction_of_search")?;
     let max_steps = field(value, "max_steps")?;
     if !matches!(
         direction_of_search,
@@ -235,10 +245,10 @@ fn environment_scan(value: &Value) -> Result<PlacementModifier, String> {
     Ok(PlacementModifier::EnvironmentScan(
         EnvironmentScanPlacementModifier {
             direction_of_search,
-            target_condition: predicate(&value["target_condition"])?,
+            target_condition: predicate(&value["target_condition"], tags)?,
             allowed_search_condition: value
                 .get("allowed_search_condition")
-                .map(predicate)
+                .map(|value| predicate(value, tags))
                 .transpose()?,
             max_steps,
         },
@@ -246,7 +256,7 @@ fn environment_scan(value: &Value) -> Result<PlacementModifier, String> {
 }
 
 /// Parses modifiers in the order retained by the placed-feature codec.
-pub(super) fn modifier(value: &Value) -> Result<PlacementModifier, String> {
+pub(super) fn modifier(value: &Value, tags: &BlockTags) -> Result<PlacementModifier, String> {
     let kind = codec_kind(value)?;
     Ok(match kind {
         "biome" => PlacementModifier::Biome(BiomePlacementModifier),
@@ -279,7 +289,7 @@ pub(super) fn modifier(value: &Value) -> Result<PlacementModifier, String> {
         }),
         "block_predicate_filter" => {
             PlacementModifier::BlockPredicateFilter(BlockFilterPlacementModifier {
-                predicate: predicate(&value["predicate"])?,
+                predicate: predicate(&value["predicate"], tags)?,
             })
         }
         "surface_relative_threshold_filter" => PlacementModifier::SurfaceRelativeThresholdFilter(
@@ -308,14 +318,17 @@ pub(super) fn modifier(value: &Value) -> Result<PlacementModifier, String> {
                 above_noise: field(value, "above_noise")?,
             })
         }
-        "environment_scan" => return environment_scan(value),
+        "environment_scan" => return environment_scan(value, tags),
         "randomly_selected" => {
             let placements = value["placements"]
                 .as_array()
                 .filter(|list| !list.is_empty())
                 .ok_or("randomly_selected placements must be a non-empty list")?;
             PlacementModifier::RandomlySelected(
-                placements.iter().map(modifier).collect::<Result<_, _>>()?,
+                placements
+                    .iter()
+                    .map(|value| modifier(value, tags))
+                    .collect::<Result<_, _>>()?,
             )
         }
         "random_offset" => PlacementModifier::RandomOffset(RandomOffsetPlacementModifier {
