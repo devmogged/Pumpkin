@@ -914,11 +914,20 @@ impl ToFromWasmEvent for PlayerInteractEntityEvent {
                     action: from_wasm_entity_interaction_action(data.action),
                     target_position: None,
                     sneaking: data.sneaking,
+                    hand: pumpkin_util::Hand::Right,
                     cancelled: data.cancelled,
                 }
             }
             _ => panic!("unexpected event type"),
         }
+    }
+
+    fn apply_wasm_event(&mut self, event: Event, state: &mut PluginHostState) {
+        let mut returned = Self::from_wasm_event(event, state);
+        // The WIT event does not carry these native packet fields.
+        returned.hand = self.hand;
+        returned.target_position = self.target_position;
+        *self = returned;
     }
 }
 

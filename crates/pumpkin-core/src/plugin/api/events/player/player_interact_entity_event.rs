@@ -4,7 +4,7 @@ use crate::entity::EntityBase;
 use crate::entity::player::Player;
 use pumpkin_macros::{Event, cancellable};
 use pumpkin_protocol::java::server::play::ActionType;
-use pumpkin_util::math::vector3::Vector3;
+use pumpkin_util::{Hand, math::vector3::Vector3};
 
 use super::PlayerEvent;
 
@@ -30,6 +30,9 @@ pub struct PlayerInteractEntityEvent {
 
     /// Whether the player was sneaking during the interaction.
     pub sneaking: bool,
+
+    /// The hand the client used; the main hand for attacks.
+    pub hand: Hand,
 }
 
 impl PlayerInteractEntityEvent {
@@ -46,8 +49,15 @@ impl PlayerInteractEntityEvent {
             action,
             target_position,
             sneaking,
+            hand: Hand::Right,
             cancelled: false,
         }
+    }
+
+    #[must_use]
+    pub const fn with_hand(mut self, hand: Hand) -> Self {
+        self.hand = hand;
+        self
     }
 }
 
