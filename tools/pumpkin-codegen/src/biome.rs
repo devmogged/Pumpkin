@@ -290,7 +290,7 @@ pub fn build() -> TokenStream {
                 snow_golem_melts: #snow_golem_melts,
                 can_pillager_patrol_spawn: #can_pillager_patrol_spawn,
                 spawners: #spawners,
-                spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {
+                spawn_costs: SpawnCostsLookup::Vanilla(&phf::phf_map! {
                     #(#spawn_costs),*
                 }),
             };
@@ -317,7 +317,7 @@ pub fn build() -> TokenStream {
             sync::OnceLock,
         };
 
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub struct Biome {
             pub id: u8,
             pub registry_id: &'static str,
@@ -345,7 +345,7 @@ pub fn build() -> TokenStream {
             }
         }
 
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub struct SpawnGroups {
             pub monster: &'static [Spawner],
             pub ambient: &'static [Spawner],
@@ -378,15 +378,15 @@ pub fn build() -> TokenStream {
             }
         }
 
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub struct SpawnCosts {
             pub energy_budget: f64,
             pub charge: f64,
         }
 
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub enum SpawnCostsLookup {
-            Vanilla(phf::Map<&'static str, SpawnCosts>),
+            Vanilla(&'static phf::Map<&'static str, SpawnCosts>),
             Runtime(BTreeMap<String, SpawnCosts>),
         }
 

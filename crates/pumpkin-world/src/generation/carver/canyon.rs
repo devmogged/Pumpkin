@@ -17,6 +17,7 @@ impl Carver for CanyonCarver {
         carver_chunk_pos: &Vector2<i32>,
         min_gen_y: i8,
         gen_depth: u16,
+        sea_level: i32,
         legacy_random_source: bool,
     ) {
         let CarverAdditionalConfig::Canyon(ref canyon_config) = config.additional else {
@@ -26,7 +27,7 @@ impl Carver for CanyonCarver {
         let max_distance = (4 * 2 - 1) * 16;
 
         let x = (carver_chunk_pos.x << 4) + random.next_bounded_i32(16);
-        let y = get_height(&config.y, random, min_gen_y, gen_depth);
+        let y = get_height(&config.y, random, min_gen_y, gen_depth, sea_level);
         let z = (carver_chunk_pos.y << 4) + random.next_bounded_i32(16);
 
         let horizontal_rotation = random.next_f32() * PI * 2.0;
@@ -222,6 +223,7 @@ mod tests {
             &carver_chunk_pos,
             -64,
             384,
+            63,
             false,
         );
 

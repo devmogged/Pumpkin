@@ -7,6 +7,7 @@ pub struct DoublePerlinNoiseParameters {
     pub lo: u64,
     pub hi: u64,
     pub string_hash: i32,
+    pub normalization: Option<pumpkin_util::noise::perlin::NormalNoiseSettings>,
 }
 impl DoublePerlinNoiseParameters {
     pub const COUNT: usize = 64usize;
@@ -25,7 +26,16 @@ impl DoublePerlinNoiseParameters {
             lo,
             hi,
             string_hash,
+            normalization: None,
         }
+    }
+    #[must_use]
+    pub const fn with_normalization(
+        mut self,
+        normalization: pumpkin_util::noise::perlin::NormalNoiseSettings,
+    ) -> Self {
+        self.normalization = Some(normalization);
+        self
     }
     pub fn id_to_parameters(id: &str) -> Option<&'static DoublePerlinNoiseParameters> {
         let id = id

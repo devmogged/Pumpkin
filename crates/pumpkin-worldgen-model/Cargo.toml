@@ -7,10 +7,11 @@ license.workspace = true
 
 [features]
 runtime = ["dep:pumpkin-data"]
-codegen = ["dep:heck", "dep:proc-macro2", "dep:quote", "dep:syn"]
+codegen = ["dep:heck", "dep:proc-macro2", "dep:quote", "dep:syn", "pumpkin-util/codegen"]
 
 [dependencies]
 pumpkin-data = { path = "../pumpkin-data", optional = true }
+pumpkin-util.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 md5.workspace = true

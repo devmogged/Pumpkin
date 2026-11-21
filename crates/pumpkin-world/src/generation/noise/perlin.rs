@@ -22,7 +22,18 @@ impl DoublePerlinNoiseSampler {
         parameters: &DoublePerlinNoiseParameters,
         legacy: bool,
     ) -> Self {
-        Self::new(rand, parameters.first_octave, parameters.amplitudes, legacy)
+        match parameters.normalization {
+            Some(settings) => Self {
+                noise: NormalNoise::from_parameters(
+                    rand,
+                    parameters.first_octave,
+                    parameters.amplitudes,
+                    settings,
+                    legacy,
+                ),
+            },
+            None => Self::new(rand, parameters.first_octave, parameters.amplitudes, legacy),
+        }
     }
 
     pub fn new(

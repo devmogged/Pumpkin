@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
 };
@@ -7,6 +7,7 @@ use std::{
 use pumpkin_data::{
     Block, BlockState,
     biome::{Biome, Parameter, ParameterPoint},
+    carver::CarverConfig,
     chunk::DoublePerlinNoiseParameters,
     dimension::Dimension,
     material_rule::{MaterialRule, VANILLA_MATERIAL_CONDITIONS, VANILLA_MATERIAL_RULES},
@@ -15,6 +16,7 @@ use pumpkin_data::{
     registry::RegistryEntryData,
 };
 use pumpkin_worldgen_model::{
+    carver::CarverJson,
     material::{MaterialRegistry, resolve_rule},
     noise_parameter::NoiseParameterJson,
     noise_router::parse_noise_router,
@@ -41,6 +43,7 @@ pub struct WorldgenOverrides {
     dimension_types: BTreeMap<String, PathBuf>,
     dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
+    carvers: BTreeMap<String, PathBuf>,
     biome_tags: BTreeMap<String, Vec<u16>>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
@@ -75,6 +78,7 @@ impl WorldgenOverrides {
                 );
                 for (kind, registry) in [
                     ("biome", &mut overrides.biomes),
+                    ("carver", &mut overrides.carvers),
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
                     ("noise", &mut overrides.noises),
@@ -89,8 +93,8 @@ impl WorldgenOverrides {
     }
 
     #[must_use]
-    pub fn has_datapack_biomes(&self) -> bool {
-        !self.biomes.is_empty()
+    pub fn has_biome_generation_overrides(&self) -> bool {
+        !self.biomes.is_empty() || !self.carvers.is_empty()
     }
 
     /// Saves the merged tags at the biome IDs installed for this world generation run.
@@ -107,6 +111,19 @@ impl WorldgenOverrides {
             ));
         }
 
+        let carvers = self.build_carvers();
+        let mut unknown = BTreeSet::new();
+        let mut carver = |name: &str| {
+            let id = resource_id(name);
+            if let Some(&loaded) = carvers.get(id.as_ref()) {
+                return loaded;
+            }
+            let built_in = CarverConfig::from_name(&id);
+            if built_in.is_none() && unknown.insert(id.into_owned()) {
+                tracing::warn!("Skipping unknown carver {name}");
+            }
+            built_in
+        };
         let mut custom = Vec::with_capacity(self.biomes.len());
         for (id, entry) in registry.iter().enumerate() {
             let key = resource_id(&entry.entry_id);
@@ -121,12 +138,29 @@ impl WorldgenOverrides {
             }
 
             let Some(path) = self.biomes.get(key.as_ref()) else {
+                if let Some(vanilla) = vanilla
+                    && vanilla
+                        .carvers
+                        .iter()
+                        .any(|config| carvers.contains_key(config.registry_id))
+                {
+                    let mut biome = vanilla.clone();
+                    biome.carvers = Box::leak(
+                        vanilla
+                            .carvers
+                            .iter()
+                            .filter_map(|config| carver(config.registry_id))
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    );
+                    custom.push(biome);
+                }
                 continue;
             };
             let name = vanilla.map_or(key.as_ref(), |biome| biome.registry_id);
-            match read_json(path)
-                .and_then(|json| crate::biome::registry::build_biome(id as u8, name, json))
-            {
+            match read_json(path).and_then(|json| {
+                crate::biome::registry::build_biome(id as u8, name, json, &mut carver)
+            }) {
                 Ok(biome) => custom.push(biome),
                 Err(error) => tracing::warn!("Skipping biome {key}: {error}"),
             }
@@ -137,6 +171,24 @@ impl WorldgenOverrides {
         } else {
             Err("could not install synchronized biome IDs".into())
         }
+    }
+
+    fn build_carvers(&self) -> BTreeMap<String, Option<&'static CarverConfig>> {
+        self.carvers
+            .iter()
+            .map(|(id, path)| {
+                let config = match read_json(path).and_then(CarverJson::parse) {
+                    Ok(carver) => Some(&*Box::leak(Box::new(
+                        carver.build(Box::leak(id.clone().into_boxed_str())),
+                    ))),
+                    Err(error) => {
+                        tracing::warn!("Skipping carver {id}: {error}");
+                        None
+                    }
+                };
+                (id.clone(), config)
+            })
+            .collect()
     }
 
     pub(crate) fn dimension_type_id(&self, name: &str) -> Option<i32> {
@@ -230,7 +282,7 @@ impl WorldgenOverrides {
         &self,
         settings: &str,
         json: Value,
-        resolve_noise: &impl Fn(&str) -> Result<DoublePerlinNoiseParameters, String>,
+        resolve_noise: &impl Fn(&str) -> Result<&'static DoublePerlinNoiseParameters, String>,
     ) -> Option<&'static MaterialRule> {
         let built =
             resolve_rule(json, |registry, id| self.material_json(registry, id)).and_then(|rule| {
@@ -370,16 +422,14 @@ fn build_settings(
         let full = resource_id(id);
         let vanilla = DoublePerlinNoiseParameters::id_to_parameters(id);
         let Some(path) = overrides.noises.get(full.as_ref()) else {
-            return vanilla
-                .copied()
-                .ok_or_else(|| format!("unknown noise {full}"));
+            return vanilla.ok_or_else(|| format!("unknown noise {full}"));
         };
         if let Some(&parameters) = resolved_noises.borrow().get(full.as_ref()) {
             return Ok(parameters);
         }
         let data: NoiseParameterJson =
             serde_json::from_value(read_json(path)?).map_err(|error| format!("{full}: {error}"))?;
-        let (octave, amplitudes) = data
+        let (octave, amplitudes, normalization) = data
             .into_runtime_parameters()
             .map_err(|error| format!("{full}: {error}"))?;
         let digest = md5::compute(full.as_bytes()).0;
@@ -395,13 +445,15 @@ fn build_settings(
             lo,
             hi,
             pumpkin_util::math::java_string_hash(&full),
-        );
+        )
+        .with_normalization(normalization);
+        let parameters: &'static DoublePerlinNoiseParameters = Box::leak(Box::new(parameters));
         resolved_noises
             .borrow_mut()
             .insert(full.into_owned(), parameters);
         Ok(parameters)
     };
-    let router = parsed.build_runtime(resolve_noise)?;
+    let router = parsed.build_runtime(|id| resolve_noise(id).copied())?;
     let surface_rule =
         surface_rule_json.and_then(|json| overrides.surface_rule(name, json, &resolve_noise));
     let parameter = |raw: ParameterStruct| {
@@ -472,7 +524,6 @@ mod tests {
         let registry = WorldgenOverrides::default();
         let noise = |id: &str| {
             DoublePerlinNoiseParameters::id_to_parameters(id)
-                .copied()
                 .ok_or_else(|| format!("unknown noise {id}"))
         };
         for name in [
@@ -495,6 +546,36 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn vanilla_runtime_matches_generated_carver_configs() {
+        for &(name, json) in pumpkin_data::carver::VANILLA_CARVERS_JSON {
+            let runtime = CarverJson::parse(serde_json::from_str(json).unwrap())
+                .unwrap()
+                .build(name);
+            let generated = CarverConfig::from_name(name).unwrap();
+            assert_eq!(format!("{runtime:?}"), format!("{generated:?}"), "{name}");
+        }
+    }
+
+    #[test]
+    fn higher_pack_replaces_a_named_carver() {
+        let packs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        for (pack, probability) in packs.iter().zip([0.25, 0.75]) {
+            let folder = pack.path().join("data/minecraft/worldgen/carver");
+            std::fs::create_dir_all(&folder).unwrap();
+            let json = pumpkin_data::carver::VANILLA_CARVERS_JSON
+                .iter()
+                .find_map(|&(id, json)| (id == "minecraft:canyon").then_some(json))
+                .unwrap();
+            let mut def: Value = serde_json::from_str(json).unwrap();
+            def["probability"] = Value::from(probability);
+            std::fs::write(folder.join("canyon.json"), def.to_string()).unwrap();
+        }
+        let registry = WorldgenOverrides::from_packs(packs.iter().map(tempfile::TempDir::path));
+        let carvers = registry.build_carvers();
+        assert_eq!(carvers["minecraft:canyon"].unwrap().probability, 0.75);
     }
 
     #[test]

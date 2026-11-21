@@ -18,6 +18,7 @@ impl Carver for CaveCarver {
         carver_chunk_pos: &Vector2<i32>,
         min_gen_y: i8,
         gen_depth: u16,
+        sea_level: i32,
         legacy_random_source: bool,
     ) {
         let CarverAdditionalConfig::Cave(ref cave_config) = config.additional else {
@@ -29,7 +30,7 @@ impl Carver for CaveCarver {
 
         for _ in 0..cave_count {
             let x = (carver_chunk_pos.x << 4) + random.next_bounded_i32(16);
-            let y = get_height(&config.y, random, min_gen_y, gen_depth) as f64;
+            let y = get_height(&config.y, random, min_gen_y, gen_depth, sea_level) as f64;
             let z = (carver_chunk_pos.y << 4) + random.next_bounded_i32(16);
 
             let horizontal_radius_multiplier =
@@ -265,11 +266,21 @@ impl CaveCarver {
     }
 }
 
-pub fn get_height(p: &HeightProvider, random: &mut RandomGenerator, min_y: i8, height: u16) -> i32 {
+pub fn get_height(
+    p: &HeightProvider,
+    random: &mut RandomGenerator,
+    min_y: i8,
+    height: u16,
+    sea_level: i32,
+) -> i32 {
+    let resolve = |anchor: &pumpkin_util::y_offset::YOffset| {
+        anchor.resolve_y(i16::from(min_y), height, sea_level)
+    };
     match p {
+        HeightProvider::Constant(anchor) => resolve(anchor),
         HeightProvider::Uniform(p) => {
-            let min = p.min_inclusive.get_y(min_y as i16, height);
-            let max = p.max_inclusive.get_y(min_y as i16, height);
+            let min = resolve(&p.min_inclusive);
+            let max = resolve(&p.max_inclusive);
             if min > max {
                 min
             } else {
@@ -277,8 +288,8 @@ pub fn get_height(p: &HeightProvider, random: &mut RandomGenerator, min_y: i8, h
             }
         }
         HeightProvider::Trapezoid(p) => {
-            let i = p.min_inclusive.get_y(min_y as i16, height);
-            let j = p.max_inclusive.get_y(min_y as i16, height);
+            let i = resolve(&p.min_inclusive);
+            let j = resolve(&p.max_inclusive);
             if i > j {
                 return i;
             }
@@ -293,8 +304,8 @@ pub fn get_height(p: &HeightProvider, random: &mut RandomGenerator, min_y: i8, h
             }
         }
         HeightProvider::VeryBiasedToBottom(p) => {
-            let min = p.min_inclusive.get_y(min_y as i16, height);
-            let max = p.max_inclusive.get_y(min_y as i16, height);
+            let min = resolve(&p.min_inclusive);
+            let max = resolve(&p.max_inclusive);
             let inner = p.inner.map_or(1, std::num::NonZero::get) as i32;
             if max - min - inner < 0 {
                 min
@@ -332,6 +343,7 @@ mod tests {
             &carver_chunk_pos,
             -64,
             384,
+            63,
             false,
         );
 

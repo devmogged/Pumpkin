@@ -498,7 +498,7 @@ fn test_noise_threshold(
             context.random_deriver,
             context.legacy_random_source,
             context.world_seed,
-            &condition.noise,
+            condition.noise,
         );
         context
             .noise_threshold_samplers

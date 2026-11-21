@@ -41,6 +41,27 @@ pub enum YOffsetStruct {
     RelativeToSeaLevel { relative_to_sea_level: i16 },
 }
 
+impl YOffsetStruct {
+    #[must_use]
+    pub const fn into_offset(self) -> pumpkin_util::y_offset::YOffset {
+        use pumpkin_util::y_offset::{
+            AboveBottom, Absolute, BelowTop, RelativeToSeaLevel, YOffset,
+        };
+        match self {
+            Self::Absolute { absolute } => YOffset::Absolute(Absolute { absolute }),
+            Self::AboveBottom { above_bottom } => {
+                YOffset::AboveBottom(AboveBottom { above_bottom })
+            }
+            Self::BelowTop { below_top } => YOffset::BelowTop(BelowTop { below_top }),
+            Self::RelativeToSeaLevel {
+                relative_to_sea_level,
+            } => YOffset::RelativeToSeaLevel(RelativeToSeaLevel {
+                relative_to_sea_level,
+            }),
+        }
+    }
+}
+
 #[cfg(feature = "codegen")]
 impl ToTokens for YOffsetStruct {
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -294,7 +315,7 @@ impl ToTokens for MaterialConditionStruct {
                 };
                 tokens.extend(quote!(
                     #condition(NoiseThresholdMaterialCondition {
-                        noise: DoublePerlinNoiseParameters::#noise_id,
+                        noise: &DoublePerlinNoiseParameters::#noise_id,
                         min_threshold: #min_threshold,
                         max_threshold: #max_threshold,
                     })

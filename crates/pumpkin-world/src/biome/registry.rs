@@ -1,10 +1,18 @@
-use pumpkin_data::biome::{Biome, SpawnCosts, SpawnCostsLookup, SpawnGroups, Spawner};
+use pumpkin_data::{
+    biome::{Biome, SpawnCosts, SpawnCostsLookup, SpawnGroups, Spawner},
+    carver::CarverConfig,
+};
 use pumpkin_util::biome::{TemperatureModifier, Weather};
 use pumpkin_worldgen_model::biome_data::{
     BiomeFile, TemperatureModifier as FileTemperatureModifier,
 };
 
-pub fn build_biome(id: u8, name: &str, json: serde_json::Value) -> Result<Biome, String> {
+pub fn build_biome(
+    id: u8,
+    name: &str,
+    json: serde_json::Value,
+    carver: impl FnMut(&str) -> Option<&'static CarverConfig>,
+) -> Result<Biome, String> {
     let mut biome: BiomeFile = serde_json::from_value(json).map_err(|error| error.to_string())?;
     biome.apply_natural_mob_spawns();
     let temperature_modifier = match biome.temperature_modifier {
@@ -21,6 +29,7 @@ pub fn build_biome(id: u8, name: &str, json: serde_json::Value) -> Result<Biome,
         .attr_bool("minecraft:gameplay/can_pillager_patrol_spawn")
         .unwrap_or(true);
     let spawners = biome.spawners;
+    let carvers = biome.carvers.iter().map(String::as_str).filter_map(carver);
     let group = |entries: Vec<pumpkin_worldgen_model::biome_data::Spawner>| {
         &*Box::leak(
             entries
@@ -45,9 +54,9 @@ pub fn build_biome(id: u8, name: &str, json: serde_json::Value) -> Result<Biome,
             temperature_modifier,
             biome.downfall,
         ),
-        // shortcut: runtime carvers and features are wired in E2d.
+        // shortcut: runtime features are wired after carvers in E2d.
         features: base.map_or(&[], |base| base.features),
-        carvers: base.map_or(&[], |base| base.carvers),
+        carvers: Box::leak(carvers.collect::<Vec<_>>().into_boxed_slice()),
         creature_spawn_probability: biome.creature_spawn_probability.unwrap_or(0.1),
         increased_fire_burnout,
         snow_golem_melts,
@@ -81,4 +90,35 @@ pub fn build_biome(id: u8, name: &str, json: serde_json::Value) -> Result<Biome,
                 .collect(),
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn datapack_biome_applies_its_carvers_in_order() {
+        let biome = build_biome(
+            250,
+            "fixture:ravines",
+            serde_json::json!({
+                "has_precipitation": false,
+                "temperature": 0.5,
+                "downfall": 0.0,
+                "carvers": ["minecraft:canyon", "minecraft:cave"],
+                "features": [],
+            }),
+            CarverConfig::from_name,
+        )
+        .unwrap();
+        assert_eq!(biome.carvers.len(), 2);
+        assert!(matches!(
+            biome.carvers[0].additional,
+            pumpkin_data::carver::CarverAdditionalConfig::Canyon(_)
+        ));
+        assert!(matches!(
+            biome.carvers[1].additional,
+            pumpkin_data::carver::CarverAdditionalConfig::Cave(_)
+        ));
+    }
 }

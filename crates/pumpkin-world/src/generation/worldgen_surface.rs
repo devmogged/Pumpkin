@@ -12,19 +12,16 @@ use pumpkin_data::{
     },
     tag::{RegistryKey, get_tag_ids},
 };
-use pumpkin_util::{
-    math::vertical_surface_type::VerticalSurfaceType,
-    y_offset::{AboveBottom, Absolute, BelowTop, RelativeToSeaLevel, YOffset},
-};
+use pumpkin_util::math::vertical_surface_type::VerticalSurfaceType;
 use pumpkin_worldgen_model::material::{
-    MaterialConditionStruct, MaterialRuleStruct, Surface, YOffsetStruct, gradient_key,
+    MaterialConditionStruct, MaterialRuleStruct, Surface, gradient_key,
 };
 
 use super::worldgen_overrides::{block_state, resource_id};
 
 pub(super) fn compile(
     source: MaterialRuleStruct,
-    noise: &impl Fn(&str) -> Result<DoublePerlinNoiseParameters, String>,
+    noise: &impl Fn(&str) -> Result<&'static DoublePerlinNoiseParameters, String>,
     tags: &BTreeMap<String, Vec<u16>>,
 ) -> Result<MaterialRule, String> {
     use MaterialRuleStruct as Rule;
@@ -68,7 +65,7 @@ pub(super) fn compile(
 
 fn compile_condition(
     source: MaterialConditionStruct,
-    noise_parameters: &impl Fn(&str) -> Result<DoublePerlinNoiseParameters, String>,
+    noise_parameters: &impl Fn(&str) -> Result<&'static DoublePerlinNoiseParameters, String>,
     tags: &BTreeMap<String, Vec<u16>>,
 ) -> Result<MaterialCondition, String> {
     use MaterialConditionStruct as Condition;
@@ -120,8 +117,8 @@ fn compile_condition(
                 random_lo,
                 random_hi,
                 random_hash,
-                true_at_and_below: anchor(&true_at_and_below),
-                false_at_and_above: anchor(&false_at_and_above),
+                true_at_and_below: true_at_and_below.into_offset(),
+                false_at_and_above: false_at_and_above.into_offset(),
             })
         }
         Condition::YAbove {
@@ -129,7 +126,7 @@ fn compile_condition(
             surface_depth_multiplier,
             add_stone_depth,
         } => MaterialCondition::YAbove(AboveYMaterialCondition {
-            anchor: anchor(&offset),
+            anchor: offset.into_offset(),
             surface_depth_multiplier,
             add_stone_depth,
         }),
@@ -170,19 +167,4 @@ fn compile_condition(
             },
         }),
     })
-}
-
-const fn anchor(offset: &YOffsetStruct) -> YOffset {
-    match *offset {
-        YOffsetStruct::Absolute { absolute } => YOffset::Absolute(Absolute { absolute }),
-        YOffsetStruct::AboveBottom { above_bottom } => {
-            YOffset::AboveBottom(AboveBottom { above_bottom })
-        }
-        YOffsetStruct::BelowTop { below_top } => YOffset::BelowTop(BelowTop { below_top }),
-        YOffsetStruct::RelativeToSeaLevel {
-            relative_to_sea_level,
-        } => YOffset::RelativeToSeaLevel(RelativeToSeaLevel {
-            relative_to_sea_level,
-        }),
-    }
 }

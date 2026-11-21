@@ -1,109 +1,33 @@
 use proc_macro2::TokenStream;
+use pumpkin_worldgen_model::carver::CarverJson;
 use quote::{format_ident, quote};
-use serde_json::Value;
-use std::collections::BTreeMap;
-use std::fs;
+use std::{collections::BTreeMap, fs, path::Path};
 
 pub fn build() -> TokenStream {
-    let dir = std::path::Path::new("../../assets/datapack/data/minecraft/worldgen/carver");
-    let mut carvers: BTreeMap<String, Value> = BTreeMap::new();
-    let mut entries: Vec<_> = fs::read_dir(dir)
-        .expect("Missing worldgen/carver directory")
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
-        .collect();
-    entries.sort_by_key(|e| e.path());
-
-    for entry in entries {
-        let path = entry.path();
-        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let content = fs::read_to_string(&path).expect("Failed to read carver file");
-        let val: Value = serde_json::from_str(&content).expect("Failed to parse carver JSON");
-        carvers.insert(stem, val);
+    let dir = Path::new("../../assets/datapack/data/minecraft/worldgen/carver");
+    let mut carvers = BTreeMap::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+            let json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            let carver = CarverJson::parse(json)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            carvers.insert(name, carver);
+        }
     }
-
     let mut carver_instances = Vec::new();
-
-    for (name, data) in carvers {
-        let variant_name = format_ident!("{}", name.to_uppercase());
-        let carver_type = data["type"].as_str().unwrap_or("");
-
-        let prob = data["probability"].as_f64().unwrap_or(0.0) as f32;
-        let y = value_to_height_provider(&data["y"]);
-
-        let additional = match carver_type {
-            "minecraft:cave" => {
-                let count = value_to_int_provider(&data["count"]);
-                let horizontal_radius_multiplier =
-                    value_to_float_provider(&data["horizontal_radius_multiplier"]);
-                let vertical_radius_multiplier =
-                    value_to_float_provider(&data["vertical_radius_multiplier"]);
-                let floor_level = value_to_float_provider(&data["floor_level"]);
-                let room_vertical_radius_multiplier =
-                    value_to_float_provider(&data["room_vertical_radius_multiplier"]);
-                let start_vertical_radius_multiplier =
-                    if data.get("start_vertical_radius_multiplier").is_some() {
-                        value_to_float_provider(&data["start_vertical_radius_multiplier"])
-                    } else {
-                        quote! { FloatProvider::Constant(1.0) }
-                    };
-                let thickness = value_to_float_provider(&data["thickness"]);
-                let weird_thickness_bias = data["weird_thickness_bias"].as_bool().unwrap_or(false);
-
-                quote! {
-                    CarverAdditionalConfig::Cave(CaveCarverConfig {
-                        count: #count,
-                        horizontal_radius_multiplier: #horizontal_radius_multiplier,
-                        vertical_radius_multiplier: #vertical_radius_multiplier,
-                        floor_level: #floor_level,
-                        room_vertical_radius_multiplier: #room_vertical_radius_multiplier,
-                        start_vertical_radius_multiplier: #start_vertical_radius_multiplier,
-                        thickness: #thickness,
-                        weird_thickness_bias: #weird_thickness_bias,
-                    })
-                }
-            }
-            "minecraft:canyon" => {
-                let vertical_rotation = value_to_float_provider(&data["vertical_rotation"]);
-                let shape = &data["shape"];
-                let distance_factor = value_to_float_provider(&shape["distance_factor"]);
-                let thickness = value_to_float_provider(&shape["thickness"]);
-                let width_smoothness = shape["width_smoothness"].as_i64().unwrap_or(0) as i32;
-                let horizontal_radius_factor =
-                    value_to_float_provider(&shape["horizontal_radius_factor"]);
-                let vertical_radius_default_factor = shape["vertical_radius_default_factor"]
-                    .as_f64()
-                    .unwrap_or(0.0) as f32;
-                let vertical_radius_center_factor = shape["vertical_radius_center_factor"]
-                    .as_f64()
-                    .unwrap_or(0.0) as f32;
-                let y_scale = value_to_float_provider(&shape["y_scale"]);
-
-                quote! {
-                    CarverAdditionalConfig::Canyon(CanyonCarverConfig {
-                        vertical_rotation: #vertical_rotation,
-                        shape: CanyonShapeConfig {
-                            distance_factor: #distance_factor,
-                            thickness: #thickness,
-                            width_smoothness: #width_smoothness,
-                            horizontal_radius_factor: #horizontal_radius_factor,
-                            vertical_radius_default_factor: #vertical_radius_default_factor,
-                            vertical_radius_center_factor: #vertical_radius_center_factor,
-                            y_scale: #y_scale,
-                        }
-                    })
-                }
-            }
-            _ => quote! { CarverAdditionalConfig::Cave(CaveCarverConfig::default()) },
-        };
-
-        carver_instances.push(quote! {
-            pub const #variant_name: CarverConfig = CarverConfig {
-                probability: #prob,
-                y: #y,
-                additional: #additional,
-            };
-        });
+    let mut lookup = Vec::new();
+    let mut sources = Vec::new();
+    for (name, carver) in carvers {
+        let ident = format_ident!("{}", name.to_uppercase());
+        let id = format!("minecraft:{name}");
+        let definition = carver.emit(&id);
+        carver_instances.push(quote!(pub static #ident: CarverConfig = #definition;));
+        lookup.push(quote!(#name => Some(&#ident),));
+        let source =
+            format!("../../../../assets/datapack/data/minecraft/worldgen/carver/{name}.json");
+        sources.push(quote!((#id, include_str!(#source))));
     }
 
     quote! {
@@ -119,6 +43,7 @@ pub fn build() -> TokenStream {
 
         #[derive(Clone, Debug)]
         pub enum HeightProvider {
+            Constant(YOffset),
             Uniform(UniformHeightProvider),
             Trapezoid(TrapezoidHeightProvider),
             VeryBiasedToBottom(VeryBiasedToBottomHeightProvider),
@@ -197,139 +122,24 @@ pub fn build() -> TokenStream {
 
         #[derive(Clone, Debug)]
         pub struct CarverConfig {
+            pub registry_id: &'static str,
             pub probability: f32,
             pub y: HeightProvider,
             pub additional: CarverAdditionalConfig,
         }
 
-        use super::*;
+        impl CarverConfig {
+            #[must_use]
+            pub fn from_name(name: &str) -> Option<&'static Self> {
+                match name.strip_prefix("minecraft:").unwrap_or(name) {
+                    #(#lookup)*
+                    _ => None,
+                }
+            }
+        }
+
+        pub const VANILLA_CARVERS_JSON: &[(&str, &str)] = &[#(#sources),*];
+
         #(#carver_instances)*
-    }
-}
-
-fn value_to_int_provider(v: &Value) -> TokenStream {
-    if v.is_number() {
-        let i = v.as_i64().unwrap_or(0) as i32;
-        quote! { IntProvider::Constant(#i) }
-    } else {
-        let type_str = v["type"].as_str().unwrap_or("");
-        match type_str {
-            "minecraft:constant" => {
-                let val = v["value"].as_i64().unwrap_or(0) as i32;
-                quote! { IntProvider::Constant(#val) }
-            }
-            "minecraft:uniform" => {
-                let min = v["min_inclusive"].as_i64().unwrap_or(0) as i32;
-                let max = v["max_inclusive"].as_i64().unwrap_or(0) as i32;
-                quote! { IntProvider::Object(NormalIntProvider::Uniform(UniformIntProvider::new(#min, #max))) }
-            }
-            "minecraft:biased_to_bottom" => {
-                let min = v["min_inclusive"].as_i64().unwrap_or(0) as i32;
-                let max = v["max_inclusive"].as_i64().unwrap_or(0) as i32;
-                quote! { IntProvider::Object(NormalIntProvider::BiasedToBottom(BiasedToBottomIntProvider::new(#min, #max))) }
-            }
-            "minecraft:very_biased_to_bottom" => {
-                let min = v["min_inclusive"].as_i64().unwrap_or(0) as i32;
-                let max = v["max_inclusive"].as_i64().unwrap_or(0) as i32;
-                let inner = v["inner"].as_i64().unwrap_or(1) as i32;
-                quote! { IntProvider::Object(NormalIntProvider::VeryBiasedToBottom(VeryBiasedToBottomIntProvider::new(#min, #max, #inner))) }
-            }
-            _ => {
-                quote! { IntProvider::Constant(0) }
-            }
-        }
-    }
-}
-
-fn value_to_float_provider(v: &Value) -> TokenStream {
-    if v.is_number() {
-        let f = v.as_f64().unwrap_or(0.0) as f32;
-        quote! { FloatProvider::Constant(#f) }
-    } else {
-        let type_str = v["type"].as_str().unwrap_or("");
-        match type_str {
-            "minecraft:uniform" => {
-                let min = v["min_inclusive"].as_f64().unwrap_or(0.0) as f32;
-                let max = v["max_exclusive"].as_f64().unwrap_or(0.0) as f32;
-                quote! { FloatProvider::Object(NormalFloatProvider::Uniform(UniformFloatProvider::new(#min, #max))) }
-            }
-            "minecraft:constant" => {
-                let val = v["value"].as_f64().unwrap_or(0.0) as f32;
-                quote! { FloatProvider::Constant(#val) }
-            }
-            "minecraft:trapezoid" => {
-                let min = v["min"].as_f64().unwrap_or(0.0) as f32;
-                let max = v["max"].as_f64().unwrap_or(0.0) as f32;
-                let plateau = v["plateau"].as_f64().unwrap_or(0.0) as f32;
-                quote! { FloatProvider::Object(NormalFloatProvider::Trapezoid(TrapezoidFloatProvider::new(#min, #max, #plateau))) }
-            }
-            _ => {
-                quote! { FloatProvider::Constant(0.0) }
-            }
-        }
-    }
-}
-
-fn value_to_height_provider(v: &Value) -> TokenStream {
-    let type_str = v["type"].as_str().unwrap_or("");
-    match type_str {
-        "minecraft:uniform" => {
-            let min = value_to_y_offset(&v["min_inclusive"]);
-            let max = value_to_y_offset(&v["max_inclusive"]);
-            quote! {
-                HeightProvider::Uniform(UniformHeightProvider {
-                    min_inclusive: #min,
-                    max_inclusive: #max,
-                })
-            }
-        }
-        "minecraft:trapezoid" => {
-            let min = value_to_y_offset(&v["min_inclusive"]);
-            let max = value_to_y_offset(&v["max_inclusive"]);
-            let plateau = if v["plateau"].is_number() {
-                let p = v["plateau"].as_i64().unwrap_or(0) as i32;
-                quote! { Some(#p) }
-            } else {
-                quote! { None }
-            };
-            quote! {
-                HeightProvider::Trapezoid(TrapezoidHeightProvider {
-                    min_inclusive: #min,
-                    max_inclusive: #max,
-                    plateau: #plateau,
-                })
-            }
-        }
-        _ => {
-            let zero = value_to_y_offset(&Value::Null);
-            quote! {
-                HeightProvider::Uniform(UniformHeightProvider {
-                    min_inclusive: #zero,
-                    max_inclusive: #zero,
-                })
-            }
-        }
-    }
-}
-
-fn value_to_y_offset(v: &Value) -> TokenStream {
-    if v.is_object() {
-        if let Some(abs) = v.get("absolute") {
-            let val = abs.as_i64().unwrap_or(0) as i16;
-            quote! { YOffset::Absolute(Absolute { absolute: #val }) }
-        } else if let Some(ab) = v.get("above_bottom") {
-            let val = ab.as_i64().unwrap_or(0) as i8;
-            quote! { YOffset::AboveBottom(AboveBottom { above_bottom: #val }) }
-        } else if let Some(bt) = v.get("below_top") {
-            let val = bt.as_i64().unwrap_or(0) as i8;
-            quote! { YOffset::BelowTop(BelowTop { below_top: #val }) }
-        } else if let Some(sl) = v.get("relative_to_sea_level") {
-            let val = sl.as_i64().unwrap_or(0) as i16;
-            quote! { YOffset::RelativeToSeaLevel(RelativeToSeaLevel { relative_to_sea_level: #val }) }
-        } else {
-            quote! { YOffset::Absolute(Absolute { absolute: 0 }) }
-        }
-    } else {
-        quote! { YOffset::Absolute(Absolute { absolute: 0 }) }
     }
 }

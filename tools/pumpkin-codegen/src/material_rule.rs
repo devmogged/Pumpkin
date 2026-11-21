@@ -163,7 +163,7 @@ pub fn build() -> TokenStream {
 
         #[derive(Debug, PartialEq)]
         pub struct NoiseThresholdMaterialCondition {
-            pub noise: DoublePerlinNoiseParameters,
+            pub noise: &'static DoublePerlinNoiseParameters,
             pub min_threshold: f64,
             pub max_threshold: f64,
         }

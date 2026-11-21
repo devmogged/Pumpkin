@@ -1,11 +1,9 @@
 use crate::random::RandomImpl;
 #[cfg(feature = "codegen")]
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 #[cfg(feature = "codegen")]
 use quote::{ToTokens, quote};
 use serde::Deserialize;
-#[cfg(feature = "codegen")]
-use syn::LitFloat;
 
 /// Represents different types of number providers that generate floating-point values.
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -144,9 +142,9 @@ pub struct ConstantFloatProvider {
 #[cfg(feature = "codegen")]
 impl ToTokens for ConstantFloatProvider {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let value = LitFloat::new(&self.value.to_string(), Span::call_site());
+        let value = self.value;
         tokens.extend(quote! {
-            ConstantFloatProvider { value: #value }
+            ConstantFloatProvider::new(#value)
         });
     }
 }
@@ -206,10 +204,10 @@ pub struct UniformFloatProvider {
 #[cfg(feature = "codegen")]
 impl ToTokens for UniformFloatProvider {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let min_inclusive = LitFloat::new(&self.min_inclusive.to_string(), Span::call_site());
-        let max_exclusive = LitFloat::new(&self.max_exclusive.to_string(), Span::call_site());
+        let min_inclusive = self.min_inclusive;
+        let max_exclusive = self.max_exclusive;
         tokens.extend(quote! {
-            UniformFloatProvider { min_inclusive: #min_inclusive, max_exclusive: #max_exclusive }
+            UniformFloatProvider::new(#min_inclusive, #max_exclusive)
         });
     }
 }
@@ -278,17 +276,12 @@ pub struct ClampedNormalFloatProvider {
 #[cfg(feature = "codegen")]
 impl ToTokens for ClampedNormalFloatProvider {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let mean = LitFloat::new(&self.mean.to_string(), Span::call_site());
-        let deviation = LitFloat::new(&self.deviation.to_string(), Span::call_site());
-        let min = LitFloat::new(&self.min.to_string(), Span::call_site());
-        let max = LitFloat::new(&self.max.to_string(), Span::call_site());
+        let mean = self.mean;
+        let deviation = self.deviation;
+        let min = self.min;
+        let max = self.max;
         tokens.extend(quote! {
-            ClampedNormalFloatProvider {
-                mean: #mean,
-                deviation: #deviation,
-                min: #min,
-                max: #max
-            }
+            ClampedNormalFloatProvider::new(#mean, #deviation, #min, #max)
         });
     }
 }
@@ -363,15 +356,11 @@ pub struct TrapezoidFloatProvider {
 #[cfg(feature = "codegen")]
 impl ToTokens for TrapezoidFloatProvider {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let min = LitFloat::new(&self.min.to_string(), Span::call_site());
-        let max = LitFloat::new(&self.max.to_string(), Span::call_site());
-        let plateau = LitFloat::new(&self.plateau.to_string(), Span::call_site());
+        let min = self.min;
+        let max = self.max;
+        let plateau = self.plateau;
         tokens.extend(quote! {
-            TrapezoidFloatProvider {
-                min: #min,
-                max: #max,
-                plateau: #plateau
-            }
+            TrapezoidFloatProvider::new(#min, #max, #plateau)
         });
     }
 }

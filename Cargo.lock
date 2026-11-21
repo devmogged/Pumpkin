@@ -3446,6 +3446,7 @@ dependencies = [
  "md5",
  "proc-macro2",
  "pumpkin-data",
+ "pumpkin-util",
  "quote",
  "serde",
  "serde_json",

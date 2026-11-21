@@ -197,6 +197,7 @@ pub trait Carver {
         carver_chunk_pos: &Vector2<i32>,
         min_gen_y: i8,
         gen_depth: u16,
+        sea_level: i32,
         legacy_random_source: bool,
     );
 }
@@ -274,6 +275,7 @@ pub fn carve(chunk: &mut ProtoChunk, generator: &VanillaGenerator) {
                                 &carver_chunk_pos,
                                 min_gen_y,
                                 gen_depth,
+                                generator.settings.sea_level,
                                 generator.settings.legacy_random_source,
                             );
                         }
@@ -286,6 +288,7 @@ pub fn carve(chunk: &mut ProtoChunk, generator: &VanillaGenerator) {
                                 &carver_chunk_pos,
                                 min_gen_y,
                                 gen_depth,
+                                generator.settings.sea_level,
                                 generator.settings.legacy_random_source,
                             );
                         }
@@ -706,15 +709,18 @@ mod tests {
         use pumpkin_data::carver::{CANYON, CAVE, CAVE_EXTRA_UNDERGROUND, NETHER_CAVE};
 
         assert_eq!(Biome::PLAINS.carvers.len(), 3);
-        assert!(std::ptr::eq(Biome::PLAINS.carvers[0], &CAVE));
+        assert!(std::ptr::eq(Biome::PLAINS.carvers[0], &raw const CAVE));
         assert!(std::ptr::eq(
             Biome::PLAINS.carvers[1],
-            &CAVE_EXTRA_UNDERGROUND
+            &raw const CAVE_EXTRA_UNDERGROUND
         ));
-        assert!(std::ptr::eq(Biome::PLAINS.carvers[2], &CANYON));
+        assert!(std::ptr::eq(Biome::PLAINS.carvers[2], &raw const CANYON));
 
         assert_eq!(Biome::NETHER_WASTES.carvers.len(), 1);
-        assert!(std::ptr::eq(Biome::NETHER_WASTES.carvers[0], &NETHER_CAVE));
+        assert!(std::ptr::eq(
+            Biome::NETHER_WASTES.carvers[0],
+            &raw const NETHER_CAVE
+        ));
 
         assert!(Biome::THE_END.carvers.is_empty());
     }

@@ -305,7 +305,7 @@ impl Server {
         });
         let mut worldgen =
             WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
-        if worldgen.has_datapack_biomes() {
+        if worldgen.has_biome_generation_overrides() {
             worldgen
                 .install_biomes(
                     &datapack_manager.get_dynamic_registry_entries("minecraft:worldgen/biome"),

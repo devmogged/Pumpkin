@@ -671,6 +671,19 @@ pub struct NormalNoise {
     max_value: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoiseNormalization {
+    Enabled,
+    Disabled,
+    Legacy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NormalNoiseSettings {
+    pub base_amplitude: f64,
+    pub normalization: NoiseNormalization,
+}
+
 impl NormalNoise {
     pub fn new(
         random: &mut impl RandomImpl,
@@ -688,37 +701,107 @@ impl NormalNoise {
                 target_amplitude *= parity / normalization_factor;
                 normalization_factor = parity;
             }
-            let first = legacy_fbm(random, first_octave, amplitudes);
-            let second = legacy_fbm(random, first_octave, amplitudes);
-            let value_factor = normalization_factor as f32;
-            let mut layers = Vec::new();
-            for layer in first.layers {
-                layers.push(Layer {
-                    noise: layer.noise,
-                    frequency: layer.frequency,
-                    amplitude: layer.amplitude * value_factor,
-                });
-            }
-            for layer in second.layers {
-                layers.push(Layer {
-                    noise: layer.noise,
-                    frequency: layer.frequency * INPUT_FACTOR,
-                    amplitude: layer.amplitude * value_factor,
-                });
-            }
-            return Self {
-                stack: NoiseStack::new(layers),
-                max_value: (target_amplitude * TARGET_DEVIATION * 6.0) as f32,
-            };
+            return Self::from_legacy_layers(
+                random,
+                first_octave,
+                amplitudes,
+                normalization_factor as f32,
+                (target_amplitude * TARGET_DEVIATION * 6.0) as f32,
+            );
         }
         let base_amplitude = parity_base_amplitude(first_octave, amplitudes);
         let octaves = build_octaves(first_octave, base_amplitude, octave_count, true, amplitudes);
         let target_amplitude: f64 = octaves.iter().map(|o| o.amplitude.abs()).sum();
         let normalization_factor = compute_normalization_factor(target_amplitude, &octaves);
+        Self::from_octaves(
+            random,
+            octaves,
+            normalization_factor,
+            (target_amplitude * TARGET_DEVIATION * 6.0) as f32,
+        )
+    }
+
+    /// Constructs the sampler for the Java 26.3 normal-noise codec.
+    pub fn from_parameters(
+        random: &mut impl RandomImpl,
+        first_octave: i32,
+        amplitudes: &[f64],
+        settings: NormalNoiseSettings,
+        legacy: bool,
+    ) -> Self {
+        let octaves = build_octaves(
+            first_octave,
+            settings.base_amplitude,
+            amplitudes.len(),
+            settings.normalization != NoiseNormalization::Disabled,
+            amplitudes,
+        );
+        // DoubleStream.sum uses compensated summation before computing the deviation.
+        let mut sum = 0.0;
+        let mut compensation = 0.0;
+        for octave in &octaves {
+            let adjusted = octave.amplitude.abs() - compensation;
+            let next = sum + adjusted;
+            compensation = (next - sum) - adjusted;
+            sum = next;
+        }
+        let mut target_amplitude = sum - compensation;
+        let mut normalization_factor = compute_normalization_factor(target_amplitude, &octaves);
+        if settings.normalization == NoiseNormalization::Legacy && normalization_factor != 0.0 {
+            let parity =
+                parity_normalization_factor(settings.base_amplitude, amplitudes.len(), amplitudes);
+            target_amplitude *= parity / normalization_factor;
+            normalization_factor = parity;
+        }
+        let max = (target_amplitude * TARGET_DEVIATION * 6.0) as f32;
+        if legacy {
+            Self::from_legacy_layers(
+                random,
+                first_octave,
+                amplitudes,
+                (normalization_factor * settings.base_amplitude) as f32,
+                max,
+            )
+        } else {
+            Self::from_octaves(random, octaves, normalization_factor, max)
+        }
+    }
+
+    fn from_legacy_layers(
+        random: &mut impl RandomImpl,
+        first_octave: i32,
+        amplitudes: &[f64],
+        value_factor: f32,
+        max_value: f32,
+    ) -> Self {
+        let first = legacy_fbm(random, first_octave, amplitudes);
+        let second = legacy_fbm(random, first_octave, amplitudes);
+        let mut layers = Vec::with_capacity(first.layers.len() + second.layers.len());
+        for (noise, frequency_scale) in [(first, 1.0), (second, INPUT_FACTOR)] {
+            for layer in noise.layers {
+                layers.push(Layer {
+                    noise: layer.noise,
+                    frequency: layer.frequency * frequency_scale,
+                    amplitude: layer.amplitude * value_factor,
+                });
+            }
+        }
+        Self {
+            stack: NoiseStack::new(layers),
+            max_value,
+        }
+    }
+
+    fn from_octaves(
+        random: &mut impl RandomImpl,
+        octaves: Vec<OctaveInfo>,
+        normalization_factor: f64,
+        max_value: f32,
+    ) -> Self {
         let first_random = random.next_splitter();
         let second_random = random.next_splitter();
         let mut layers = Vec::with_capacity(octaves.len() * 2);
-        for octave in &octaves {
+        for octave in octaves {
             let seed = format!("octave_{}", octave.index);
             let value_factor = (normalization_factor * octave.amplitude) as f32;
             layers.push(Layer {
@@ -734,7 +817,7 @@ impl NormalNoise {
         }
         Self {
             stack: NoiseStack::new(layers),
-            max_value: (target_amplitude * TARGET_DEVIATION * 6.0) as f32,
+            max_value,
         }
     }
 
