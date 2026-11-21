@@ -2805,9 +2805,6 @@ impl DensityParser<'_> {
                 ));
             }
 
-            if !locations.windows(2).all(|pair| pair[0].0 <= pair[1].0) {
-                return Err("spline locations must be in ascending order".into());
-            }
             return Ok(SplineRepr::Standard {
                 location_function: Box::new(loc_fn),
                 locations: locations.into_boxed_slice(),
@@ -2972,7 +2969,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spline_can_have_equal_coordinates() {
+    fn spline_codec_keeps_duplicate_and_descending_locations() {
         let settings = serde_json::json!({"noise_router": {
             "final_density": {
                 "type": "minecraft:spline",
@@ -2980,7 +2977,9 @@ mod tests {
                     "coordinate": 0,
                     "points": [
                         {"location": 0, "value": 0, "derivative": 0},
-                        {"location": 0, "value": 1, "derivative": 0}
+                        {"location": 1, "value": 1, "derivative": 0},
+                        {"location": 1, "value": 2, "derivative": 0},
+                        {"location": 0, "value": 3, "derivative": 0}
                     ]
                 }
             }

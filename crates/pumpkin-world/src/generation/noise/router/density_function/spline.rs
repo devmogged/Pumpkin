@@ -107,6 +107,24 @@ fn calculate_min_and_max(
 }
 
 #[inline]
+fn first_greater_location(points: &[SplinePoint], location: f32) -> usize {
+    // The datapack codec preserves file order. Match Mth.binarySearch even for unsorted points.
+    let mut start = 0;
+    let mut len = points.len();
+    while len > 0 {
+        let half = len / 2;
+        let middle = start + half;
+        if location < points[middle].location {
+            len = half;
+        } else {
+            start = middle + 1;
+            len -= half + 1;
+        }
+    }
+    start
+}
+
+#[inline]
 fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -> f32) -> f32 {
     match spline {
         SplineRepr::Fixed { value } => *value,
@@ -117,18 +135,18 @@ fn sample_spline_with(spline: &SplineRepr, location_of: &mut impl FnMut(usize) -
             let location = location_of(*location_function_index);
 
             let n = points.len();
-            let index_greater_than_x = points.partition_point(|p| location >= p.location);
+            let index_greater_than_x = first_greater_location(points, location);
 
             if index_greater_than_x == 0 {
                 let point = &points[0];
                 let val = sample_spline_with(point.value, location_of);
-                return val + point.derivative * (location - point.location);
+                return sample_outside_range(point, location, val);
             }
 
             if index_greater_than_x == n {
                 let point = &points[n - 1];
                 let val = sample_spline_with(point.value, location_of);
-                return val + point.derivative * (location - point.location);
+                return sample_outside_range(point, location, val);
             }
 
             let previous = &points[index_greater_than_x - 1];
@@ -241,5 +259,51 @@ impl NoiseFunctionComponentRange for SplineFunction {
     #[inline]
     fn max(&self) -> f32 {
         self.max_value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spline_samples_unsorted_points_in_vanilla_search_order() {
+        static ZERO: SplineRepr = SplineRepr::Fixed { value: 0.0 };
+        static EDGE: SplineRepr = SplineRepr::Fixed { value: 64.0 };
+        static POINTS: [SplinePoint; 5] = [
+            SplinePoint {
+                location: 0.0,
+                value: &ZERO,
+                derivative: 0.0,
+            },
+            SplinePoint {
+                location: 1.0,
+                value: &ZERO,
+                derivative: 0.0,
+            },
+            SplinePoint {
+                location: 2.0,
+                value: &ZERO,
+                derivative: 0.0,
+            },
+            SplinePoint {
+                location: 4.0,
+                value: &ZERO,
+                derivative: 0.0,
+            },
+            SplinePoint {
+                location: 3.0,
+                value: &EDGE,
+                derivative: 0.0,
+            },
+        ];
+        let spline = SplineRepr::Standard {
+            location_function_index: 0,
+            points: &POINTS,
+        };
+        assert_eq!(
+            sample_spline_with(&spline, &mut |_| 3.0).to_bits(),
+            64.0f32.to_bits()
+        );
     }
 }
