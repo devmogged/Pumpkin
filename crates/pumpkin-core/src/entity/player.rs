@@ -4897,7 +4897,7 @@ impl Player {
                                 last_death_location,
                                 VarInt(self.get_entity().portal_cooldown.load(Ordering::Relaxed) as i32),
                                 new_world.sea_level.into(),
-                            ),
+                            ).with_dimension_type_id(VarInt(new_world.level.dimension_type_id)),
                             CRespawn::KEEP_ALL_DATA,
                         );
                         if let Ok(data) = java.serialize_packet(&packet) {
@@ -8499,11 +8499,22 @@ impl EntityBase for Player {
             );
         }
 
+        let resolve_spawn_dimension = |key: &str| {
+            self.world()
+                .server
+                .upgrade()
+                .and_then(|server| {
+                    server.worlds.load().iter().find_map(|world| {
+                        (world.dimension.minecraft_name == key).then(|| world.dimension.clone())
+                    })
+                })
+                .or_else(|| Dimension::from_name(key).cloned())
+        };
         // Load any saved spawnpoint data (both vanilla "respawn" compound and legacy SpawnX/SpawnY/SpawnZ)
         if let Some(respawn_compound) = nbt.get_compound("respawn") {
             let dim = respawn_compound
                 .get_string("dimension")
-                .and_then(|s| Dimension::from_name(s).cloned())
+                .and_then(resolve_spawn_dimension)
                 .unwrap_or_else(|| self.world().dimension.clone());
             let pos = if let Some(pos_array) = respawn_compound.get_int_array("pos")
                 && pos_array.len() >= 3
@@ -8530,7 +8541,7 @@ impl EntityBase for Player {
         ) {
             let dim = nbt
                 .get_string("SpawnDimension")
-                .and_then(|s| Dimension::from_name(s).cloned())
+                .and_then(resolve_spawn_dimension)
                 .unwrap_or_else(|| self.world().dimension.clone());
             let force = nbt.get_bool("SpawnForced").unwrap_or(false);
             *self

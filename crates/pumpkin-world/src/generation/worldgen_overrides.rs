@@ -20,6 +20,9 @@ use pumpkin_worldgen_model::{
 };
 use serde_json::Value;
 
+#[path = "worldgen_dimensions.rs"]
+mod dimensions;
+
 /// Worldgen settings selected once when the level opens.
 pub struct RuntimeNoiseSettings {
     pub(crate) settings: &'static NoiseSettings,
@@ -30,6 +33,8 @@ pub struct RuntimeNoiseSettings {
 #[derive(Default)]
 pub struct WorldgenOverrides {
     dimensions: BTreeMap<String, PathBuf>,
+    dimension_types: BTreeMap<String, PathBuf>,
+    dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
@@ -54,6 +59,11 @@ impl WorldgenOverrides {
                     &namespace.path().join("dimension"),
                     &prefix,
                     &mut overrides.dimensions,
+                );
+                index_json(
+                    &namespace.path().join("dimension_type"),
+                    &prefix,
+                    &mut overrides.dimension_types,
                 );
                 for (kind, registry) in [
                     ("biome", &mut overrides.biomes),
@@ -112,6 +122,10 @@ impl WorldgenOverrides {
         } else {
             Err("could not install synchronized biome IDs".into())
         }
+    }
+
+    pub(crate) fn dimension_type_id(&self, name: &str) -> Option<i32> {
+        self.dimension_type_ids.get(name).copied()
     }
 
     pub(crate) fn dimension(&self, id: &str) -> Option<crate::world_info::Dimension> {

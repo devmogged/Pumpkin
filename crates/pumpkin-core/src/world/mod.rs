@@ -3747,7 +3747,8 @@ impl World {
                     last_death_location,
                     VarInt(player.get_entity().portal_cooldown.load(Ordering::Relaxed) as i32),
                     self.sea_level.into(),
-                ),
+                )
+                .with_dimension_type_id(VarInt(self.level.dimension_type_id)),
                 server.advanced_config.networking.java.online_mode,
                 // This should stay true even when reports are disabled.
                 // It prevents the annoying popup when joining the server.
@@ -4632,7 +4633,8 @@ impl World {
                     last_death_location,
                     VarInt(player.get_entity().portal_cooldown.load(Ordering::Relaxed) as i32),
                     target_world.sea_level.into(),
-                ),
+                )
+                .with_dimension_type_id(VarInt(target_world.level.dimension_type_id)),
                 data_kept,
             ))
             .await;

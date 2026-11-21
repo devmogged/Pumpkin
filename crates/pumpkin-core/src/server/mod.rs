@@ -293,6 +293,33 @@ impl Server {
             }
             dimensions
         };
+        let recipe_manager = Arc::new(recipe::RecipeManager::new());
+        let datapack_manager = Arc::new(crate::data::datapack::DatapackManager::new());
+        let enabled_packs = level_info.load().data_packs.enabled.clone();
+        datapack_manager.load_all(&world_path, &enabled_packs, &recipe_manager);
+        let mut packs = datapack_manager.get_loaded_packs();
+        packs.sort_by_key(|pack| {
+            enabled_packs
+                .iter()
+                .position(|id| id == &pack.id || id == &pack.name)
+        });
+        let mut worldgen =
+            WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
+        if worldgen.has_datapack_biomes() {
+            worldgen
+                .install_biomes(
+                    &datapack_manager.get_dynamic_registry_entries("minecraft:worldgen/biome"),
+                )
+                .map_err(WorldInfoError::DeserializationError)?;
+        }
+        let dimensions = worldgen
+            .resolve_dimensions(
+                dimensions,
+                &level_info.load().world_gen_settings.dimensions,
+                &datapack_manager.get_dynamic_registry_entries("minecraft:dimension_type"),
+            )
+            .map_err(WorldInfoError::DeserializationError)?;
+        datapack_manager.freeze_worldgen_registries();
         info!(
             "Enabled dimensions: {:?}",
             dimensions
@@ -336,8 +363,8 @@ impl Server {
             plugin_manager: Arc::new(PluginManager::new(plugin_loaders)),
             permission_manager,
             container_id: 0.into(),
-            recipe_manager: Arc::new(recipe::RecipeManager::new()),
-            datapack_manager: Arc::new(crate::data::datapack::DatapackManager::new()),
+            recipe_manager,
+            datapack_manager,
             enchantment_manager: Arc::new(enchantment::EnchantmentManager::new()),
             map_id: level_info.load().map_id.into(),
             worlds: ArcSwap::from_pointee(vec![]),
@@ -441,32 +468,6 @@ impl Server {
                 let _ = server_clone.bedrock_oidc_keys.set(keys);
             });
         }
-
-        let enabled_packs = server.level_info.load().data_packs.enabled.clone();
-        server
-            .datapack_manager
-            .load_all(&world_path, &enabled_packs, &server.recipe_manager);
-
-        let mut packs = server.datapack_manager.get_loaded_packs();
-        packs.sort_by_key(|pack| {
-            enabled_packs
-                .iter()
-                .position(|id| id == &pack.id || id == &pack.name)
-        });
-        let worldgen =
-            WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
-
-        if worldgen.has_datapack_biomes() {
-            worldgen
-                .install_biomes(
-                    &server
-                        .datapack_manager
-                        .get_dynamic_registry_entries("minecraft:worldgen/biome"),
-                )
-                .map_err(WorldInfoError::DeserializationError)?;
-        }
-
-        server.datapack_manager.freeze_biomes();
 
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {
@@ -734,11 +735,17 @@ impl Server {
         let Some(dimension_key) = data.get_string("Dimension") else {
             return Some((first_world, Some(data)));
         };
-        let Some(dimension) = Dimension::from_name(dimension_key) else {
+        if let Some(world) = self
+            .worlds
+            .load()
+            .iter()
+            .find(|world| world.dimension.minecraft_name == dimension_key)
+        {
+            Some((world.clone(), Some(data)))
+        } else {
             warn!("Invalid dimension key in player data: {dimension_key}");
-            return Some((first_world, Some(data)));
-        };
-        Some((self.get_world_from_dimension(dimension), Some(data)))
+            Some((first_world, Some(data)))
+        }
     }
 
     pub fn add_player(

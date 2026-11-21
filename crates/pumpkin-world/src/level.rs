@@ -90,6 +90,7 @@ pub struct Level {
     entity_saver: Arc<EntitySaver>,
 
     pub world_gen: ArcSwap<WorldGenerator>,
+    pub dimension_type_id: i32,
 
     /// Handles runtime lighting updates
     pub light_engine: DynamicLightEngine,
@@ -243,6 +244,9 @@ impl Level {
             }
         }
 
+        let dimension_type_id = worldgen
+            .and_then(|overrides| overrides.dimension_type_id(dimension.minecraft_name))
+            .unwrap_or(i32::from(dimension.id));
         let dim_min_y = dimension.min_y;
         let dim_height = dimension.height;
         let seed = Seed(seed as u64);
@@ -313,6 +317,7 @@ impl Level {
             seed,
             world_portal: ArcSwap::new(Arc::new(None)),
             world_gen: ArcSwap::new(world_gen),
+            dimension_type_id,
             level_folder,
             lighting_config: level_config.lighting,
             light_engine: DynamicLightEngine::new(dim_min_y, dim_min_y + dim_height),

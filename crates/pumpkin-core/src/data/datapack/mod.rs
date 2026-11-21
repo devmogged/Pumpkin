@@ -747,9 +747,9 @@ impl DatapackManager {
             .contains_entry(registry_id, entry_id)
     }
 
-    /// Keeps the biome IDs already used by running worlds across a resource reload.
-    pub(crate) fn freeze_biomes(&self) {
-        self.dynamic_registry_manager.freeze_biomes();
+    /// Keeps the synced biome and dimension type IDs used by running worlds across a resource reload.
+    pub(crate) fn freeze_worldgen_registries(&self) {
+        self.dynamic_registry_manager.freeze_worldgen_registries();
     }
 
     #[must_use]
