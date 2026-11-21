@@ -2,6 +2,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use pumpkin_data::{
     BlockState, BlockStateId,
+    biome::Biome,
     block_properties::{has_random_ticks, is_air, is_liquid},
     fluid::Fluid,
 };
@@ -634,7 +635,7 @@ impl BiomePalette {
             Self::Heterogeneous(data) => {
                 let raw_bits_per_entry = encompassing_bits(data.counts.len());
                 if raw_bits_per_entry > BIOME_NETWORK_MAX_MAP_BITS {
-                    let bits_per_entry = BIOME_NETWORK_MAX_BITS;
+                    let bits_per_entry = encompassing_bits(Biome::registry_size());
                     let values_per_i64 = 64 / bits_per_entry;
                     let mut packed_data =
                         Vec::with_capacity(Self::VOLUME.div_ceil(values_per_i64 as usize));
@@ -1195,6 +1196,29 @@ impl BiomePalette {
     pub(crate) fn write_pump_binary(&self, out: &mut Vec<u8>) {
         use bytes::BufMut;
 
+        let custom = |id: u8| usize::from(id) >= Biome::ALL.len();
+        let has_custom = match self {
+            Self::Homogeneous(id) => custom(*id),
+            Self::Heterogeneous(data) => data.palette.iter().copied().any(custom),
+        };
+        if has_custom {
+            // Datapack ordering can change the numeric IDs between server starts.
+            let disk = self.to_disk_nbt();
+            out.put_u8(2);
+            out.put_u8(disk.palette.len() as u8);
+            for &id in &disk.palette {
+                let name = Biome::from_id(id).map_or("plains", |biome| biome.registry_id);
+                out.put_u32(name.len() as u32);
+                out.extend_from_slice(name.as_bytes());
+            }
+            let data = disk.data.as_deref().unwrap_or_default();
+            out.put_u8(data.len() as u8);
+            for &long in data {
+                out.put_i64(long);
+            }
+            return;
+        }
+
         match self {
             Self::Homogeneous(id) => {
                 out.put_u8(0);
@@ -1278,10 +1302,45 @@ impl BiomePalette {
                     counts,
                 })))
             }
+            2 => Self::read_named_pump_palette(buf),
             mode => Err(super::ChunkParsingError::ErrorDeserializingChunk(format!(
                 "Unknown biome palette mode {mode}"
             ))),
         }
+    }
+
+    fn read_named_pump_palette(buf: &mut &[u8]) -> Result<Self, super::ChunkParsingError> {
+        use bytes::Buf;
+
+        let invalid = || {
+            super::ChunkParsingError::ErrorDeserializingChunk("Invalid named biome palette".into())
+        };
+        let len = buf.try_get_u8().map_err(|_| invalid())? as usize;
+        if !(1..=Self::VOLUME).contains(&len) {
+            return Err(invalid());
+        }
+        let mut palette = Vec::with_capacity(len);
+        for _ in 0..len {
+            let length = buf.try_get_u32().map_err(|_| invalid())? as usize;
+            let name = std::str::from_utf8(buf.get(..length).ok_or_else(invalid)?)
+                .map_err(|_| invalid())?;
+            palette.push(Biome::from_name(name).map_or(Biome::PLAINS.id, |biome| biome.id));
+            buf.advance(length);
+        }
+        let count = buf.try_get_u8().map_err(|_| invalid())? as usize;
+        let expected = if len == 1 {
+            0
+        } else {
+            Self::VOLUME.div_ceil(64 / usize::from(encompassing_bits(len)))
+        };
+        if count != expected || buf.remaining() < count * 8 {
+            return Err(invalid());
+        }
+        let data = (0..count).map(|_| buf.get_i64()).collect();
+        Ok(Self::from_disk_nbt(ChunkSectionBiomes {
+            data: Some(data),
+            palette: palette.into_boxed_slice(),
+        }))
     }
 }
 
@@ -1335,11 +1394,29 @@ pub type BiomePalette = PalettedContainer<u8, 4>;
 const BIOME_DISK_MIN_BITS: u8 = 0;
 const BIOME_NETWORK_MIN_MAP_BITS: u8 = 1;
 const BIOME_NETWORK_MAX_MAP_BITS: u8 = 3;
-pub(crate) const BIOME_NETWORK_MAX_BITS: u8 = 7;
 
 #[cfg(test)]
 mod tests {
-    use super::{BlockPalette, NetworkPalette, PalettedContainer};
+    use super::{BiomePalette, BlockPalette, NetworkPalette, PalettedContainer};
+
+    #[test]
+    fn named_pump_palette_resolves_registry_names() {
+        use bytes::BufMut;
+        let mut data = Vec::new();
+        data.extend_from_slice(&[2, 1]);
+        data.put_u32(16);
+        data.extend_from_slice(b"minecraft:desert");
+        data.put_u8(0);
+        let mut input = &data[..];
+        let palette = BiomePalette::read_pump_binary(&mut input).unwrap();
+        assert!(matches!(
+            palette,
+            PalettedContainer::Homogeneous(id) if id == pumpkin_data::biome::Biome::DESERT.id
+        ));
+        assert!(input.is_empty());
+        assert!(BiomePalette::read_pump_binary(&mut &data[..data.len() - 1]).is_err());
+    }
+
     use pumpkin_data::{Block, BlockStateId};
 
     #[test]

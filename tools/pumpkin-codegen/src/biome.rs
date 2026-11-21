@@ -290,9 +290,9 @@ pub fn build() -> TokenStream {
                 snow_golem_melts: #snow_golem_melts,
                 can_pillager_patrol_spawn: #can_pillager_patrol_spawn,
                 spawners: #spawners,
-                spawn_costs: phf::phf_map! {
+                spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {
                     #(#spawn_costs),*
-                },
+                }),
             };
         }]);
 
@@ -310,7 +310,12 @@ pub fn build() -> TokenStream {
         use crate::tag::RegistryKey;
         use pumpkin_util::biome::{TemperatureModifier, Weather};
         use serde::{Deserializer, de};
-        use std::{fmt, hash::{Hasher, Hash}};
+        use std::{
+            collections::{BTreeMap, HashMap},
+            fmt,
+            hash::{Hasher, Hash},
+            sync::OnceLock,
+        };
 
         #[derive(Debug)]
         pub struct Biome {
@@ -325,7 +330,7 @@ pub fn build() -> TokenStream {
             pub snow_golem_melts: bool,
             pub can_pillager_patrol_spawn: bool,
             pub spawners: SpawnGroups,
-            pub spawn_costs: phf::Map<&'static str, SpawnCosts>,
+            pub spawn_costs: SpawnCostsLookup,
         }
 
         impl PartialEq<u8> for Biome {
@@ -379,6 +384,28 @@ pub fn build() -> TokenStream {
             pub charge: f64,
         }
 
+        #[derive(Debug)]
+        pub enum SpawnCostsLookup {
+            Vanilla(phf::Map<&'static str, SpawnCosts>),
+            Runtime(BTreeMap<String, SpawnCosts>),
+        }
+
+        impl SpawnCostsLookup {
+            pub fn get(&self, entity_id: &str) -> Option<&SpawnCosts> {
+                match self {
+                    Self::Vanilla(costs) => costs.get(entity_id),
+                    Self::Runtime(costs) => costs.get(entity_id),
+                }
+            }
+        }
+
+        struct RuntimeBiomeRegistry {
+            by_id: Box<[Option<Biome>]>,
+            by_name: HashMap<&'static str, u8>,
+        }
+
+        static RUNTIME_BIOMES: OnceLock<RuntimeBiomeRegistry> = OnceLock::new();
+
         impl<'de> Deserialize<'de> for &'static Biome {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 struct BiomeVisitor;
@@ -409,14 +436,48 @@ pub fn build() -> TokenStream {
 
             pub const ALL: &'static [&'static Self] = &[#all_variants];
 
+            pub fn install_runtime_biomes(count: usize, biomes: Vec<Self>) -> bool {
+                if !(Self::ALL.len()..=256).contains(&count) {
+                    return false;
+                }
+                let mut by_id: Box<[_]> = std::iter::repeat_with(|| None).take(count).collect();
+                let mut by_name = HashMap::with_capacity(biomes.len());
+                for biome in biomes {
+                    let Some(slot) = by_id.get_mut(usize::from(biome.id)) else {
+                        return false;
+                    };
+                    let name = biome.registry_id.strip_prefix("minecraft:").unwrap_or(biome.registry_id);
+                    if slot.is_some() || by_name.insert(name, biome.id).is_some() {
+                        return false;
+                    }
+                    *slot = Some(biome);
+                }
+                RUNTIME_BIOMES.set(RuntimeBiomeRegistry { by_id, by_name }).is_ok()
+            }
+
+            pub fn registry_size() -> usize {
+                RUNTIME_BIOMES.get().map_or(Self::ALL.len(), |registry| registry.by_id.len())
+            }
+
             pub fn from_name(name: &str) -> Option<&'static Self> {
+                let name = name.strip_prefix("minecraft:").unwrap_or(name);
+                if let Some(id) = RUNTIME_BIOMES.get().and_then(|registry| registry.by_name.get(name)) {
+                    return Self::from_id(*id);
+                }
                 match name {
                     #name_to_type
                     _ => None
                 }
             }
 
-            pub const fn from_id(id: u8) -> Option<&'static Self> {
+            pub fn from_id(id: u8) -> Option<&'static Self> {
+                RUNTIME_BIOMES.get()
+                    .and_then(|registry| registry.by_id.get(usize::from(id)))
+                    .and_then(Option::as_ref)
+                    .or_else(|| Self::vanilla_from_id(id))
+            }
+
+            pub const fn vanilla_from_id(id: u8) -> Option<&'static Self> {
                 match id {
                     #id_to_type
                     _ => None

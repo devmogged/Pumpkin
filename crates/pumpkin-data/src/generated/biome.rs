@@ -6,8 +6,10 @@ use crate::tag::Taggable;
 use pumpkin_util::biome::{TemperatureModifier, Weather};
 use serde::{Deserializer, de};
 use std::{
+    collections::{BTreeMap, HashMap},
     fmt,
     hash::{Hash, Hasher},
+    sync::OnceLock,
 };
 #[derive(Debug)]
 pub struct Biome {
@@ -22,7 +24,7 @@ pub struct Biome {
     pub snow_golem_melts: bool,
     pub can_pillager_patrol_spawn: bool,
     pub spawners: SpawnGroups,
-    pub spawn_costs: phf::Map<&'static str, SpawnCosts>,
+    pub spawn_costs: SpawnCostsLookup,
 }
 impl PartialEq<u8> for Biome {
     fn eq(&self, other: &u8) -> bool {
@@ -67,6 +69,24 @@ pub struct SpawnCosts {
     pub energy_budget: f64,
     pub charge: f64,
 }
+#[derive(Debug)]
+pub enum SpawnCostsLookup {
+    Vanilla(phf::Map<&'static str, SpawnCosts>),
+    Runtime(BTreeMap<String, SpawnCosts>),
+}
+impl SpawnCostsLookup {
+    pub fn get(&self, entity_id: &str) -> Option<&SpawnCosts> {
+        match self {
+            Self::Vanilla(costs) => costs.get(entity_id),
+            Self::Runtime(costs) => costs.get(entity_id),
+        }
+    }
+}
+struct RuntimeBiomeRegistry {
+    by_id: Box<[Option<Biome>]>,
+    by_name: HashMap<&'static str, u8>,
+}
+static RUNTIME_BIOMES: OnceLock<RuntimeBiomeRegistry> = OnceLock::new();
 impl<'de> Deserialize<'de> for &'static Biome {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct BiomeVisitor;
@@ -250,7 +270,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const BAMBOO_JUNGLE: Biome = Biome {
         id: 1,
@@ -431,7 +451,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const BASALT_DELTAS: Biome = Biome {
         id: 2,
@@ -498,7 +518,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const BEACH: Biome = Biome {
         id: 3,
@@ -638,7 +658,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const BIRCH_FOREST: Biome = Biome {
         id: 4,
@@ -799,7 +819,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const CHERRY_GROVE: Biome = Biome {
         id: 5,
@@ -949,7 +969,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const COLD_OCEAN: Biome = Biome {
         id: 6,
@@ -1115,7 +1135,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const CRIMSON_FOREST: Biome = Biome {
         id: 7,
@@ -1189,7 +1209,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DAPPLED_FOREST: Biome = Biome {
         id: 8,
@@ -1353,7 +1373,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DARK_FOREST: Biome = Biome {
         id: 9,
@@ -1513,7 +1533,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DEEP_COLD_OCEAN: Biome = Biome {
         id: 10,
@@ -1679,7 +1699,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DEEP_DARK: Biome = Biome {
         id: 11,
@@ -1763,7 +1783,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DEEP_FROZEN_OCEAN: Biome = Biome {
         id: 12,
@@ -1928,7 +1948,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DEEP_LUKEWARM_OCEAN: Biome = Biome {
         id: 13,
@@ -2104,7 +2124,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DEEP_OCEAN: Biome = Biome {
         id: 14,
@@ -2268,7 +2288,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DESERT: Biome = Biome {
         id: 15,
@@ -2429,7 +2449,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const DRIPSTONE_CAVES: Biome = Biome {
         id: 16,
@@ -2576,7 +2596,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const END_BARRENS: Biome = Biome {
         id: 17,
@@ -2603,7 +2623,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const END_HIGHLANDS: Biome = Biome {
         id: 18,
@@ -2641,7 +2661,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const END_MIDLANDS: Biome = Biome {
         id: 19,
@@ -2668,7 +2688,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const ERODED_BADLANDS: Biome = Biome {
         id: 20,
@@ -2833,7 +2853,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const FLOWER_FOREST: Biome = Biome {
         id: 21,
@@ -2997,7 +3017,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const FOREST: Biome = Biome {
         id: 22,
@@ -3162,7 +3182,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const FROZEN_OCEAN: Biome = Biome {
         id: 23,
@@ -3327,7 +3347,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const FROZEN_PEAKS: Biome = Biome {
         id: 24,
@@ -3460,7 +3480,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const FROZEN_RIVER: Biome = Biome {
         id: 25,
@@ -3611,7 +3631,7 @@ impl Biome {
                 max_count: 4i32,
             }],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const GROVE: Biome = Biome {
         id: 26,
@@ -3760,7 +3780,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const ICE_SPIKES: Biome = Biome {
         id: 27,
@@ -3916,7 +3936,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const JAGGED_PEAKS: Biome = Biome {
         id: 28,
@@ -4049,7 +4069,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const JUNGLE: Biome = Biome {
         id: 29,
@@ -4230,7 +4250,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const LUKEWARM_OCEAN: Biome = Biome {
         id: 30,
@@ -4406,7 +4426,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const LUSH_CAVES: Biome = Biome {
         id: 31,
@@ -4552,7 +4572,7 @@ impl Biome {
             }],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const MANGROVE_SWAMP: Biome = Biome {
         id: 32,
@@ -4706,7 +4726,7 @@ impl Biome {
             }],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const MEADOW: Biome = Biome {
         id: 33,
@@ -4857,7 +4877,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const MUSHROOM_FIELDS: Biome = Biome {
         id: 34,
@@ -4954,7 +4974,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const NETHER_WASTES: Biome = Biome {
         id: 35,
@@ -5038,7 +5058,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const OCEAN: Biome = Biome {
         id: 36,
@@ -5202,7 +5222,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const OLD_GROWTH_BIRCH_FOREST: Biome = Biome {
         id: 37,
@@ -5363,7 +5383,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const OLD_GROWTH_PINE_TAIGA: Biome = Biome {
         id: 38,
@@ -5544,7 +5564,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const OLD_GROWTH_SPRUCE_TAIGA: Biome = Biome {
         id: 39,
@@ -5725,7 +5745,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const PALE_GARDEN: Biome = Biome {
         id: 40,
@@ -5862,7 +5882,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const PLAINS: Biome = Biome {
         id: 41,
@@ -6037,7 +6057,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const RIVER: Biome = Biome {
         id: 42,
@@ -6189,7 +6209,7 @@ impl Biome {
                 max_count: 4i32,
             }],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SAVANNA: Biome = Biome {
         id: 43,
@@ -6368,7 +6388,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SAVANNA_PLATEAU: Biome = Biome {
         id: 44,
@@ -6557,7 +6577,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SMALL_END_ISLANDS: Biome = Biome {
         id: 45,
@@ -6584,7 +6604,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SNOWY_BEACH: Biome = Biome {
         id: 46,
@@ -6720,7 +6740,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SNOWY_PLAINS: Biome = Biome {
         id: 47,
@@ -6878,7 +6898,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SNOWY_SLOPES: Biome = Biome {
         id: 48,
@@ -7021,7 +7041,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SNOWY_TAIGA: Biome = Biome {
         id: 49,
@@ -7196,7 +7216,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SOUL_SAND_VALLEY: Biome = Biome {
         id: 50,
@@ -7266,7 +7286,9 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! { "enderman" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "ghast" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "skeleton" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "strider" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } },
+        spawn_costs: SpawnCostsLookup::Vanilla(
+            phf::phf_map! { "enderman" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "ghast" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "skeleton" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } , "strider" => SpawnCosts { energy_budget : 0.15f64 , charge : 0.7f64 , } },
+        ),
     };
     pub const SPARSE_JUNGLE: Biome = Biome {
         id: 51,
@@ -7436,7 +7458,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const STONY_PEAKS: Biome = Biome {
         id: 52,
@@ -7564,7 +7586,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const STONY_SHORE: Biome = Biome {
         id: 53,
@@ -7700,7 +7722,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SULFUR_CAVES: Biome = Biome {
         id: 54,
@@ -7836,7 +7858,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SUNFLOWER_PLAINS: Biome = Biome {
         id: 55,
@@ -8011,7 +8033,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const SWAMP: Biome = Biome {
         id: 56,
@@ -8190,7 +8212,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const TAIGA: Biome = Biome {
         id: 57,
@@ -8365,7 +8387,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const THE_END: Biome = Biome {
         id: 58,
@@ -8404,7 +8426,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const THE_VOID: Biome = Biome {
         id: 59,
@@ -8439,7 +8461,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WARM_OCEAN: Biome = Biome {
         id: 60,
@@ -8611,7 +8633,7 @@ impl Biome {
                 },
             ],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WARPED_FOREST: Biome = Biome {
         id: 61,
@@ -8675,7 +8697,9 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! { "enderman" => SpawnCosts { energy_budget : 0.12f64 , charge : 1f64 , } },
+        spawn_costs: SpawnCostsLookup::Vanilla(
+            phf::phf_map! { "enderman" => SpawnCosts { energy_budget : 0.12f64 , charge : 1f64 , } },
+        ),
     };
     pub const WINDSWEPT_FOREST: Biome = Biome {
         id: 62,
@@ -8840,7 +8864,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WINDSWEPT_GRAVELLY_HILLS: Biome = Biome {
         id: 63,
@@ -9005,7 +9029,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WINDSWEPT_HILLS: Biome = Biome {
         id: 64,
@@ -9170,7 +9194,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WINDSWEPT_SAVANNA: Biome = Biome {
         id: 65,
@@ -9348,7 +9372,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const WOODED_BADLANDS: Biome = Biome {
         id: 66,
@@ -9519,7 +9543,7 @@ impl Biome {
             water_ambient: &[],
             water_creature: &[],
         },
-        spawn_costs: phf::phf_map! {},
+        spawn_costs: SpawnCostsLookup::Vanilla(phf::phf_map! {}),
     };
     pub const ALL: &'static [&'static Self] = &[
         &Self::BADLANDS,
@@ -9590,7 +9614,42 @@ impl Biome {
         &Self::WINDSWEPT_SAVANNA,
         &Self::WOODED_BADLANDS,
     ];
+    pub fn install_runtime_biomes(count: usize, biomes: Vec<Self>) -> bool {
+        if !(Self::ALL.len()..=256).contains(&count) {
+            return false;
+        }
+        let mut by_id: Box<[_]> = std::iter::repeat_with(|| None).take(count).collect();
+        let mut by_name = HashMap::with_capacity(biomes.len());
+        for biome in biomes {
+            let Some(slot) = by_id.get_mut(usize::from(biome.id)) else {
+                return false;
+            };
+            let name = biome
+                .registry_id
+                .strip_prefix("minecraft:")
+                .unwrap_or(biome.registry_id);
+            if slot.is_some() || by_name.insert(name, biome.id).is_some() {
+                return false;
+            }
+            *slot = Some(biome);
+        }
+        RUNTIME_BIOMES
+            .set(RuntimeBiomeRegistry { by_id, by_name })
+            .is_ok()
+    }
+    pub fn registry_size() -> usize {
+        RUNTIME_BIOMES
+            .get()
+            .map_or(Self::ALL.len(), |registry| registry.by_id.len())
+    }
     pub fn from_name(name: &str) -> Option<&'static Self> {
+        let name = name.strip_prefix("minecraft:").unwrap_or(name);
+        if let Some(id) = RUNTIME_BIOMES
+            .get()
+            .and_then(|registry| registry.by_name.get(name))
+        {
+            return Self::from_id(*id);
+        }
         match name {
             "badlands" => Some(&Self::BADLANDS),
             "bamboo_jungle" => Some(&Self::BAMBOO_JUNGLE),
@@ -9662,7 +9721,14 @@ impl Biome {
             _ => None,
         }
     }
-    pub const fn from_id(id: u8) -> Option<&'static Self> {
+    pub fn from_id(id: u8) -> Option<&'static Self> {
+        RUNTIME_BIOMES
+            .get()
+            .and_then(|registry| registry.by_id.get(usize::from(id)))
+            .and_then(Option::as_ref)
+            .or_else(|| Self::vanilla_from_id(id))
+    }
+    pub const fn vanilla_from_id(id: u8) -> Option<&'static Self> {
         match id {
             0 => Some(&Self::BADLANDS),
             1 => Some(&Self::BAMBOO_JUNGLE),

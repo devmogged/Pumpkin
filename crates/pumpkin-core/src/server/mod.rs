@@ -456,6 +456,18 @@ impl Server {
         let worldgen =
             WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
 
+        if worldgen.has_datapack_biomes() {
+            worldgen
+                .install_biomes(
+                    &server
+                        .datapack_manager
+                        .get_dynamic_registry_entries("minecraft:worldgen/biome"),
+                )
+                .map_err(WorldInfoError::DeserializationError)?;
+        }
+
+        server.datapack_manager.freeze_biomes();
+
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {
             info!(

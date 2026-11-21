@@ -6,11 +6,12 @@ use std::{
 
 use pumpkin_data::{
     Block, BlockState,
-    biome::{Parameter, ParameterPoint},
+    biome::{Biome, Parameter, ParameterPoint},
     chunk::DoublePerlinNoiseParameters,
     dimension::Dimension,
     noise_router::{BaseNoiseRouters, VANILLA_DENSITY_JSON},
     noise_settings::{GenerationShapeConfig, NoiseSettings, VANILLA_SETTINGS_JSON},
+    registry::RegistryEntryData,
 };
 use pumpkin_worldgen_model::{
     noise_parameter::NoiseParameterJson,
@@ -29,6 +30,7 @@ pub struct RuntimeNoiseSettings {
 #[derive(Default)]
 pub struct WorldgenOverrides {
     dimensions: BTreeMap<String, PathBuf>,
+    biomes: BTreeMap<String, PathBuf>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
     noises: BTreeMap<String, PathBuf>,
@@ -54,6 +56,7 @@ impl WorldgenOverrides {
                     &mut overrides.dimensions,
                 );
                 for (kind, registry) in [
+                    ("biome", &mut overrides.biomes),
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
                     ("noise", &mut overrides.noises),
@@ -63,6 +66,52 @@ impl WorldgenOverrides {
             }
         }
         overrides
+    }
+
+    #[must_use]
+    pub fn has_datapack_biomes(&self) -> bool {
+        !self.biomes.is_empty()
+    }
+
+    /// Installs biome definitions at the same IDs as the server's synced registry.
+    pub fn install_biomes(&self, registry: &[RegistryEntryData]) -> Result<(), String> {
+        if registry.len() > usize::from(u8::MAX) + 1 {
+            return Err(format!(
+                "{} biome entries exceed the engine's 256-entry limit",
+                registry.len()
+            ));
+        }
+
+        let mut custom = Vec::with_capacity(self.biomes.len());
+        for (id, entry) in registry.iter().enumerate() {
+            let key = resource_id(&entry.entry_id);
+            let vanilla = Biome::vanilla_from_id(id as u8);
+            if let Some(vanilla) = vanilla
+                && key != resource_id(vanilla.registry_id)
+            {
+                return Err(format!(
+                    "biome sync ID {id} is {key}, expected {}",
+                    vanilla.registry_id
+                ));
+            }
+
+            let Some(path) = self.biomes.get(key.as_ref()) else {
+                continue;
+            };
+            let name = vanilla.map_or(key.as_ref(), |biome| biome.registry_id);
+            match read_json(path)
+                .and_then(|json| crate::biome::registry::build_biome(id as u8, name, json))
+            {
+                Ok(biome) => custom.push(biome),
+                Err(error) => tracing::warn!("Skipping biome {key}: {error}"),
+            }
+        }
+
+        if Biome::install_runtime_biomes(registry.len(), custom) {
+            Ok(())
+        } else {
+            Err("could not install synchronized biome IDs".into())
+        }
     }
 
     pub(crate) fn dimension(&self, id: &str) -> Option<crate::world_info::Dimension> {

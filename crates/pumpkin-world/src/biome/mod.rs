@@ -12,6 +12,7 @@ use crate::generation::noise::router::multi_noise_sampler::MultiNoiseSampler;
 pub mod end;
 pub mod multi_noise;
 pub mod position_finder;
+pub(crate) mod registry;
 
 pub use position_finder::{
     Climate, ClimateSampler, DistanceMetric, FittestPositionFinder, FittestPositionFinderResult,
@@ -530,10 +531,7 @@ mod test {
     use pumpkin_data::{chunk::Biome, dimension::Dimension};
     use serde::Deserialize;
 
-    use crate::{
-        ProtoChunk, chunk::palette::BIOME_NETWORK_MAX_BITS,
-        generation::noise::router::multi_noise_sampler::MultiNoiseSampler,
-    };
+    use crate::{ProtoChunk, generation::noise::router::multi_noise_sampler::MultiNoiseSampler};
 
     use super::{BiomeSupplier, MultiNoiseBiomeSupplier, hash_seed};
 
@@ -634,7 +632,7 @@ mod test {
 
     #[test]
     fn proper_network_bits_per_entry() {
-        let id_to_test = 1 << BIOME_NETWORK_MAX_BITS;
+        let id_to_test = 1 << pumpkin_util::encompassing_bits(Biome::registry_size());
         assert!(
             Biome::from_id(id_to_test).is_none(),
             "We need to update our constants!"

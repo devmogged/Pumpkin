@@ -747,6 +747,11 @@ impl DatapackManager {
             .contains_entry(registry_id, entry_id)
     }
 
+    /// Keeps the biome IDs already used by running worlds across a resource reload.
+    pub(crate) fn freeze_biomes(&self) {
+        self.dynamic_registry_manager.freeze_biomes();
+    }
+
     #[must_use]
     pub fn get_all_synced_registries(&self) -> Vec<pumpkin_data::registry::Registry> {
         self.dynamic_registry_manager.get_synced_registries()
@@ -1721,22 +1726,23 @@ fn scan_datapacks_dir(
         }
     };
 
-    for entry in entries.flatten() {
-        let pack_path = entry.path();
-        let file_name = entry.file_name().to_string_lossy().to_string();
+    let mut enabled = entries
+        .flatten()
+        .filter_map(|entry| {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') || !entry.path().is_dir() {
+                return None;
+            }
+            let pack_id = format!("file/{file_name}");
+            let priority = enabled_packs
+                .iter()
+                .position(|id| id == &pack_id || id == &file_name)?;
+            Some((priority, entry.path(), file_name, pack_id))
+        })
+        .collect::<Vec<_>>();
+    enabled.sort_by_key(|(priority, ..)| *priority);
 
-        if file_name.starts_with('.') || !pack_path.is_dir() {
-            continue;
-        }
-
-        let pack_id = format!("file/{file_name}");
-        let is_enabled = enabled_packs
-            .iter()
-            .any(|p| p == &pack_id || p == &file_name);
-        if !is_enabled {
-            continue;
-        }
-
+    for (_, pack_path, file_name, pack_id) in enabled {
         let (description, pack_format, known_packs) = read_pack_mcmeta(&pack_path);
         let counts = load_pack_contents(&pack_path, acc);
 

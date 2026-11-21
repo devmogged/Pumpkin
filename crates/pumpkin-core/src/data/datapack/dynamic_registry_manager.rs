@@ -1,9 +1,14 @@
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{
+    RwLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use pumpkin_data::packet::CURRENT_MC_VERSION;
 use pumpkin_data::registry::{Registry, RegistryEntryData};
 use pumpkin_util::version::JavaMinecraftVersion;
+
+const BIOME_REGISTRY: &str = "minecraft:worldgen/biome";
 
 /// Represents a single dynamic registry holding all its entries in canonical network order.
 #[derive(Clone, Debug, Default)]
@@ -100,6 +105,7 @@ pub struct DynamicRegistryManager {
     synced_order: RwLock<Vec<String>>,
     base_registries: HashMap<String, DynamicRegistry>,
     base_synced_order: Vec<String>,
+    freeze_biomes: AtomicBool,
 }
 
 impl Default for DynamicRegistryManager {
@@ -129,9 +135,14 @@ impl DynamicRegistryManager {
         Self {
             base_registries: registries.clone(),
             base_synced_order: synced_order.clone(),
+            freeze_biomes: AtomicBool::new(false),
             registries: RwLock::new(registries),
             synced_order: RwLock::new(synced_order),
         }
+    }
+
+    pub fn freeze_biomes(&self) {
+        self.freeze_biomes.store(true, Ordering::Release);
     }
 
     /// Merges custom datapack entries into the dynamic registries.
@@ -150,6 +161,11 @@ impl DynamicRegistryManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
+        let frozen_biomes = self
+            .freeze_biomes
+            .load(Ordering::Acquire)
+            .then(|| reg_guard.get(BIOME_REGISTRY).cloned())
+            .flatten();
         (*reg_guard).clone_from(&self.base_registries);
         (*order_guard).clone_from(&self.base_synced_order);
 
@@ -160,6 +176,9 @@ impl DynamicRegistryManager {
                 format!("minecraft:{raw_reg_id}")
             };
 
+            if reg_id == BIOME_REGISTRY && frozen_biomes.is_some() {
+                continue;
+            }
             if let Some(existing) = reg_guard.get_mut(&reg_id) {
                 let merged = super::dynamic_registry_loader::merge_dynamic_registry_entries(
                     &existing.entries,
@@ -179,6 +198,9 @@ impl DynamicRegistryManager {
                 reg_guard.insert(reg_id.clone(), dyn_reg);
                 order_guard.push(reg_id);
             }
+        }
+        if let Some(biomes) = frozen_biomes {
+            reg_guard.insert(BIOME_REGISTRY.to_owned(), biomes);
         }
     }
 
@@ -282,6 +304,33 @@ impl DynamicRegistryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_running_world_biome_ids_across_reload() {
+        let manager = DynamicRegistryManager::default();
+        let biome_map = |name: &str| {
+            HashMap::from([(
+                BIOME_REGISTRY.to_owned(),
+                HashMap::from([(
+                    name.to_owned(),
+                    RegistryEntryData {
+                        entry_id: name.to_owned(),
+                        data: None,
+                    },
+                )]),
+            )])
+        };
+        manager.apply_custom_registries(&biome_map("test:original"));
+        let original = manager.get_raw_id(BIOME_REGISTRY, "test:original");
+        assert!(original.is_some());
+        manager.freeze_biomes();
+        manager.apply_custom_registries(&biome_map("test:new"));
+        assert_eq!(
+            manager.get_raw_id(BIOME_REGISTRY, "test:original"),
+            original
+        );
+        assert_eq!(manager.get_raw_id(BIOME_REGISTRY, "test:new"), None);
+    }
 
     #[test]
     fn dynamic_registry_manager_initializes_with_vanilla() {

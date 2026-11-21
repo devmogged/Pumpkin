@@ -635,7 +635,7 @@ impl ChunkData {
                 .map(|&val| {
                     let name = pumpkin_data::biome::Biome::from_id(val)
                         .map_or("plains", |b| b.registry_id);
-                    let full_name = if name.starts_with("minecraft:") {
+                    let full_name = if name.contains(':') {
                         name.to_string()
                     } else {
                         format!("minecraft:{name}")
