@@ -704,6 +704,9 @@ impl Level {
             self.loaded_chunk_changes
                 .push(LoadedChunkChange::Loaded(pos));
         }
+        if chunk.block_ticks.has_ticks() || chunk.fluid_ticks.has_ticks() {
+            self.chunks_with_scheduled_ticks.insert(pos);
+        }
         f(&chunk)
     }
 

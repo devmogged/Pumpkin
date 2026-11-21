@@ -1,9 +1,9 @@
 use decorator::TreeDecorator;
 use foliage::FoliagePlacer;
-use pumpkin_data::BlockState;
 use pumpkin_data::block_properties::{BlockProperties, OakLeavesLikeProperties};
 use pumpkin_data::tag::Taggable;
 use pumpkin_data::{BlockId, tag};
+use pumpkin_data::{BlockState, BlockStateId, fluid::Fluid};
 use pumpkin_util::{math::position::BlockPos, random::RandomGenerator};
 use root::RootPlacer;
 
@@ -12,6 +12,7 @@ use trunk::TrunkPlacer;
 use super::JavaBlockPosHashSet;
 use crate::generation::proto_chunk::GenerationCache;
 use crate::generation::{block_state_provider::BlockStateProvider, feature::size::FeatureSize};
+use crate::tick::{ScheduledTick, TickPriority};
 use crate::world::WorldPortalExt;
 
 pub mod decorator;
@@ -188,22 +189,9 @@ impl TreeFeature {
                             get_index(neighbor_pos.0.x, neighbor_pos.0.y, neighbor_pos.0.z)
                             && !shape[n_idx]
                         {
-                            let (n_block, n_state) = chunk.get_block_and_state(&neighbor_pos);
-                            let distance = if n_block
-                                .has_tag(&tag::Block::MINECRAFT_PREVENTS_NEARBY_LEAF_DECAY)
-                            {
-                                Some(0)
-                            } else if OakLeavesLikeProperties::handles_block_id(n_block.id) {
-                                Some(
-                                    OakLeavesLikeProperties::from_state_id(n_state.id).distance
-                                        as usize,
-                                )
-                            } else {
-                                None
-                            };
-
-                            if let Some(dist) = distance {
-                                let new_distance = dist.min(smallest_distance + 1);
+                            let state = GenerationCache::get_block_state(chunk, &neighbor_pos.0);
+                            if let Some(dist) = Self::leaf_distance_at(state) {
+                                let new_distance = usize::from(dist).min(smallest_distance + 1);
                                 if new_distance < 7 {
                                     to_check[new_distance].insert(neighbor_pos);
                                     smallest_distance = smallest_distance.min(new_distance);
@@ -317,8 +305,18 @@ impl TreeFeature {
         }
     }
 
+    fn leaf_distance_at(state: BlockStateId) -> Option<u8> {
+        let block = state.to_block();
+        if block.has_tag(&tag::Block::MINECRAFT_PREVENTS_NEARBY_LEAF_DECAY) {
+            Some(0)
+        } else {
+            OakLeavesLikeProperties::handles_block_id(block.id)
+                .then(|| OakLeavesLikeProperties::from_state_id(state).distance)
+        }
+    }
+
     fn get_updated_edge_state<T: GenerationCache>(
-        chunk: &T,
+        chunk: &mut T,
         pos: BlockPos,
         dir_to_neighbor: pumpkin_data::BlockDirection,
     ) -> Option<&'static BlockState> {
@@ -326,6 +324,29 @@ impl TreeFeature {
         use pumpkin_data::{Block, BlockDirection};
 
         let state_id = GenerationCache::get_block_state(chunk, &pos.0);
+        if OakLeavesLikeProperties::handles_block_id(state_id.to_block_id()) {
+            let props = OakLeavesLikeProperties::from_state_id(state_id);
+            if props.waterlogged {
+                chunk.schedule_fluid_tick(ScheduledTick {
+                    delay: Fluid::WATER.flow_speed as u8,
+                    priority: TickPriority::Normal,
+                    position: pos,
+                    value: &Fluid::WATER,
+                });
+            }
+            let neighbor = pos.offset(dir_to_neighbor.to_offset());
+            let neighbor_state = GenerationCache::get_block_state(chunk, &neighbor.0);
+            let distance = Self::leaf_distance_at(neighbor_state).unwrap_or(7) + 1;
+            if distance != 1 || props.distance != distance {
+                chunk.schedule_block_tick(ScheduledTick {
+                    delay: 1,
+                    priority: TickPriority::Normal,
+                    position: pos,
+                    value: state_id.to_block(),
+                });
+            }
+            return None;
+        }
         if BlockId::from_state_id(state_id) != BlockId::VINE
             || dir_to_neighbor == BlockDirection::Down
         {

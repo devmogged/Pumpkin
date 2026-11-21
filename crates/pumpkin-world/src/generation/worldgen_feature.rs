@@ -471,6 +471,7 @@ mod tests {
             &configured,
             r#"{
             "type": "minecraft:simple_block",
+            "schedule_tick": true,
             "to_place": {"type": "minecraft:simple", "state": "minecraft:gold_block"}
         }"#,
         )
@@ -521,5 +522,18 @@ mod tests {
             chunk.get_block_state(&marker.0).to_block_id(),
             Block::GOLD_BLOCK.id
         );
+        let mut staged = crate::chunk_system::Chunk::Proto(Box::new(chunk));
+        staged.upgrade_to_level_chunk(
+            &Dimension::OVERWORLD,
+            &pumpkin_config::lighting::LightingEngineConfig::Default,
+        );
+        let crate::chunk_system::Chunk::Level(saved) = staged else {
+            unreachable!();
+        };
+        let resumed = crate::ProtoChunk::from_chunk_data(&saved, &generator);
+        assert_eq!(resumed.block_ticks.len(), 1);
+        assert_eq!(resumed.block_ticks[0].position, marker);
+        assert_eq!(resumed.block_ticks[0].value.id, Block::GOLD_BLOCK.id);
+        assert_eq!(resumed.block_ticks[0].delay, 1);
     }
 }

@@ -17,6 +17,7 @@ use pumpkin_world::{
         blender::blending_data::BlendingData, height_limit::HeightLimitView,
         proto_chunk::GenerationCache,
     },
+    tick::ScheduledTick,
     world::{BlockAccessor, BlockFlags},
 };
 use rustc_hash::FxHashMap;
@@ -73,6 +74,14 @@ impl WorldGenerationCache {
         for (pos, state_id) in self.pending {
             self.world
                 .set_block_state(&pos, state_id, BlockFlags::NOTIFY_ALL);
+        }
+        for tick in self.center.block_ticks {
+            self.world
+                .schedule_block_tick(tick.value, tick.position, tick.delay, tick.priority);
+        }
+        for tick in self.center.fluid_ticks {
+            self.world
+                .schedule_fluid_tick(tick.value, tick.position, tick.delay, tick.priority);
         }
         for nbt in self.block_entities {
             if let Some(block_entity) = block_entity_from_nbt(&nbt) {
@@ -133,6 +142,14 @@ impl GenerationCache for WorldGenerationCache {
 
     fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId {
         self.read(&BlockPos(*pos))
+    }
+
+    fn schedule_block_tick(&mut self, tick: ScheduledTick<&'static Block>) {
+        self.center.block_ticks.push(tick);
+    }
+
+    fn schedule_fluid_tick(&mut self, tick: ScheduledTick<&'static Fluid>) {
+        self.center.fluid_ticks.push(tick);
     }
 
     fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState) {

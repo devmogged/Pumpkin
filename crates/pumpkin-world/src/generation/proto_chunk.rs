@@ -80,6 +80,16 @@ pub trait GenerationCache: HeightLimitView + BlockAccessor {
     fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState);
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState);
     fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound);
+    fn schedule_block_tick(&mut self, tick: ScheduledTick<&'static Block>) {
+        if let Some(chunk) = self.get_chunk_mut(tick.position.0.x >> 4, tick.position.0.z >> 4) {
+            chunk.block_ticks.push(tick);
+        }
+    }
+    fn schedule_fluid_tick(&mut self, tick: ScheduledTick<&'static Fluid>) {
+        if let Some(chunk) = self.get_chunk_mut(tick.position.0.x >> 4, tick.position.0.z >> 4) {
+            chunk.fluid_ticks.push(tick);
+        }
+    }
     fn top_motion_blocking_block_height_exclusive(&self, x: i32, z: i32) -> i32;
     fn top_motion_blocking_block_no_leaves_height_exclusive(&self, x: i32, z: i32) -> i32;
     fn get_top_y(&self, heightmap: &HeightMap, x: i32, z: i32) -> i32;
@@ -161,6 +171,7 @@ pub struct ProtoChunk {
     pub blending_data: Option<crate::generation::blender::blending_data::BlendingData>,
     pub pending_block_entities: Vec<NbtCompound>,
     pending_structure_entities: Vec<NbtCompound>,
+    pub block_ticks: Vec<ScheduledTick<&'static Block>>,
     pub fluid_ticks: Vec<ScheduledTick<&'static Fluid>>,
     pub(crate) surface_height_cache: FxHashMap<u64, i32>,
     pub(crate) aquifer_sampler:
@@ -282,6 +293,7 @@ impl ProtoChunk {
             blending_data: None,
             pending_block_entities: Vec::new(),
             pending_structure_entities: Vec::new(),
+            block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
             surface_height_cache: FxHashMap::default(),
             aquifer_sampler: None,
@@ -308,6 +320,8 @@ impl ProtoChunk {
         // Chunks loaded from disk carry their block entities in the chunk data.
         // Keep them so the world can create the block entities when the chunk
         // becomes active, and so saving the chunk again does not drop them.
+        proto_chunk.block_ticks = chunk_data.block_ticks.to_vec();
+        proto_chunk.fluid_ticks = chunk_data.fluid_ticks.to_vec();
         proto_chunk.pending_block_entities = chunk_data
             .pending_block_entities
             .lock()

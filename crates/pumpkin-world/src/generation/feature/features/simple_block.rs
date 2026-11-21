@@ -12,6 +12,7 @@ use pumpkin_util::{
 };
 
 use crate::generation::proto_chunk::GenerationCache;
+use crate::tick::{ScheduledTick, TickPriority};
 use crate::{
     generation::block_state_provider::BlockStateProvider,
     world::{BlockAccessor, WorldPortalExt},
@@ -83,6 +84,15 @@ impl SimpleBlockFeature {
             Self::place_pale_moss_carpet(chunk, pos, random);
         } else {
             chunk.set_block_state(&pos.0, state);
+        }
+        if self.schedule_tick == Some(true) {
+            let placed = GenerationCache::get_block_state(chunk, &pos.0);
+            chunk.schedule_block_tick(ScheduledTick {
+                delay: 1,
+                priority: TickPriority::Normal,
+                position: pos,
+                value: placed.to_block(),
+            });
         }
         true
     }
