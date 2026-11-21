@@ -260,10 +260,12 @@ impl<T: Clone> Clone for RTreeNode<T> {
 }
 
 pub struct RTree<T> {
-    root: RTreeNode<T>,
+    pub(super) root: RTreeNode<T>,
 }
 
 impl<T: Clone> RTree<T> {
+    const CHILDREN_PER_NODE: usize = 19;
+
     #[must_use]
     pub fn create(values: Vec<(ParameterPoint, T)>) -> Self {
         assert!(
@@ -293,7 +295,7 @@ impl<T: Clone> RTree<T> {
             return children.remove(0);
         }
 
-        if children.len() <= 6 {
+        if children.len() <= Self::CHILDREN_PER_NODE {
             children.sort_by_key(|leaf| {
                 let mut total_magnitude = 0i64;
                 for dx in 0..dimensions {
@@ -311,81 +313,61 @@ impl<T: Clone> RTree<T> {
 
         let mut min_cost = i64::MAX;
         let mut min_dimension = 0;
-        let mut min_buckets: Vec<Vec<RTreeNode<T>>> = Vec::new();
+        let mut min_buckets = Vec::new();
+        let mut bucket_size = 1;
+        while bucket_size <= (children.len() - 1) / Self::CHILDREN_PER_NODE {
+            bucket_size *= Self::CHILDREN_PER_NODE;
+        }
 
-        for d in 0..dimensions {
-            Self::sort_nodes(&mut children, dimensions, d, false);
-            let buckets = Self::bucketize(&children);
-            let mut total_cost = 0i64;
-            for bucket in &buckets {
-                let param_space = Self::build_parameter_space(bucket);
-                total_cost += Self::cost(&param_space);
-            }
-
-            if min_cost > total_cost {
+        for dimension in 0..dimensions {
+            children.sort_by(|a, b| {
+                Self::compare(a.parameter_space(), b.parameter_space(), dimension, false)
+            });
+            let buckets = children
+                .chunks(bucket_size)
+                .map(Self::build_parameter_space)
+                .collect::<Vec<_>>();
+            let total_cost = buckets.iter().map(Self::cost).sum();
+            if total_cost < min_cost {
                 min_cost = total_cost;
-                min_dimension = d;
-                min_buckets = buckets;
+                min_dimension = dimension;
+                min_buckets = buckets
+                    .into_iter()
+                    .zip(children.chunks(bucket_size).map(<[_]>::to_vec))
+                    .collect();
             }
         }
 
-        min_buckets.sort_by_key(|bucket| {
-            let space = Self::build_parameter_space(bucket);
-            let param = space[min_dimension];
-            i64::midpoint(param.min, param.max).abs()
-        });
-
-        let sub_children: Vec<RTreeNode<T>> = min_buckets
+        min_buckets.sort_by(|(a, _), (b, _)| Self::compare(a, b, min_dimension, true));
+        let children = min_buckets
             .into_iter()
-            .map(|b| Self::build(dimensions, b))
-            .collect();
-        let parameter_space = Self::build_parameter_space(&sub_children);
+            .map(|(_, bucket)| Self::build(dimensions, bucket))
+            .collect::<Vec<_>>();
+        let parameter_space = Self::build_parameter_space(&children);
         RTreeNode::SubTree(RTreeSubTree {
             parameter_space,
-            children: sub_children,
+            children,
         })
     }
 
-    fn sort_nodes(
-        children: &mut [RTreeNode<T>],
-        dimensions: usize,
-        dimension: usize,
+    fn compare(
+        a: &[Parameter; 7],
+        b: &[Parameter; 7],
+        first: usize,
         absolute: bool,
-    ) {
-        children.sort_by(|a, b| {
-            for d in 0..dimensions {
-                let dim = (dimension + d) % dimensions;
-                let param_a = a.parameter_space()[dim];
-                let param_b = b.parameter_space()[dim];
-                let center_a = i64::midpoint(param_a.min, param_a.max);
-                let center_b = i64::midpoint(param_b.min, param_b.max);
-                let val_a = if absolute { center_a.abs() } else { center_a };
-                let val_b = if absolute { center_b.abs() } else { center_b };
-                let ord = val_a.cmp(&val_b);
-                if ord != std::cmp::Ordering::Equal {
-                    return ord;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
-    }
-
-    fn bucketize(nodes: &[RTreeNode<T>]) -> Vec<Vec<RTreeNode<T>>> {
-        let mut buckets = Vec::new();
-        let mut current_bucket = Vec::new();
-        let expected_children_count =
-            6.0f64.powf(((nodes.len() as f64 - 0.01).ln() / 6.0f64.ln()).floor()) as usize;
-
-        for child in nodes {
-            current_bucket.push(child.clone());
-            if current_bucket.len() >= expected_children_count {
-                buckets.push(std::mem::take(&mut current_bucket));
+    ) -> std::cmp::Ordering {
+        let midpoint = |parameter: Parameter| {
+            let center = i64::midpoint(parameter.min, parameter.max);
+            if absolute { center.abs() } else { center }
+        };
+        for offset in 0..a.len() {
+            let axis = (first + offset) % a.len();
+            let ordering = midpoint(a[axis]).cmp(&midpoint(b[axis]));
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
             }
         }
-        if !current_bucket.is_empty() {
-            buckets.push(current_bucket);
-        }
-        buckets
+        std::cmp::Ordering::Equal
     }
 
     fn cost(parameter_space: &[Parameter; 7]) -> i64 {
@@ -418,9 +400,24 @@ impl<T: Clone> RTree<T> {
         target: &TargetPoint,
         distance_metric: &impl DistanceMetric<T>,
     ) -> &'a T {
+        &self.find_leaf(target, None, distance_metric).value
+    }
+
+    pub(super) fn find_leaf<'a>(
+        &'a self,
+        target: &TargetPoint,
+        candidate: Option<&'a RTreeLeaf<T>>,
+        distance_metric: &impl DistanceMetric<T>,
+    ) -> &'a RTreeLeaf<T> {
         let target_array = target.to_parameter_array();
-        let mut min_distance = i64::MAX;
-        let mut closest_leaf: Option<&'a RTreeLeaf<T>> = None;
+        let mut closest_leaf = candidate;
+        let mut min_distance = candidate.map_or(i64::MAX, |leaf| {
+            leaf.parameter_space
+                .iter()
+                .zip(target_array)
+                .map(|(parameter, position)| parameter.distance(position).pow(2))
+                .sum()
+        });
         Self::search_node(
             &self.root,
             &target_array,
@@ -428,10 +425,7 @@ impl<T: Clone> RTree<T> {
             &mut closest_leaf,
             distance_metric,
         );
-        closest_leaf.map_or_else(
-            || unreachable!("Search must find a leaf"),
-            |leaf| &leaf.value,
-        )
+        closest_leaf.unwrap_or_else(|| unreachable!("Search must find a leaf"))
     }
 
     fn search_node<'a>(
@@ -514,5 +508,88 @@ impl<T: Clone> ParameterList<T> {
         distance_metric: &impl DistanceMetric<T>,
     ) -> &T {
         self.index.search_with_metric(target, distance_metric)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pumpkin_data::chunk::{Biome, BiomeTree, NETHER_BIOME_SOURCE, OVERWORLD_BIOME_SOURCE};
+
+    use super::*;
+
+    fn collect_leaves(tree: &BiomeTree, leaves: &mut Vec<(ParameterPoint, &'static Biome)>) {
+        match tree {
+            BiomeTree::Leaf { parameters, biome } => {
+                let [
+                    temperature,
+                    humidity,
+                    continentalness,
+                    erosion,
+                    depth,
+                    weirdness,
+                    offset,
+                ] = *parameters;
+                assert_eq!(offset.min, offset.max);
+                leaves.push((
+                    ParameterPoint::new(
+                        temperature,
+                        humidity,
+                        continentalness,
+                        erosion,
+                        depth,
+                        weirdness,
+                        offset.min,
+                    ),
+                    biome,
+                ));
+            }
+            BiomeTree::Branch { nodes, .. } => {
+                for node in *nodes {
+                    collect_leaves(node, leaves);
+                }
+            }
+        }
+    }
+
+    fn assert_same_tree(node: &RTreeNode<&Biome>, fixture: &BiomeTree) {
+        match (node, fixture) {
+            (RTreeNode::Leaf(leaf), BiomeTree::Leaf { parameters, biome }) => {
+                assert_eq!(&leaf.parameter_space, parameters);
+                assert_eq!(leaf.value.id, biome.id);
+            }
+            (RTreeNode::SubTree(branch), BiomeTree::Branch { parameters, nodes }) => {
+                assert_eq!(&branch.parameter_space, parameters);
+                assert_eq!(branch.children.len(), nodes.len());
+                for (child, expected) in branch.children.iter().zip(*nodes) {
+                    assert_same_tree(child, expected);
+                }
+            }
+            _ => panic!("runtime and extracted biome trees disagree on node kind"),
+        }
+    }
+
+    #[test]
+    fn previous_runtime_leaf_wins_an_equal_distance() {
+        let a = Climate::parameters(-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let b = Climate::parameters(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let tree = RTree::create(vec![(a, "a"), (b, "b")]);
+        let exact = Climate::target(1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let tie = Climate::target(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let candidate = tree.find_leaf(&exact, None, &default_distance_metric);
+        assert_eq!(*tree.search(&tie), "a");
+        assert_eq!(
+            tree.find_leaf(&tie, Some(candidate), &default_distance_metric)
+                .value,
+            "b"
+        );
+    }
+
+    #[test]
+    fn builds_vanilla_multi_noise_trees() {
+        for source in [&OVERWORLD_BIOME_SOURCE, &NETHER_BIOME_SOURCE] {
+            let mut leaves = Vec::new();
+            collect_leaves(source, &mut leaves);
+            assert_same_tree(&RTree::create(leaves).root, source);
+        }
     }
 }

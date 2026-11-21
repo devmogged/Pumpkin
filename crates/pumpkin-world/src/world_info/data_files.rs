@@ -294,25 +294,9 @@ fn read_world_gen_settings_file(path: &Path) -> Option<WorldGenSettings> {
                                             crate::world_info::GeneratorSettings::Compound(json_val)
                                         })
                                     });
-                                let biome_source = gen_c.get_compound("biome_source").map(|bs_c| {
-                                    let biome_type = bs_c
-                                        .get_string("type")
-                                        .unwrap_or("minecraft:multi_noise")
-                                        .to_string();
-                                    if let Some(preset) = bs_c.get_string("preset") {
-                                        crate::world_info::BiomeSource::WithPreset {
-                                            preset: preset.to_string(),
-                                            biome_type,
-                                        }
-                                    } else if let Some(biome) = bs_c.get_string("biome") {
-                                        crate::world_info::BiomeSource::Fixed {
-                                            biome: biome.to_string(),
-                                            biome_type,
-                                        }
-                                    } else {
-                                        crate::world_info::BiomeSource::Simple { biome_type }
-                                    }
-                                });
+                                let biome_source = gen_c
+                                    .get_compound("biome_source")
+                                    .and_then(|source| read_biome_source(source, dim_name));
                                 dimensions.insert(
                                     dim_name.to_string(),
                                     crate::world_info::Dimension {
@@ -337,6 +321,23 @@ fn read_world_gen_settings_file(path: &Path) -> Option<WorldGenSettings> {
         },
         Err(e) => {
             warn!("Failed to open {}: {e}", path.display());
+            None
+        }
+    }
+}
+
+fn read_biome_source(
+    source: &NbtCompound,
+    dim_name: &str,
+) -> Option<crate::world_info::BiomeSource> {
+    let mut json = nbt_tag_to_json(&NbtTag::Compound(source.clone()));
+    if json.get("type").is_none() {
+        json["type"] = serde_json::Value::String("minecraft:multi_noise".into());
+    }
+    match serde_json::from_value(json) {
+        Ok(source) => Some(source),
+        Err(error) => {
+            warn!("Skipping biome source for {dim_name}: {error}");
             None
         }
     }
@@ -386,21 +387,9 @@ pub fn write_world_gen_settings(
             }
         }
         if let Some(bs) = &dim.generator.biome_source {
-            let mut bs_comp = NbtCompound::new();
-            match bs {
-                crate::world_info::BiomeSource::WithPreset { preset, biome_type } => {
-                    bs_comp.put_string("preset", preset.clone());
-                    bs_comp.put_string("type", biome_type.clone());
-                }
-                crate::world_info::BiomeSource::Fixed { biome, biome_type } => {
-                    bs_comp.put_string("biome", biome.clone());
-                    bs_comp.put_string("type", biome_type.clone());
-                }
-                crate::world_info::BiomeSource::Simple { biome_type } => {
-                    bs_comp.put_string("type", biome_type.clone());
-                }
-            }
-            gen_comp.put_compound("biome_source", bs_comp);
+            let json = serde_json::to_value(bs)
+                .map_err(|error| WorldInfoError::SerializationError(error.to_string()))?;
+            gen_comp.put("biome_source", json_to_nbt_tag(&json));
         }
         dim_comp.put_compound("generator", gen_comp);
         dims_comp.put_compound(dim_name, dim_comp);

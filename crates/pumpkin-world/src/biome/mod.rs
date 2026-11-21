@@ -1,10 +1,13 @@
-use rustc_hash::FxHashSet;
+use pumpkin_worldgen_model::biome::ClimateEntry;
+use rustc_hash::{FxHashMap, FxHashSet};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::sync::LazyLock;
 
 use pumpkin_data::chunk::{Biome, BiomeTree, NETHER_BIOME_SOURCE, OVERWORLD_BIOME_SOURCE};
 
+use self::position_finder::default_distance_metric;
 use crate::generation::noise::router::multi_noise_sampler::MultiNoiseSampler;
 pub mod end;
 pub mod multi_noise;
@@ -291,9 +294,21 @@ impl BiomeSupplier for FixedBiomeSupplier {
     }
 }
 
+type ClimateTree = RTree<&'static Biome>;
+
+thread_local! {
+    static LAST_RUNTIME_LEAF: RefCell<FxHashMap<usize, &'static RTreeLeaf<&'static Biome>>> =
+        RefCell::default();
+}
+
 #[derive(Clone, Copy)]
 pub enum ActiveBiomeSupplier {
     MultiNoise(MultiNoiseBiomeSupplier),
+    DirectMultiNoise(&'static ClimateTree),
+    Checkerboard {
+        biomes: &'static [&'static Biome],
+        bit_shift: u32,
+    },
     End(end::TheEndBiomeSupplier),
     Fixed(FixedBiomeSupplier),
 }
@@ -302,6 +317,22 @@ impl BiomeSupplier for ActiveBiomeSupplier {
     fn biome(&self, x: i32, y: i32, z: i32, noise: &mut MultiNoiseSampler<'_>) -> &'static Biome {
         match self {
             Self::MultiNoise(supplier) => supplier.biome(x, y, z, noise),
+            Self::DirectMultiNoise(tree) => {
+                let point = noise.sample(x, y, z);
+                LAST_RUNTIME_LEAF.with_borrow_mut(|cache| {
+                    cache
+                        .entry(std::ptr::from_ref(*tree).addr())
+                        .and_modify(|leaf| {
+                            *leaf = tree.find_leaf(&point, Some(*leaf), &default_distance_metric);
+                        })
+                        .or_insert_with(|| tree.find_leaf(&point, None, &default_distance_metric))
+                        .value
+                })
+            }
+            Self::Checkerboard { biomes, bit_shift } => {
+                let column = (x >> bit_shift).wrapping_add(z >> bit_shift);
+                biomes[column.rem_euclid(biomes.len() as i32) as usize]
+            }
             Self::End(supplier) => supplier.biome(x, y, z, noise),
             Self::Fixed(supplier) => supplier.biome(x, y, z, noise),
         }
@@ -330,11 +361,100 @@ impl ActiveBiomeSupplier {
                 collect(supplier.source, &mut biomes);
                 biomes
             }
+            Self::DirectMultiNoise(tree) => {
+                fn collect(node: &RTreeNode<&Biome>, biomes: &mut FxHashSet<u16>) {
+                    match node {
+                        RTreeNode::Leaf(leaf) => {
+                            biomes.insert(u16::from(leaf.value.id));
+                        }
+                        RTreeNode::SubTree(branch) => {
+                            for child in &branch.children {
+                                collect(child, biomes);
+                            }
+                        }
+                    }
+                }
+                let mut biomes = FxHashSet::default();
+                collect(&tree.root, &mut biomes);
+                biomes
+            }
+            Self::Checkerboard { biomes, .. } => {
+                biomes.iter().map(|biome| u16::from(biome.id)).collect()
+            }
             Self::End(_) => end::TheEndBiomeSupplier::POSSIBLE_BIOMES
                 .iter()
                 .map(|biome| u16::from(biome.id))
                 .collect(),
             Self::Fixed(supplier) => std::iter::once(u16::from(supplier.biome.id)).collect(),
+        }
+    }
+
+    fn from_direct_source(
+        biome_type: &str,
+        biomes: &serde_json::Value,
+        scale: Option<u8>,
+    ) -> Result<Self, String> {
+        fn resolve_biome(id: &str) -> Result<&'static Biome, String> {
+            Biome::from_name(id.strip_prefix("minecraft:").unwrap_or(id))
+                .ok_or_else(|| format!("unknown biome {id}"))
+        }
+
+        match biome_type.strip_prefix("minecraft:").unwrap_or(biome_type) {
+            "multi_noise" => {
+                let entries =
+                    Vec::<ClimateEntry>::deserialize(biomes).map_err(|error| error.to_string())?;
+                if entries.is_empty() {
+                    return Err("empty multi-noise parameters".into());
+                }
+                let values = entries
+                    .into_iter()
+                    .map(|entry| {
+                        let ranges = entry.parameter_space()?;
+                        let [
+                            temperature,
+                            humidity,
+                            continentalness,
+                            erosion,
+                            depth,
+                            weirdness,
+                            offset,
+                        ] = ranges.map(|(min, max)| Parameter::new(min, max));
+                        let point = ParameterPoint::new(
+                            temperature,
+                            humidity,
+                            continentalness,
+                            erosion,
+                            depth,
+                            weirdness,
+                            offset.min,
+                        );
+                        Ok((point, resolve_biome(&entry.biome)?))
+                    })
+                    .collect::<Result<_, String>>()?;
+                Ok(Self::DirectMultiNoise(Box::leak(Box::new(
+                    ClimateTree::create(values),
+                ))))
+            }
+            "checkerboard" => {
+                let scale = scale.unwrap_or(2);
+                if scale > 62 {
+                    return Err("checkerboard scale must be within 0..=62".into());
+                }
+                let biome_ids =
+                    Vec::<String>::deserialize(biomes).map_err(|error| error.to_string())?;
+                if biome_ids.is_empty() {
+                    return Err("empty checkerboard biome list".into());
+                }
+                let biomes = biome_ids
+                    .iter()
+                    .map(|id| resolve_biome(id))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Self::Checkerboard {
+                    biomes: Box::leak(biomes.into_boxed_slice()),
+                    bit_shift: u32::from(scale + 2) % i32::BITS,
+                })
+            }
+            _ => Err(format!("unsupported biome source {biome_type}")),
         }
     }
 
@@ -344,6 +464,17 @@ impl ActiveBiomeSupplier {
         dimension: &pumpkin_data::dimension::Dimension,
     ) -> Self {
         match source {
+            Some(crate::world_info::BiomeSource::WithBiomes {
+                biomes,
+                scale,
+                biome_type,
+            }) => Self::from_direct_source(biome_type, biomes, *scale).unwrap_or_else(|error| {
+                tracing::warn!(
+                    "Skipping biome source for {}: {error}",
+                    dimension.minecraft_name
+                );
+                Self::from_dimension(dimension)
+            }),
             Some(crate::world_info::BiomeSource::Fixed { biome, .. }) => {
                 let clean = biome.strip_prefix("minecraft:").unwrap_or(biome);
                 let resolved = pumpkin_data::biome::Biome::from_name(clean)
@@ -405,6 +536,27 @@ mod test {
     };
 
     use super::{BiomeSupplier, MultiNoiseBiomeSupplier, hash_seed};
+
+    #[test]
+    fn checkerboard_uses_signed_quart_coordinates_and_java_shift() {
+        let biomes = serde_json::json!(["minecraft:desert", "minecraft:plains"]);
+        let seed = pumpkin_util::world_seed::Seed(0);
+        let generator = crate::generation::generator::VanillaGenerator::new_with_settings(
+            seed,
+            Dimension::OVERWORLD,
+            None,
+        );
+        let mut noise = MultiNoiseSampler::generate(&generator.base_router.multi_noise);
+        let board =
+            super::ActiveBiomeSupplier::from_direct_source("checkerboard", &biomes, None).unwrap();
+        assert_eq!(board.biome(-1, 0, 0, &mut noise), &Biome::PLAINS);
+        assert_eq!(board.biome(-16, 0, 16, &mut noise), &Biome::DESERT);
+        assert_eq!(board.biome(-17, 0, 0, &mut noise), &Biome::DESERT);
+        let large =
+            super::ActiveBiomeSupplier::from_direct_source("checkerboard", &biomes, Some(62))
+                .unwrap();
+        assert_eq!(large.biome(1, 0, 0, &mut noise), &Biome::PLAINS);
+    }
 
     #[test]
     fn biome_desert() {

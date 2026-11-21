@@ -211,9 +211,13 @@ impl Level {
         let mut biome_source: Option<crate::world_info::BiomeSource> = None;
         let mut structure_overrides: Option<Vec<String>> = None;
 
-        if let Some(wgs) = crate::world_info::data_files::read_world_gen_settings(main_folder)
-            && let Some(dim_settings) = wgs.dimensions.get(dimension.minecraft_name)
-        {
+        let dim_settings = worldgen
+            .and_then(|overrides| overrides.dimension(dimension.minecraft_name))
+            .or_else(|| {
+                crate::world_info::data_files::read_world_gen_settings(main_folder)
+                    .and_then(|mut settings| settings.dimensions.remove(dimension.minecraft_name))
+            });
+        if let Some(dim_settings) = dim_settings {
             biome_source.clone_from(&dim_settings.generator.biome_source);
 
             if dim_settings.generator.generator_type == "minecraft:flat" {

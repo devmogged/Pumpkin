@@ -119,6 +119,7 @@ impl RawSpawnTarget {
 pub enum ParameterStruct {
     Point(f32),
     Span([f32; 2]),
+    Range { min: f32, max: f32 },
 }
 
 impl Default for ParameterStruct {
@@ -286,12 +287,14 @@ impl ParameterStruct {
     /// Quantizes the interval as vanilla Climate.quantizeCoord does.
     #[must_use]
     pub fn quantized(&self) -> (i64, i64) {
+        let (min, max) = self.bounds();
+        ((min * 10000.0) as i64, (max * 10000.0) as i64)
+    }
+
+    pub(crate) const fn bounds(&self) -> (f32, f32) {
         match *self {
-            Self::Point(value) => {
-                let value = (value * 10000.0) as i64;
-                (value, value)
-            }
-            Self::Span([min, max]) => ((min * 10000.0) as i64, (max * 10000.0) as i64),
+            Self::Point(value) => (value, value),
+            Self::Span([min, max]) | Self::Range { min, max } => (min, max),
         }
     }
 }

@@ -231,6 +231,13 @@ impl GeneratorSettings {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum BiomeSource {
+    WithBiomes {
+        biomes: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scale: Option<u8>,
+        #[serde(rename = "type")]
+        biome_type: String,
+    },
     WithPreset {
         preset: String,
         #[serde(rename = "type")]

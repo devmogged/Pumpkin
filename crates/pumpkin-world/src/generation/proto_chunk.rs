@@ -1070,46 +1070,66 @@ impl ProtoChunk {
                 self.flat_biome_map.fill(biome.id);
             }
             crate::biome::ActiveBiomeSupplier::MultiNoise(multi) => {
-                let min_y = self.bottom_y();
-                let bottom_section = section_coords::block_to_section(min_y as i32);
-                let top_section =
-                    section_coords::block_to_section(min_y as i32 + self.height() as i32 - 1);
-                let min_biome_y = biome_coords::from_block(min_y as i32);
+                self.populate_biome_volume(&multi, multi_noise_sampler, true);
+            }
+            supplier @ crate::biome::ActiveBiomeSupplier::DirectMultiNoise(_) => {
+                self.populate_biome_volume(&supplier, multi_noise_sampler, true);
+            }
+            supplier @ crate::biome::ActiveBiomeSupplier::Checkerboard { .. } => {
+                self.populate_biome_volume(&supplier, multi_noise_sampler, false);
+            }
+        }
+    }
 
-                let biome_step = biome_coords::to_block(1);
-                multi_noise_sampler.fill_volume(DensityVolume::new(
-                    biome_coords::from_block(CHUNK_DIM as i32) as usize,
-                    biome_coords::from_block(self.height() as i32) as usize,
-                    biome_coords::from_block(CHUNK_DIM as i32) as usize,
-                    start_block_x,
-                    min_y as i32,
-                    start_block_z,
-                    biome_step,
-                    biome_step,
-                    biome_step,
-                ));
+    fn populate_biome_volume(
+        &mut self,
+        supplier: &impl BiomeSupplier,
+        multi_noise_sampler: &mut MultiNoiseSampler,
+        sample_volume: bool,
+    ) {
+        let start_block_x = start_block_x(self.x);
+        let start_block_z = start_block_z(self.z);
+        let start_biome_x = biome_coords::from_block(start_block_x);
+        let start_biome_z = biome_coords::from_block(start_block_z);
+        let min_y = self.bottom_y();
+        let bottom_section = section_coords::block_to_section(min_y as i32);
+        let top_section = section_coords::block_to_section(min_y as i32 + self.height() as i32 - 1);
+        let min_biome_y = biome_coords::from_block(min_y as i32);
 
-                let biomes_per_section = biome_coords::from_block(CHUNK_DIM as i32);
-                for i in bottom_section..=top_section {
-                    let start_block_y = section_coords::section_to_block(i);
-                    let start_biome_y = biome_coords::from_block(start_block_y);
-                    for x in 0..biomes_per_section {
-                        for y in 0..biomes_per_section {
-                            for z in 0..biomes_per_section {
-                                let biome = multi.biome(
-                                    start_biome_x + x,
-                                    start_biome_y + y,
-                                    start_biome_z + z,
-                                    multi_noise_sampler,
-                                );
-                                let index = self.local_biome_pos_to_biome_index(
-                                    x,
-                                    start_biome_y + y - min_biome_y,
-                                    z,
-                                );
-                                self.flat_biome_map[index] = biome.id;
-                            }
-                        }
+        if sample_volume {
+            let biome_step = biome_coords::to_block(1);
+            multi_noise_sampler.fill_volume(DensityVolume::new(
+                biome_coords::from_block(CHUNK_DIM as i32) as usize,
+                biome_coords::from_block(self.height() as i32) as usize,
+                biome_coords::from_block(CHUNK_DIM as i32) as usize,
+                start_block_x,
+                min_y as i32,
+                start_block_z,
+                biome_step,
+                biome_step,
+                biome_step,
+            ));
+        }
+
+        let biomes_per_section = biome_coords::from_block(CHUNK_DIM as i32);
+        for i in bottom_section..=top_section {
+            let start_block_y = section_coords::section_to_block(i);
+            let start_biome_y = biome_coords::from_block(start_block_y);
+            for x in 0..biomes_per_section {
+                for y in 0..biomes_per_section {
+                    for z in 0..biomes_per_section {
+                        let biome = supplier.biome(
+                            start_biome_x + x,
+                            start_biome_y + y,
+                            start_biome_z + z,
+                            multi_noise_sampler,
+                        );
+                        let index = self.local_biome_pos_to_biome_index(
+                            x,
+                            start_biome_y + y - min_biome_y,
+                            z,
+                        );
+                        self.flat_biome_map[index] = biome.id;
                     }
                 }
             }

@@ -3,230 +3,14 @@ use std::{collections::BTreeMap, fs};
 
 use heck::ToShoutySnakeCase;
 use proc_macro2::{Span, TokenStream};
+use pumpkin_worldgen_model::biome_data::{BiomeFile, Spawner, TemperatureModifier};
 use quote::{format_ident, quote};
 use serde::Deserialize;
-use serde_json::Value;
 use syn::LitInt;
 
 #[derive(Deserialize)]
 struct GeyserBiomeMapping {
     bedrock_id: u8,
-}
-
-fn deserialize_carvers<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrVec {
-        String(String),
-        Vec(Vec<String>),
-    }
-
-    match Option::<StringOrVec>::deserialize(deserializer)? {
-        Some(StringOrVec::String(s)) => Ok(vec![s]),
-        Some(StringOrVec::Vec(v)) => Ok(v),
-        None => Ok(Vec::new()),
-    }
-}
-
-/// Raw deserialization shape for a single biome entry from `biome.json`.
-#[derive(Deserialize)]
-pub struct Biome {
-    /// Whether this biome has precipitation (rain or snow).
-    has_precipitation: bool,
-    /// Base temperature of the biome affecting weather and foliage color.
-    temperature: f32,
-    /// Downfall value affecting how wet the biome is (influences snow/rain).
-    downfall: f32,
-    /// Optional modifier that changes how temperature is applied.
-    temperature_modifier: Option<TemperatureModifier>,
-    #[serde(default, deserialize_with = "deserialize_carvers")]
-    pub carvers: Vec<String>,
-    /// Nested lists of feature resource-location strings applied during world generation.
-    features: Vec<Vec<String>>,
-    /// Probability per chunk tick that a creature spawns, if not overridden per-biome.
-    creature_spawn_probability: Option<f32>,
-    /// Spawn group data for each entity category in this biome.
-    #[serde(default)]
-    spawners: SpawnGroups,
-    /// Per-entity spawn cost budget entries, keyed by namespaced entity ID.
-    #[serde(default)]
-    spawn_costs: BTreeMap<String, SpawnCosts>,
-    /// Environment attributes; 26.3 stores natural mob spawns here.
-    #[serde(default)]
-    attributes: BTreeMap<String, Value>,
-    /// Numeric registry ID assigned to this biome.
-    #[serde(default)]
-    pub id: u8,
-}
-
-impl Biome {
-    fn attr_bool(&self, key: &str) -> Option<bool> {
-        let val = self.attributes.get(key)?;
-        val.as_bool()
-            .or_else(|| val.get("argument").and_then(Value::as_bool))
-    }
-
-    fn attr_f32(&self, key: &str) -> Option<f32> {
-        let val = self.attributes.get(key)?;
-        val.as_f64()
-            .or_else(|| val.get("argument").and_then(Value::as_f64))
-            .map(|v| v as f32)
-    }
-
-    fn apply_natural_mob_spawns(&mut self) {
-        if self.creature_spawn_probability.is_none() {
-            self.creature_spawn_probability =
-                self.attr_f32("minecraft:gameplay/creature_world_gen_spawn_probability");
-        }
-        let Some(attr) = self.attributes.get("minecraft:gameplay/natural_mob_spawns") else {
-            return;
-        };
-        let Some(argument) = attr.get("argument") else {
-            return;
-        };
-        if let Some(spawns) = argument.get("spawns_by_category")
-            && let Ok(groups) = serde_json::from_value::<SpawnGroups>(spawns.clone())
-        {
-            self.spawners = groups;
-        }
-        if let Some(costs) = argument.get("spawn_costs")
-            && let Ok(spawn_costs) = serde_json::from_value(costs.clone())
-        {
-            self.spawn_costs = spawn_costs;
-        }
-    }
-}
-
-/// Spawn group data for all entity categories within a biome.
-#[derive(Deserialize, Default, PartialEq, Eq, Hash)]
-struct SpawnGroups {
-    /// Hostile mob spawners for this biome.
-    #[serde(default)]
-    monster: Vec<Spawner>,
-    /// Ambient creature spawners (e.g. bats) for this biome.
-    #[serde(default)]
-    ambient: Vec<Spawner>,
-    /// Axolotl spawners for this biome.
-    #[serde(default)]
-    axolotls: Vec<Spawner>,
-    /// Passive creature spawners (e.g. cows, sheep) for this biome.
-    #[serde(default)]
-    creature: Vec<Spawner>,
-    /// Miscellaneous entity spawners for this biome.
-    #[serde(default)]
-    misc: Vec<Spawner>,
-    /// Underground water creature spawners (e.g. glow squid) for this biome.
-    #[serde(default)]
-    underground_water_creature: Vec<Spawner>,
-    /// Water ambient spawners (e.g. fish) for this biome.
-    #[serde(default)]
-    water_ambient: Vec<Spawner>,
-    /// Water creature spawners (e.g. dolphins) for this biome.
-    #[serde(default)]
-    water_creature: Vec<Spawner>,
-}
-
-/// A single entity spawner entry within a spawn group, as defined in `biome.json`.
-#[derive(Hash, PartialEq, Eq)]
-struct Spawner {
-    /// Namespaced entity type ID (e.g. `"minecraft:zombie"`).
-    r#type: String,
-    /// Minimum number of entities in a spawn group.
-    min_count: i32,
-    /// Maximum number of entities in a spawn group.
-    max_count: i32,
-}
-
-impl<'de> Deserialize<'de> for Spawner {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            r#type: String,
-            #[serde(default, alias = "minCount")]
-            min_count: Option<i32>,
-            #[serde(default, alias = "maxCount")]
-            max_count: Option<i32>,
-            #[serde(default)]
-            count: Option<Value>,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let (min_count, max_count) = match raw.count {
-            Some(Value::Number(n)) => {
-                let value = n.as_i64().unwrap_or(1) as i32;
-                (value, value)
-            }
-            Some(Value::Object(object)) => {
-                let min = object
-                    .get("min_inclusive")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(1) as i32;
-                let max = object
-                    .get("max_inclusive")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(min as i64) as i32;
-                (min, max)
-            }
-            _ => (raw.min_count.unwrap_or(1), raw.max_count.unwrap_or(1)),
-        };
-        Ok(Self {
-            r#type: raw.r#type,
-            min_count,
-            max_count,
-        })
-    }
-}
-
-impl Spawner {
-    /// Converts this spawner entry into a `TokenStream` for use in generated code.
-    pub fn to_tokens(&self) -> TokenStream {
-        let r#type = &self.r#type;
-        let min_count = &self.min_count;
-        let max_count = &self.max_count;
-        quote! {
-            Spawner {
-                r#type: #r#type,
-                min_count: #min_count,
-                max_count: #max_count,
-            }
-        }
-    }
-}
-
-/// Mob spawn cost data controlling how this entity affects biome spawn budgets.
-#[derive(Deserialize, PartialEq)]
-struct SpawnCosts {
-    /// Maximum energy this entity type may consume from the spawn budget.
-    energy_budget: f64,
-    /// Energy cost charged to the budget each time this entity spawns.
-    charge: f64,
-}
-
-impl SpawnCosts {
-    /// Converts these spawn costs into a `TokenStream` for use in generated code.
-    pub fn to_tokens(&self) -> TokenStream {
-        let energy_budget = &self.energy_budget;
-        let charge = &self.charge;
-        quote! {
-            SpawnCosts {
-                energy_budget: #energy_budget,
-                charge: #charge,
-            }
-        }
-    }
-}
-
-/// Optional modifier that adjusts how biome temperature behaves (e.g. frozen biomes).
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-enum TemperatureModifier {
-    /// No modification; temperature is used as-is.
-    None,
-    /// Temperature is forced below freezing regardless of the base value.
-    Frozen,
 }
 
 /// An inclusive range used as one dimension in the multi-noise biome source tree.
@@ -325,7 +109,7 @@ struct MultiNoiseBiomeSuppliers {
 /// the multi-noise biome source trees, and the `BiomeTree` search implementation.
 pub fn build() -> TokenStream {
     let dir = std::path::Path::new("../../assets/datapack/data/minecraft/worldgen/biome");
-    let mut biomes: BTreeMap<String, Biome> = BTreeMap::new();
+    let mut biomes: BTreeMap<String, BiomeFile> = BTreeMap::new();
     let mut entries: Vec<_> = fs::read_dir(dir)
         .expect("Missing worldgen/biome directory")
         .flatten()
@@ -341,7 +125,8 @@ pub fn build() -> TokenStream {
             .to_string_lossy()
             .into_owned();
         let content = fs::read_to_string(entry.path()).expect("Failed to read biome file");
-        let mut biome: Biome = serde_json::from_str(&content).expect("Failed to parse biome JSON");
+        let mut biome: BiomeFile =
+            serde_json::from_str(&content).expect("Failed to parse biome JSON");
         biome.apply_natural_mob_spawns();
         biome.id = i as u8;
         biomes.insert(stem, biome);

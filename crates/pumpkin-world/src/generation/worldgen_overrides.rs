@@ -25,9 +25,10 @@ pub struct RuntimeNoiseSettings {
     pub(crate) router: BaseNoiseRouters,
 }
 
-/// Merged noise resources from enabled datapacks in priority order.
+/// Merged worldgen resources from enabled datapacks in priority order.
 #[derive(Default)]
 pub struct WorldgenOverrides {
+    dimensions: BTreeMap<String, PathBuf>,
     settings: BTreeMap<String, PathBuf>,
     densities: BTreeMap<String, PathBuf>,
     noises: BTreeMap<String, PathBuf>,
@@ -47,6 +48,11 @@ impl WorldgenOverrides {
                 let Some(name) = name.to_str() else { continue };
                 let worldgen = namespace.path().join("worldgen");
                 let prefix = format!("{name}:");
+                index_json(
+                    &namespace.path().join("dimension"),
+                    &prefix,
+                    &mut overrides.dimensions,
+                );
                 for (kind, registry) in [
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
@@ -57,6 +63,19 @@ impl WorldgenOverrides {
             }
         }
         overrides
+    }
+
+    pub(crate) fn dimension(&self, id: &str) -> Option<crate::world_info::Dimension> {
+        let path = self.dimensions.get(resource_id(id).as_ref())?;
+        match read_json(path)
+            .and_then(|json| serde_json::from_value(json).map_err(|error| error.to_string()))
+        {
+            Ok(dimension) => Some(dimension),
+            Err(error) => {
+                tracing::warn!("Skipping dimension {id}: {error}");
+                None
+            }
+        }
     }
 
     pub(crate) fn settings(
@@ -319,6 +338,61 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn priority_replaces_dimension_biome_source_and_survives_save() {
+        let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let path = "data/minecraft/dimension/overworld.json";
+        let mut dimension = serde_json::json!({
+            "type": "minecraft:overworld",
+            "generator": {
+                "type": "minecraft:noise",
+                "settings": "minecraft:overworld",
+                "biome_source": { "type": "minecraft:fixed", "biome": "minecraft:plains" }
+            }
+        });
+        for dir in &dirs {
+            let file = dir.path().join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, dimension.to_string()).unwrap();
+            dimension["generator"]["biome_source"] = serde_json::json!({
+                "type": "minecraft:multi_noise",
+                "biomes": [{
+                    "biome": "minecraft:desert",
+                    "parameters": {
+                        "temperature": 0.0,
+                        "humidity": [-1.0, 0],
+                        "continentalness": { "min": -1.2, "max": 1.0 },
+                        "erosion": 0.0,
+                        "depth": 0.0,
+                        "weirdness": 0.0,
+                        "offset": 0.0
+                    }
+                }]
+            });
+        }
+        let overrides = WorldgenOverrides::from_packs(dirs.iter().map(tempfile::TempDir::path));
+        let definition = overrides.dimension("overworld").unwrap();
+        let definition_id = "minecraft:overworld";
+        let mut settings = crate::world_info::WorldGenSettings::default();
+        settings.dimensions.insert(definition_id.into(), definition);
+        crate::world_info::data_files::write_world_gen_settings(dirs[0].path(), &settings, 5023)
+            .unwrap();
+        let reloaded =
+            crate::world_info::data_files::read_world_gen_settings(dirs[0].path()).unwrap();
+        assert_eq!(settings, reloaded);
+        let supplier = crate::biome::ActiveBiomeSupplier::from_biome_source(
+            reloaded.dimensions[definition_id]
+                .generator
+                .biome_source
+                .as_ref(),
+            &Dimension::OVERWORLD,
+        );
+        assert_eq!(
+            supplier.possible_biomes(),
+            std::iter::once(u16::from(pumpkin_data::biome::Biome::DESERT.id)).collect()
+        );
+    }
+
     #[test]
     fn pack_priority_and_namespaced_density_references() {
         let lower = tempfile::tempdir().unwrap();
