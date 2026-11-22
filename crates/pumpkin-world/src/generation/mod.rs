@@ -24,6 +24,7 @@ mod worldgen_noise_provider;
 pub mod worldgen_overrides;
 mod worldgen_placement;
 mod worldgen_surface;
+mod worldgen_terrain_feature;
 mod worldgen_tree;
 
 use generator::VanillaGenerator;

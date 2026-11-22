@@ -16,8 +16,9 @@ use serde_json::Value;
 
 use super::{
     block_state_provider::{
-        BlockStateProvider, BlockStateRule, PillarBlockStateProvider, RuleBasedBlockStateProvider,
-        SimpleStateProvider, WeightedBlockStateProvider,
+        BlockStateProvider, BlockStateRule, PillarBlockStateProvider,
+        RandomizedIntBlockStateProvider, RuleBasedBlockStateProvider, SimpleStateProvider,
+        WeightedBlockStateProvider,
     },
     feature::{
         configured_features::{ConfiguredFeature, VANILLA_BLOCK_STATE_PROVIDERS_JSON},
@@ -274,6 +275,15 @@ impl FeatureFiles<'_> {
                     .map(|value| self.decode_provider(value, depth + 1).map(Box::new))
                     .transpose()?;
                 BlockStateProvider::Rule(RuleBasedBlockStateProvider { fallback, rules })
+            }
+            "randomized_int" | "randomized_int_state_provider" => {
+                let property: String = field(value, "property")?;
+                BlockStateProvider::RandomizedInt(RandomizedIntBlockStateProvider {
+                    source: Box::new(self.decode_provider(&value["source"], depth + 1)?),
+                    property: pumpkin_data::PropertyKey::from_str(&property)
+                        .ok_or_else(|| format!("unknown block property {property}"))?,
+                    values: field(value, "values")?,
+                })
             }
             kind => return super::worldgen_noise_provider::compile(kind, value),
         })

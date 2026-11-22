@@ -124,7 +124,9 @@ pub(super) fn compile(
                 })
             }
         }
-        _ => return Err(format!("unsupported configured feature type {kind}")),
+        _ => {
+            return super::worldgen_terrain_feature::compile(kind, config, tags, state_provider);
+        }
     })
 }
 

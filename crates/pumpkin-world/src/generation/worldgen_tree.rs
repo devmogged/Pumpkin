@@ -202,7 +202,7 @@ fn size(v: &Value) -> Result<FeatureSize, String> {
     })
 }
 
-fn decorator(
+pub(super) fn decorator(
     v: &Value,
     provider: &impl Fn(&Value) -> Result<BlockStateProvider, String>,
 ) -> Result<TreeDecorator, String> {

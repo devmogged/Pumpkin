@@ -90,7 +90,7 @@ pub(super) fn state(value: &Value) -> Result<&'static BlockState, String> {
     block_state(read(value)?)
 }
 
-fn state_codec(value: &Value) -> Result<BlockStateCodec, String> {
+pub(super) fn state_codec(value: &Value) -> Result<BlockStateCodec, String> {
     let (name, properties) = match read(value)? {
         BlockStateCodecStruct::Name(name) => (name, None),
         BlockStateCodecStruct::Structured { name, properties } => (name, properties),
