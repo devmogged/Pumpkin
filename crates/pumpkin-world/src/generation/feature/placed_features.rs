@@ -31,7 +31,7 @@ impl PlacedFeatureWrapper {
     #[must_use]
     pub fn get(&self) -> Option<&PlacedFeature> {
         match self {
-            Self::Named(name) => PLACED_FEATURES.get(name),
+            Self::Named(name) => PlacedFeature::lookup(name),
             Self::Direct(feature) => Some(feature),
         }
     }
