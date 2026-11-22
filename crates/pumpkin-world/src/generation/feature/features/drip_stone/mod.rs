@@ -9,6 +9,7 @@ use pumpkin_util::math::position::BlockPos;
 pub mod cluster;
 pub mod large;
 pub mod small;
+mod speleothem;
 
 pub(super) fn can_replace(id: BlockId) -> bool {
     id == BlockId::DRIPSTONE_BLOCK || id.has_tag(tag::Block::MINECRAFT_DRIPSTONE_REPLACEABLE_BLOCKS)

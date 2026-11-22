@@ -3,7 +3,10 @@
 use std::ops::RangeInclusive;
 
 use pumpkin_data::{Block, BlockId};
-use pumpkin_util::math::int_provider::{IntProvider, NormalIntProvider, UniformIntProvider};
+use pumpkin_util::math::{
+    float_provider::FloatProvider,
+    int_provider::{IntProvider, NormalIntProvider, UniformIntProvider},
+};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -12,6 +15,7 @@ use super::{
     feature::{
         configured_features::ConfiguredFeature,
         features::{
+            drip_stone::{cluster::DripstoneClusterFeature, large::LargeDripstoneFeature},
             fallen_tree::FallenTreeFeature,
             forest_rock::ForestRockFeature,
             geode::GeodeFeature,
@@ -104,6 +108,30 @@ pub(super) fn compile(
             huge_mushroom(config, tags, provider)?,
         )),
         "geode" => ConfiguredFeature::Geode(Box::new(geode(config, tags, provider)?)),
+        "speleothem_cluster" | "dripstone_cluster" => {
+            ConfiguredFeature::DripstoneCluster(speleothem_cluster(config, tags)?)
+        }
+        "large_dripstone" => ConfiguredFeature::LargeDripstone(LargeDripstoneFeature {
+            replaceable_blocks: holder_names(&config["replaceable_blocks"], tags)?,
+            floor_to_ceiling_search_range: int(
+                config,
+                "floor_to_ceiling_search_range",
+                Some(30),
+                1..=512,
+            )?,
+            column_radius: bounded_int(config, "column_radius", 1..=16)?,
+            height_scale: float(config, "height_scale", 0.0..=20.0)?,
+            max_column_radius_to_cave_height_ratio: real(
+                config,
+                "max_column_radius_to_cave_height_ratio",
+                0.1..=1.0,
+            )?,
+            stalactite_bluntness: float(config, "stalactite_bluntness", 0.1..=10.0)?,
+            stalagmite_bluntness: float(config, "stalagmite_bluntness", 0.1..=10.0)?,
+            wind_speed: float(config, "wind_speed", 0.0..=2.0)?,
+            min_radius_for_wind: int(config, "min_radius_for_wind", None, 0..=100)?,
+            min_bluntness_for_wind: real(config, "min_bluntness_for_wind", 0.0..=5.0)?,
+        }),
         _ => return Err(format!("unsupported configured feature type {kind}")),
     })
 }
@@ -174,6 +202,66 @@ fn geode(
         noise_multiplier: ranged(config, "noise_multiplier", 0.05, CHANCE)?,
         invalid_blocks_threshold: field(config, "invalid_blocks_threshold")?,
     })
+}
+
+fn speleothem_cluster(config: &Value, tags: &BlockTags) -> Result<DripstoneClusterFeature, String> {
+    // The codec reads block states; the feature only uses their blocks.
+    let block = |key: &str| state(&config[key]).map(|state| Block::from_state_id(state.id));
+    Ok(DripstoneClusterFeature {
+        base_block: block("base_block")?,
+        pointed_block: block("pointed_block")?,
+        replaceable_blocks: holder_names(&config["replaceable_blocks"], tags)?,
+        floor_to_ceiling_search_range: int(config, "floor_to_ceiling_search_range", None, 1..=512)?,
+        height: bounded_int(config, "height", 1..=128)?,
+        radius: bounded_int(config, "radius", 1..=128)?,
+        max_stalagmite_stalactite_height_diff: int(
+            config,
+            "max_stalagmite_stalactite_height_diff",
+            None,
+            0..=64,
+        )?,
+        height_deviation: int(config, "height_deviation", None, 1..=64)?,
+        speleothem_block_layer_thickness: bounded_int(
+            config,
+            "speleothem_block_layer_thickness",
+            0..=128,
+        )?,
+        density: float(config, "density", 0.0..=2.0)?,
+        wetness: float(config, "wetness", 0.0..=2.0)?,
+        chance_of_speleothem_at_max_distance_from_center: chance(
+            config,
+            "chance_of_speleothem_at_max_distance_from_center",
+        )?,
+        max_distance_from_edge_affecting_chance_of_speleothem: int(
+            config,
+            "max_distance_from_edge_affecting_chance_of_speleothem",
+            None,
+            1..=64,
+        )?,
+        max_distance_from_center_affecting_height_bias: int(
+            config,
+            "max_distance_from_center_affecting_height_bias",
+            None,
+            1..=64,
+        )?,
+    })
+}
+
+/// `FloatProviders.codec(min, max)`.
+fn float(value: &Value, key: &str, range: RangeInclusive<f32>) -> Result<FloatProvider, String> {
+    let provider: FloatProvider = field(value, key)?;
+    (range.contains(&provider.get_min()) && range.contains(&provider.get_max()))
+        .then_some(provider)
+        .ok_or_else(|| format!("{key} must be within {range:?}"))
+}
+
+/// `Codec.floatRange(min, max)`.
+fn real(value: &Value, key: &str, range: RangeInclusive<f32>) -> Result<f32, String> {
+    let value: f32 = field(value, key)?;
+    range
+        .contains(&value)
+        .then_some(value)
+        .ok_or_else(|| format!("{key} must be within {range:?}"))
 }
 
 /// A source fluid state as Java places it (Fluid.createLegacyBlock). Springs only use sources.
@@ -304,7 +392,7 @@ mod tests {
         feature::configured_features::{CONFIGURED_FEATURES, ConfiguredFeature},
         generator::WorldGenerator,
         get_world_gen,
-        proto_chunk::ProtoChunk,
+        proto_chunk::{GenerationCache, ProtoChunk},
         proto_chunk_test::stage_parity::TestBlockRegistry,
         worldgen_feature::FeatureFiles,
         worldgen_overrides::read_json,
@@ -324,6 +412,8 @@ mod tests {
         "huge_red_mushroom",
         // Kelp exercises the randomized_int state provider.
         "block_column",
+        "speleothem_cluster",
+        "large_dripstone",
     ];
 
     fn place(
@@ -471,5 +561,67 @@ mod tests {
         }
         assert!(checked >= 15, "checked {checked} vanilla features");
         assert!(placements > 0);
+    }
+
+    #[test]
+    fn runtime_dripstone_matches_generated_in_caves() {
+        let assets = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/datapack/data/minecraft/worldgen/feature");
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &BTreeMap::new(),
+            block_tags: &BTreeMap::new(),
+        };
+        let world_gen = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let WorldGenerator::Noise(generator) = &*world_gen else {
+            unreachable!()
+        };
+        // Air just above a cave floor at x = 8, z = 8 of each chunk, with the untouched blocks.
+        let caves: Vec<_> = (0..48)
+            .filter_map(|chunk_x| {
+                let mut chunk = ProtoChunk::new(chunk_x, 0, &world_gen);
+                chunk.step_to_biomes(generator);
+                chunk.stage = StagedChunkEnum::StructureReferences;
+                chunk.step_to_noise(generator);
+                let air = |y| {
+                    GenerationCache::get_block_state(
+                        &chunk,
+                        &pumpkin_util::math::vector3::Vector3::new(chunk_x * 16 + 8, y, 8),
+                    )
+                    .to_state()
+                    .is_air()
+                };
+                let y = (-56..30).find(|&y| air(y) && !air(y - 1) && air(y + 4))?;
+                Some((chunk_x, y, chunk.flat_block_map))
+            })
+            .collect();
+        assert!(caves.len() >= 3, "found {} caves", caves.len());
+        for name in ["dripstone_cluster", "large_dripstone"] {
+            let json = read_json(&assets.join(format!("{name}.json"))).unwrap();
+            let runtime = files
+                .configured(&json, &mut |_| Err("unexpected placed holder".into()))
+                .unwrap();
+            let generated = CONFIGURED_FEATURES
+                .get(&ConfiguredId::from_name(&format!("minecraft:{name}")).unwrap())
+                .unwrap();
+            let mut grown = 0;
+            for (chunk_x, y, pristine) in &caves {
+                let expected = place(generated, &world_gen, *chunk_x, *y);
+                grown += usize::from(&expected.1 != pristine);
+                assert_eq!(
+                    place(&runtime, &world_gen, *chunk_x, *y),
+                    expected,
+                    "{name} at chunk {chunk_x} y {y}"
+                );
+            }
+            assert!(grown > 0, "{name} never changed a cave");
+        }
     }
 }
