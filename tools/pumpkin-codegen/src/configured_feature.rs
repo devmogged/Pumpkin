@@ -661,9 +661,22 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             let placements_require_layer0_alternate = config["placements_require_layer0_alternate"]
                 .as_bool()
                 .unwrap_or(true);
-            let outer_wall_distance = value_to_int_provider(&config["outer_wall_distance"]);
-            let distribution_points = value_to_int_provider(&config["distribution_points"]);
-            let point_offset = value_to_int_provider(&config["point_offset"]);
+            // GeodeFeature.CODEC defaults: UniformInt.of(4, 5), (3, 4) and (1, 2).
+            let uniform_or = |key: &str, min: i32, max: i32| {
+                if config.get(key).is_some() {
+                    value_to_int_provider(&config[key])
+                } else {
+                    quote! {
+                        IntProvider::Object(NormalIntProvider::Uniform(UniformIntProvider {
+                            min_inclusive: #min,
+                            max_inclusive: #max,
+                        }))
+                    }
+                }
+            };
+            let outer_wall_distance = uniform_or("outer_wall_distance", 4, 5);
+            let distribution_points = uniform_or("distribution_points", 3, 4);
+            let point_offset = uniform_or("point_offset", 1, 2);
             let min_gen_offset = config["min_gen_offset"].as_i64().unwrap_or(-16) as i32;
             let max_gen_offset = config["max_gen_offset"].as_i64().unwrap_or(16) as i32;
             let noise_multiplier = config["noise_multiplier"].as_f64().unwrap_or(0.05);
