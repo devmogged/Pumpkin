@@ -13,6 +13,7 @@ use super::{
         configured_features::ConfiguredFeature,
         features::{
             fallen_tree::FallenTreeFeature,
+            forest_rock::ForestRockFeature,
             geode::GeodeFeature,
             huge_fungus::HugeFungusFeature,
             multiface_growth::MultifaceGrowthFeature,
@@ -34,6 +35,10 @@ pub(super) fn compile(
 ) -> Result<ConfiguredFeature, String> {
     Ok(match kind {
         "vines" => ConfiguredFeature::Vines(VinesFeature),
+        "block_blob" => ConfiguredFeature::ForestRock(ForestRockFeature {
+            state: state(&config["state"])?,
+            can_place_on: predicate(&config["can_place_on"], tags)?,
+        }),
         "spring_feature" => ConfiguredFeature::SpringFeature(SpringFeatureFeature {
             state: fluid_state(&config["state"])?,
             requires_block_below: optional(config, "requires_block_below", true)?,
@@ -293,6 +298,7 @@ mod tests {
         "fallen_tree",
         "multiface_growth",
         "geode",
+        "block_blob",
         // Kelp exercises the randomized_int state provider.
         "block_column",
     ];

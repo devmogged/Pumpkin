@@ -1,36 +1,32 @@
-use crate::generation::proto_chunk::GenerationCache;
+use crate::generation::{block_predicate::BlockPredicate, proto_chunk::GenerationCache};
+use crate::world::WorldPortalExt;
 use pumpkin_data::BlockState;
-use pumpkin_data::tag;
 use pumpkin_util::{
     math::position::BlockPos,
     random::{RandomGenerator, RandomImpl},
 };
 
+/// Java's `BlockBlobFeature`.
 pub struct ForestRockFeature {
     pub state: &'static BlockState,
+    pub can_place_on: BlockPredicate,
 }
 
 impl ForestRockFeature {
     pub fn generate<T: GenerationCache>(
         &self,
+        block_registry: &dyn WorldPortalExt,
         chunk: &mut T,
         random: &mut RandomGenerator,
         pos: BlockPos,
     ) -> bool {
         let mut pos = pos;
-        loop {
-            if pos.0.y <= chunk.bottom_y() as i32 + 3 {
-                return false;
-            }
-            let below_state = GenerationCache::get_block_state(chunk, &pos.down().0);
-            let below_id = below_state.to_block_id();
-            if !chunk.is_air(&pos.down().0)
-                && (below_id.has_tag(tag::Block::MINECRAFT_DIRT)
-                    || below_id.has_tag(tag::Block::MINECRAFT_BASE_STONE_OVERWORLD))
-            {
-                break;
-            }
+        let min_y = i32::from(chunk.bottom_y()) + 3;
+        while pos.0.y > min_y && !self.can_place_on.test(block_registry, chunk, &pos.down()) {
             pos = pos.down();
+        }
+        if pos.0.y <= min_y {
+            return false;
         }
 
         let block_state = self.state;

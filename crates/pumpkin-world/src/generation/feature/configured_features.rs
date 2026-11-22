@@ -418,7 +418,7 @@ impl ConfiguredFeature {
                 pos,
             ),
             Self::BasaltPillar(_feature) => BasaltPillarFeature::generate(chunk, random, pos),
-            Self::ForestRock(feature) => feature.generate(chunk, random, pos),
+            Self::ForestRock(feature) => feature.generate(block_registry, chunk, random, pos),
             Self::FreezeTopLayer(_feature) => {
                 FreezeTopLayerFeature::generate(chunk, min_y, height, feature_name, random, pos)
             }
