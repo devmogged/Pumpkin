@@ -911,10 +911,12 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             }
         }
         "minecraft:huge_brown_mushroom" => {
-            quote! { ConfiguredFeature::HugeBrownMushroom(crate::generation::feature::features::huge_brown_mushroom::HugeBrownMushroomFeature {}) }
+            let mushroom = value_to_huge_mushroom(config);
+            quote! { ConfiguredFeature::HugeBrownMushroom(crate::generation::feature::features::huge_brown_mushroom::HugeBrownMushroomFeature(#mushroom)) }
         }
         "minecraft:huge_red_mushroom" => {
-            quote! { ConfiguredFeature::HugeRedMushroom(crate::generation::feature::features::huge_red_mushroom::HugeRedMushroomFeature {}) }
+            let mushroom = value_to_huge_mushroom(config);
+            quote! { ConfiguredFeature::HugeRedMushroom(crate::generation::feature::features::huge_red_mushroom::HugeRedMushroomFeature(#mushroom)) }
         }
         "minecraft:vines" => {
             quote! { ConfiguredFeature::Vines(crate::generation::feature::features::vines::VinesFeature) }
@@ -1553,6 +1555,22 @@ fn value_to_rule_test(v: &Value) -> TokenStream {
 ///
 /// # Returns
 /// `BlockWrapper::Single` for a string value or `BlockWrapper::Multi` for an array; defaults to `BlockWrapper::Single("")` for other types.
+/// Java's AbstractHugeMushroomFeature fields; both codecs default foliage_radius to 2.
+fn value_to_huge_mushroom(config: &Value) -> TokenStream {
+    let cap_provider = value_to_block_state_provider(&config["cap_provider"]);
+    let stem_provider = value_to_block_state_provider(&config["stem_provider"]);
+    let foliage_radius = config["foliage_radius"].as_i64().unwrap_or(2) as i32;
+    let can_place_on = value_to_block_predicate(&config["can_place_on"]);
+    quote! {
+        crate::generation::feature::features::huge_brown_mushroom::HugeMushroom {
+            cap_provider: #cap_provider,
+            stem_provider: #stem_provider,
+            foliage_radius: #foliage_radius,
+            can_place_on: #can_place_on,
+        }
+    }
+}
+
 fn value_to_block_wrapper(v: &Value) -> TokenStream {
     match v {
         Value::String(s) => quote! { BlockWrapper::Single(#s.to_string()) },

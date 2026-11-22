@@ -2621,13 +2621,93 @@ fn build_configured_features()
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::HugeBrownMushroom,
         ConfiguredFeature::HugeBrownMushroom(
-            crate::generation::feature::features::huge_brown_mushroom::HugeBrownMushroomFeature {},
+            crate::generation::feature::features::huge_brown_mushroom::HugeBrownMushroomFeature(
+                crate::generation::feature::features::huge_brown_mushroom::HugeMushroom {
+                    cap_provider: BlockStateProvider::Simple(SimpleStateProvider {
+                        state: {
+                            let mut props = std::collections::HashMap::new();
+                            props.insert("down".to_string(), "false".to_string());
+                            props.insert("east".to_string(), "true".to_string());
+                            props.insert("north".to_string(), "true".to_string());
+                            props.insert("south".to_string(), "true".to_string());
+                            props.insert("up".to_string(), "true".to_string());
+                            props.insert("west".to_string(), "true".to_string());
+                            BlockStateCodec {
+                                name: &pumpkin_data::Block::BROWN_MUSHROOM_BLOCK,
+                                properties: Some(props),
+                            }
+                            .get_state()
+                        },
+                    }),
+                    stem_provider: BlockStateProvider::Simple(SimpleStateProvider {
+                        state: {
+                            let mut props = std::collections::HashMap::new();
+                            props.insert("down".to_string(), "false".to_string());
+                            props.insert("east".to_string(), "true".to_string());
+                            props.insert("north".to_string(), "true".to_string());
+                            props.insert("south".to_string(), "true".to_string());
+                            props.insert("up".to_string(), "false".to_string());
+                            props.insert("west".to_string(), "true".to_string());
+                            BlockStateCodec {
+                                name: &pumpkin_data::Block::MUSHROOM_STEM,
+                                properties: Some(props),
+                            }
+                            .get_state()
+                        },
+                    }),
+                    foliage_radius: 3i32,
+                    can_place_on: BlockPredicate::MatchingBlockTag(MatchingBlockTagPredicate {
+                        offset: OffsetBlocksBlockPredicate { offset: None },
+                        tag: pumpkin_data::tag::Block::MINECRAFT_HUGE_BROWN_MUSHROOM_CAN_PLACE_ON,
+                    }),
+                },
+            ),
         ),
     );
     map.insert(
         pumpkin_data::configured_feature::ConfiguredFeature::HugeRedMushroom,
         ConfiguredFeature::HugeRedMushroom(
-            crate::generation::feature::features::huge_red_mushroom::HugeRedMushroomFeature {},
+            crate::generation::feature::features::huge_red_mushroom::HugeRedMushroomFeature(
+                crate::generation::feature::features::huge_brown_mushroom::HugeMushroom {
+                    cap_provider: BlockStateProvider::Simple(SimpleStateProvider {
+                        state: {
+                            let mut props = std::collections::HashMap::new();
+                            props.insert("down".to_string(), "false".to_string());
+                            props.insert("east".to_string(), "true".to_string());
+                            props.insert("north".to_string(), "true".to_string());
+                            props.insert("south".to_string(), "true".to_string());
+                            props.insert("up".to_string(), "true".to_string());
+                            props.insert("west".to_string(), "true".to_string());
+                            BlockStateCodec {
+                                name: &pumpkin_data::Block::RED_MUSHROOM_BLOCK,
+                                properties: Some(props),
+                            }
+                            .get_state()
+                        },
+                    }),
+                    stem_provider: BlockStateProvider::Simple(SimpleStateProvider {
+                        state: {
+                            let mut props = std::collections::HashMap::new();
+                            props.insert("down".to_string(), "false".to_string());
+                            props.insert("east".to_string(), "true".to_string());
+                            props.insert("north".to_string(), "true".to_string());
+                            props.insert("south".to_string(), "true".to_string());
+                            props.insert("up".to_string(), "false".to_string());
+                            props.insert("west".to_string(), "true".to_string());
+                            BlockStateCodec {
+                                name: &pumpkin_data::Block::MUSHROOM_STEM,
+                                properties: Some(props),
+                            }
+                            .get_state()
+                        },
+                    }),
+                    foliage_radius: 2i32,
+                    can_place_on: BlockPredicate::MatchingBlockTag(MatchingBlockTagPredicate {
+                        offset: OffsetBlocksBlockPredicate { offset: None },
+                        tag: pumpkin_data::tag::Block::MINECRAFT_HUGE_RED_MUSHROOM_CAN_PLACE_ON,
+                    }),
+                },
+            ),
         ),
     );
     map.insert(

@@ -475,7 +475,7 @@ impl ConfiguredFeature {
                 pos,
             ),
             Self::HugeBrownMushroom(feature) => {
-                feature.generate(chunk, min_y, height, feature_name, random, pos)
+                feature.generate(block_registry, chunk, min_y, height, random, pos)
             }
             Self::HugeFungus(feature) => feature.generate(
                 chunk,
@@ -487,7 +487,7 @@ impl ConfiguredFeature {
                 pos,
             ),
             Self::HugeRedMushroom(feature) => {
-                feature.generate(chunk, min_y, height, feature_name, random, pos)
+                feature.generate(block_registry, chunk, min_y, height, random, pos)
             }
             Self::MultifaceGrowth(feature) => {
                 feature.generate(chunk, min_y, height, feature_name, random, pos)

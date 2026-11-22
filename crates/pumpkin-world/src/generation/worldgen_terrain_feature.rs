@@ -15,7 +15,9 @@ use super::{
             fallen_tree::FallenTreeFeature,
             forest_rock::ForestRockFeature,
             geode::GeodeFeature,
+            huge_brown_mushroom::{HugeBrownMushroomFeature, HugeMushroom},
             huge_fungus::HugeFungusFeature,
+            huge_red_mushroom::HugeRedMushroomFeature,
             multiface_growth::MultifaceGrowthFeature,
             sculk_patch::SculkPatchFeature,
             spring_feature::{BlockWrapper, SpringFeatureFeature},
@@ -95,8 +97,27 @@ pub(super) fn compile(
                 can_be_placed_on: holder_ids(&config["can_be_placed_on"], tags)?,
             })
         }
+        "huge_brown_mushroom" => ConfiguredFeature::HugeBrownMushroom(HugeBrownMushroomFeature(
+            huge_mushroom(config, tags, provider)?,
+        )),
+        "huge_red_mushroom" => ConfiguredFeature::HugeRedMushroom(HugeRedMushroomFeature(
+            huge_mushroom(config, tags, provider)?,
+        )),
         "geode" => ConfiguredFeature::Geode(Box::new(geode(config, tags, provider)?)),
         _ => return Err(format!("unsupported configured feature type {kind}")),
+    })
+}
+
+fn huge_mushroom(
+    config: &Value,
+    tags: &BlockTags,
+    provider: &impl Fn(&Value) -> Result<BlockStateProvider, String>,
+) -> Result<HugeMushroom, String> {
+    Ok(HugeMushroom {
+        cap_provider: provider(&config["cap_provider"])?,
+        stem_provider: provider(&config["stem_provider"])?,
+        foliage_radius: optional(config, "foliage_radius", 2)?,
+        can_place_on: predicate(&config["can_place_on"], tags)?,
     })
 }
 
@@ -299,6 +320,8 @@ mod tests {
         "multiface_growth",
         "geode",
         "block_blob",
+        "huge_brown_mushroom",
+        "huge_red_mushroom",
         // Kelp exercises the randomized_int state provider.
         "block_column",
     ];
@@ -328,6 +351,55 @@ mod tests {
             BlockPos::new(chunk_x * 16 + 8, y, 8),
         );
         (placed, chunk.flat_block_map)
+    }
+
+    #[test]
+    fn runtime_huge_mushrooms_match_generated_on_mycelium() {
+        let assets = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/datapack/data/minecraft/worldgen/feature");
+        let files = FeatureFiles {
+            configured: &BTreeMap::new(),
+            placed: &BTreeMap::new(),
+            providers: &BTreeMap::new(),
+            block_tags: &BTreeMap::new(),
+        };
+        let world_gen = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        for name in ["huge_brown_mushroom", "huge_red_mushroom"] {
+            let json = read_json(&assets.join(format!("{name}.json"))).unwrap();
+            let runtime = files
+                .configured(&json, &mut |_| Err("unexpected placed holder".into()))
+                .unwrap();
+            let generated = CONFIGURED_FEATURES
+                .get(&ConfiguredId::from_name(&format!("minecraft:{name}")).unwrap())
+                .unwrap();
+            let grow = |feature: &ConfiguredFeature, seed: u64| {
+                let mut chunk = ProtoChunk::new(0, 0, &world_gen);
+                chunk.set_block_state(8, 100, 8, pumpkin_data::Block::MYCELIUM.default_state);
+                let mut random = RandomGenerator::Worldgen(WorldgenRandom::from_seed(seed));
+                let (min_y, height) = (chunk.bottom_y(), chunk.height());
+                let placed = feature.generate(
+                    &mut chunk,
+                    &TestBlockRegistry,
+                    min_y,
+                    height,
+                    PlacedId::from_name("minecraft:amethyst_geode").unwrap(),
+                    &mut random,
+                    BlockPos::new(8, 101, 8),
+                );
+                (placed, chunk.flat_block_map)
+            };
+            for seed in 0..8 {
+                let expected = grow(generated, seed);
+                assert!(expected.0, "{name} did not grow");
+                assert_eq!(grow(&runtime, seed), expected, "{name} seed {seed}");
+            }
+        }
     }
 
     #[test]
