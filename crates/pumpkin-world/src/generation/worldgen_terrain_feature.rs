@@ -1,8 +1,8 @@
 //! Runtime codecs for terrain and cave features whose engine types carry their full config.
 
-use std::ops::RangeInclusive;
+use std::{ops::RangeInclusive, sync::Arc};
 
-use pumpkin_data::{Block, BlockId};
+use pumpkin_data::{Block, BlockId, Rotation};
 use pumpkin_util::math::{
     float_provider::FloatProvider,
     int_provider::{IntProvider, NormalIntProvider, UniformIntProvider},
@@ -15,6 +15,7 @@ use super::{
     feature::{
         configured_features::ConfiguredFeature,
         features::{
+            chorus_plant::ChorusPlantFeature,
             drip_stone::{cluster::DripstoneClusterFeature, large::LargeDripstoneFeature},
             fallen_tree::FallenTreeFeature,
             forest_rock::ForestRockFeature,
@@ -25,11 +26,15 @@ use super::{
             multiface_growth::MultifaceGrowthFeature,
             sculk_patch::SculkPatchFeature,
             spring_feature::{BlockWrapper, SpringFeatureFeature},
+            template::{TemplateEntry, TemplateFeature},
             underwater_magma::UnderwaterMagmaFeature,
             vines::VinesFeature,
         },
     },
-    worldgen_placement::{BlockTags, block_tag, bounded_int, field, predicate, state, state_codec},
+    structure::template::{load_processor_list, parse_processor_list},
+    worldgen_placement::{
+        BlockTags, block_tag, bounded_int, field, java_int, predicate, state, state_codec,
+    },
     worldgen_tree::decorator,
 };
 
@@ -41,6 +46,8 @@ pub(super) fn compile(
 ) -> Result<ConfiguredFeature, String> {
     Ok(match kind {
         "vines" => ConfiguredFeature::Vines(VinesFeature),
+        "chorus_plant" => ConfiguredFeature::ChorusPlant(ChorusPlantFeature),
+        "template" => ConfiguredFeature::Template(template(config)?),
         "block_blob" => ConfiguredFeature::ForestRock(ForestRockFeature {
             state: state(&config["state"])?,
             can_place_on: predicate(&config["can_place_on"], tags)?,
@@ -275,6 +282,68 @@ fn fluid_state(value: &Value) -> Result<&'static pumpkin_data::BlockState, Strin
     Ok(block.default_state)
 }
 
+/// `TemplateFeature.CODEC`: a weighted list of templates with optional rotations, and an
+/// optional processor list given by ID or inline.
+fn template(config: &Value) -> Result<TemplateFeature, String> {
+    let templates = config["templates"]
+        .as_array()
+        .ok_or("missing or invalid templates")?
+        .iter()
+        .map(|entry| {
+            let data = &entry["data"];
+            let id: String = field(data, "id")?;
+            let rotations = match data["rotations"].as_array() {
+                None => vec![
+                    Rotation::None,
+                    Rotation::Clockwise90,
+                    Rotation::Rotate180,
+                    Rotation::CounterClockwise90,
+                ],
+                Some(names) => names
+                    .iter()
+                    .map(|name| match name.as_str() {
+                        Some("none") => Ok(Rotation::None),
+                        Some("clockwise_90") => Ok(Rotation::Clockwise90),
+                        Some("180") => Ok(Rotation::Rotate180),
+                        Some("counterclockwise_90") => Ok(Rotation::CounterClockwise90),
+                        _ => Err(format!("unknown rotation {name}")),
+                    })
+                    .collect::<Result<_, String>>()?,
+            };
+            if rotations.is_empty() {
+                return Err("template rotations cannot be empty".to_owned());
+            }
+            let weight = java_int(entry, "weight")?.ok_or("missing weight")?;
+            if weight < 0 {
+                return Err("template weight must be non-negative".to_owned());
+            }
+            Ok(TemplateEntry {
+                id: Box::leak(id.into_boxed_str()),
+                rotations,
+                weight,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let total_weight = templates
+        .iter()
+        .try_fold(0i32, |total, entry| total.checked_add(entry.weight))
+        .ok_or("template weights overflow")?;
+    if total_weight == 0 {
+        return Err("templates cannot be empty".into());
+    }
+    let processors = match &config["processors"] {
+        Value::Null => Arc::from([]),
+        Value::String(name) => load_processor_list(name),
+        inline => parse_processor_list(&inline.to_string())
+            .map_err(|error| format!("processors: {error}"))?,
+    };
+    Ok(TemplateFeature {
+        templates,
+        total_weight,
+        processors,
+    })
+}
+
 fn optional<T: DeserializeOwned>(value: &Value, key: &str, default: T) -> Result<T, String> {
     Ok(field::<Option<T>>(value, key)?.unwrap_or(default))
 }
@@ -285,7 +354,7 @@ fn int(
     default: Option<i32>,
     range: RangeInclusive<i32>,
 ) -> Result<i32, String> {
-    let value = field::<Option<i32>>(value, key)?
+    let value = java_int(value, key)?
         .or(default)
         .ok_or_else(|| format!("missing {key}"))?;
     range
@@ -400,6 +469,7 @@ mod tests {
 
     const KINDS: &[&str] = &[
         "vines",
+        "chorus_plant",
         "spring_feature",
         "underwater_magma",
         "sculk_patch",

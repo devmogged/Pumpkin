@@ -40,7 +40,7 @@ use super::{
         },
         size::{FeatureSize, FeatureSizeType, ThreeLayersFeatureSize, TwoLayersFeatureSize},
     },
-    worldgen_placement::{BlockTags, block_tag, bounded_int, field, read},
+    worldgen_placement::{BlockTags, block_tag, bounded_int, field, java_int, read},
 };
 
 pub(super) fn compile(
@@ -325,7 +325,7 @@ fn integer(
     default: Option<i32>,
     range: RangeInclusive<i32>,
 ) -> Result<i32, String> {
-    let value = field::<Option<i32>>(value, key)?
+    let value = java_int(value, key)?
         .or(default)
         .ok_or_else(|| format!("missing {key}"))?;
     if range.contains(&value) {
