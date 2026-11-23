@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Block, BlockId, BlockState, BlockStateId, Property, block_properties::BlockProperties,
-    item::Item,
+    data_component::DataComponent, data_component_impl::DataComponentImpl, item::Item,
 };
 
 /// A definition to freeze before opening the world's chunk storage.
@@ -31,6 +31,7 @@ pub struct ItemDefinition {
     /// The vanilla item it copies components from (stack size, food, tool) and that stock clients
     /// see, drawn with the item's own model.
     pub carrier: &'static Item,
+    pub components: Vec<(DataComponent, Box<dyn DataComponentImpl>)>,
 }
 
 pub struct StateDefinition {
@@ -53,6 +54,7 @@ pub struct StateEntry {
 pub struct ItemEntry {
     pub item: &'static Item,
     pub carrier: &'static Item,
+    pub wire_defaults: &'static [(DataComponent, &'static dyn DataComponentImpl)],
     pub block: Option<&'static Block>,
     pub display_name: &'static str,
 }
@@ -213,6 +215,7 @@ impl Registry {
                 ItemEntry {
                     item,
                     carrier: def.item_carrier,
+                    wire_defaults: &[],
                     block: Some(block),
                     display_name: Box::leak(def.display_name.clone().into_boxed_str()),
                 },
@@ -241,12 +244,36 @@ impl Registry {
                 return Err(invalid("invalid custom item definition"));
             }
             let item_id = item_ids.reserve(&def.name)?;
+            let wire_defaults = &*Box::leak(
+                def.components
+                    .iter()
+                    .map(|(kind, value)| (*kind, &*Box::leak(value.clone_dyn())))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            );
+            let components = if wire_defaults.is_empty() {
+                def.carrier.components
+            } else {
+                let components = def
+                    .carrier
+                    .components
+                    .iter()
+                    .copied()
+                    .filter(|(kind, _)| {
+                        !wire_defaults
+                            .iter()
+                            .any(|(overridden, _)| overridden == kind)
+                    })
+                    .chain(wire_defaults.iter().copied())
+                    .collect::<Vec<_>>();
+                &*Box::leak(components.into_boxed_slice())
+            };
             let name: &'static str = Box::leak(def.name.clone().into_boxed_str());
             let item = Box::leak(Box::new(Item {
                 id: item_id,
                 registry_key: name,
                 crafting_remainder: None,
-                components: def.carrier.components,
+                components,
             }));
             registry.item_names.insert(name, item);
             registry.items.insert(
@@ -254,6 +281,7 @@ impl Registry {
                 ItemEntry {
                     item,
                     carrier: def.carrier,
+                    wire_defaults,
                     block: None,
                     display_name: Box::leak(def.display_name.clone().into_boxed_str()),
                 },

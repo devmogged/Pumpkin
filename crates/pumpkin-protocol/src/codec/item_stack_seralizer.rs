@@ -24,6 +24,11 @@ pub(super) fn vanilla_stack(stack: &ItemStack) -> Cow<'_, ItemStack> {
         return Cow::Borrowed(ItemStack::EMPTY);
     };
     let mut view = stack.transmute_copy(entry.carrier, stack.item_count);
+    for &(id, default) in entry.wire_defaults {
+        if !view.patch.iter().any(|(patched, _)| *patched == id) {
+            view.patch.push((id, Some(default.clone_dyn())));
+        }
+    }
     view.set_data_component(ItemModelImpl {
         id: Cow::Borrowed(entry.item.registry_key),
     });
@@ -52,7 +57,9 @@ pub(super) fn restore_content_item(mut stack: ItemStack) -> ItemStack {
             {
                 return name.name != TextComponent::text(entry.display_name.to_owned());
             }
-            true
+            !entry.wire_defaults.iter().any(|(kind, default)| {
+                kind == id && value.as_deref().is_some_and(|value| default.equal(value))
+            })
         });
     }
     stack
@@ -902,7 +909,8 @@ mod content_tests {
     use crate::{ClientPacket, java::client::play::CBlockUpdate};
     use pumpkin_data::{
         Block,
-        content::{BlockDefinition, Registry, StateDefinition},
+        content::{BlockDefinition, ItemDefinition, Registry, StateDefinition},
+        data_component_impl::MaxDamageImpl,
     };
     use pumpkin_util::math::position::BlockPos;
 
@@ -926,7 +934,15 @@ mod content_tests {
                     shape: Vec::new(),
                 }],
             }],
-            &[],
+            &[ItemDefinition {
+                name: "test:tool".into(),
+                display_name: "Tool".into(),
+                carrier: &Item::IRON_PICKAXE,
+                components: vec![(
+                    DataComponent::MaxDamage,
+                    Box::new(MaxDamageImpl { max_damage: 1950 }),
+                )],
+            }],
         )?;
         let block = registry.block("test:machine").ok_or("missing definition")?;
         registry.install()?;
@@ -944,6 +960,27 @@ mod content_tests {
                 .to_stack();
         assert_eq!(restored.item, item);
         assert_eq!(restored.item_count, 3);
+        assert!(restored.patch.is_empty());
+
+        let tool = Item::from_registry_key("test:tool").ok_or("missing tool")?;
+        let tool = ItemStack::new(1, tool);
+        let wire_tool = vanilla_stack(&tool).into_owned();
+        assert_eq!(wire_tool.item, &Item::IRON_PICKAXE);
+        assert!(
+            wire_tool
+                .patch
+                .iter()
+                .any(|(id, _)| *id == DataComponent::MaxDamage)
+        );
+        assert_eq!(
+            wire_tool
+                .get_data_component::<MaxDamageImpl>()
+                .ok_or("missing durability")?
+                .max_damage,
+            1950
+        );
+        let restored = restore_content_item(wire_tool);
+        assert_eq!(restored.item, tool.item);
         assert!(restored.patch.is_empty());
 
         bytes.clear();

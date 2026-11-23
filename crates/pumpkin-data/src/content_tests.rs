@@ -92,6 +92,7 @@ fn standalone_items_keep_their_ids_and_carrier_components() -> Result<(), Box<dy
         name: "test:alloy".into(),
         display_name: "Alloy".into(),
         carrier: &Item::IRON_INGOT,
+        components: Vec::new(),
     };
     let first = Registry::open(&file, &[definition("test:shaft")], &[alloy()])?;
     let id = first
@@ -103,6 +104,7 @@ fn standalone_items_keep_their_ids_and_carrier_components() -> Result<(), Box<dy
         name: "test:nugget".into(),
         display_name: "Nugget".into(),
         carrier: &Item::IRON_NUGGET,
+        components: Vec::new(),
     };
     let second = Registry::open(&file, &[definition("test:shaft")], &[nugget, alloy()])?;
     let item = *second.item_names.get("test:alloy").ok_or("missing alloy")?;
@@ -121,6 +123,7 @@ fn standalone_items_keep_their_ids_and_carrier_components() -> Result<(), Box<dy
         name: "test:shaft".into(),
         display_name: "Shaft".into(),
         carrier: &Item::STICK,
+        components: Vec::new(),
     };
     assert!(Registry::open(&file, &[definition("test:shaft")], &[clash]).is_err());
     Ok(())
