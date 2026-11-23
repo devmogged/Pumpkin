@@ -264,25 +264,32 @@ impl BrewingStandBlockEntity {
                                     .unwrap_or(&r.output_item),
                             ) {
                                 let mut new_slot = ItemStack::new(1, target_item);
-                                let mut pc = slot
-                                    .get_data_component::<pumpkin_data::data_component_impl::PotionContentsImpl>()
-                                    .cloned()
-                                    .unwrap_or_else(|| pumpkin_data::data_component_impl::PotionContentsImpl {
-                                        potion_id: None,
-                                        custom_color: None,
-                                        custom_effects: Vec::new(),
-                                        custom_name: None,
-                                    });
-                                if let Some(out_pot_name) = &r.output_potion
-                                    && let Some(out_pot) = Potion::from_name(
-                                        out_pot_name
-                                            .strip_prefix("minecraft:")
-                                            .unwrap_or(out_pot_name),
-                                    )
+                                // A custom output may define its own potion effects as item defaults.
+                                // Leave those defaults intact unless a recipe supplies a potion.
+                                if r.output_potion.is_some()
+                                    || target_item.id < Item::VANILLA_COUNT
+                                    || new_slot.get_data_component::<pumpkin_data::data_component_impl::PotionContentsImpl>().is_none()
                                 {
-                                    pc.potion_id = Some(out_pot.id as i32);
+                                    let mut pc = slot
+                                        .get_data_component::<pumpkin_data::data_component_impl::PotionContentsImpl>()
+                                        .cloned()
+                                        .unwrap_or_else(|| pumpkin_data::data_component_impl::PotionContentsImpl {
+                                            potion_id: None,
+                                            custom_color: None,
+                                            custom_effects: Vec::new(),
+                                            custom_name: None,
+                                        });
+                                    if let Some(out_pot_name) = &r.output_potion
+                                        && let Some(out_pot) = Potion::from_name(
+                                            out_pot_name
+                                                .strip_prefix("minecraft:")
+                                                .unwrap_or(out_pot_name),
+                                        )
+                                    {
+                                        pc.potion_id = Some(out_pot.id as i32);
+                                    }
+                                    new_slot.set_data_component(pc);
                                 }
-                                new_slot.set_data_component(pc);
                                 *slot = new_slot;
                                 ingredient_used = true;
                                 break;

@@ -131,7 +131,13 @@ impl BlockBehaviour for SmokerBlock {
         if let Some(block_entity) = args.world.get_block_entity(args.position)
             && let Some(experience_container) = block_entity.to_experience_container()
         {
-            let xp = experience_container.extract_experience();
+            let server = args.world.server.upgrade();
+            let xp = experience_container.extract_experience(&|id| {
+                server.as_ref().map_or_else(
+                    || pumpkin_data::recipes::get_recipe_experience(id),
+                    |server| server.recipe_manager.cooking_experience(id),
+                )
+            });
             if xp > 0 {
                 let pos = args.position.to_f64();
                 ExperienceOrbEntity::spawn(args.world, pos, xp as u32);

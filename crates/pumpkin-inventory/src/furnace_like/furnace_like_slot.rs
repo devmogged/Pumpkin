@@ -149,7 +149,9 @@ impl Slot for FurnaceOutputSlot {
             stack.item_count as i32,
         );
         // Extract accumulated experience and award to player
-        let experience = self.experience_container.extract_experience();
+        let experience = self
+            .experience_container
+            .extract_experience(&|id| player.cooking_experience(id));
         debug!("FurnaceOutputSlot: extracted experience = {experience}");
         if experience > 0 {
             debug!("FurnaceOutputSlot: awarding {experience} xp to player");

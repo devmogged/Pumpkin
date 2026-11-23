@@ -1,4 +1,6 @@
-use pumpkin_data::{item_stack::ItemStack, recipes::CookingRecipe};
+use pumpkin_data::item_stack::ItemStack;
+
+use crate::server::recipe::CookingRecipe;
 
 use crate::block::entities::{BlockEntity, PropertyDelegate};
 pub use pumpkin_inventory::ExperienceContainer;
@@ -14,11 +16,11 @@ pub trait CookingBlockEntityBase:
     fn get_lit_total_time(&self) -> u16;
 
     /// Track that a recipe was used (for XP calculation on extraction)
-    /// Uses the result item ID as the recipe identifier
+    /// Uses the recipe ID as the recipe identifier
     fn add_recipe_used(&self, recipe: &CookingRecipe);
     /// Extract and reset accumulated experience, returning the total as an integer
     /// Calculates XP from tracked recipes and clears the `recipes_used` map
-    fn extract_experience_from_recipes(&self) -> i32;
+    fn extract_experience_from_recipes(&self, experience: &dyn Fn(&str) -> Option<f32>) -> i32;
 
     fn get_input_item(&self) -> ItemStack;
     fn get_fuel_item(&self) -> ItemStack;
@@ -99,9 +101,9 @@ macro_rules! impl_cooking_block_entity_base {
                 self.get_lit_time_remaining() > 0
             }
 
-            fn add_recipe_used(&self, recipe: &pumpkin_data::recipes::CookingRecipe) {
+            fn add_recipe_used(&self, recipe: &$crate::server::recipe::CookingRecipe) {
                 // Track recipe usage by recipe ID for XP calculation
-                let recipe_id = recipe.recipe_id.to_string();
+                let recipe_id = recipe.id.to_string();
                 let mut recipes = self
                     .recipes_used
                     .lock()
@@ -109,7 +111,10 @@ macro_rules! impl_cooking_block_entity_base {
                 *recipes.entry(recipe_id).or_insert(0) += 1;
             }
 
-            fn extract_experience_from_recipes(&self) -> i32 {
+            fn extract_experience_from_recipes(
+                &self,
+                experience: &dyn Fn(&str) -> Option<f32>,
+            ) -> i32 {
                 // Calculate total XP from tracked recipes and clear the map (vanilla behavior)
                 let mut recipes = self
                     .recipes_used
@@ -118,7 +123,7 @@ macro_rules! impl_cooking_block_entity_base {
                 let mut total_xp: f32 = 0.0;
                 for (recipe_id, count) in recipes.iter() {
                     // Look up the recipe's XP value
-                    if let Some(xp) = pumpkin_data::recipes::get_recipe_experience(recipe_id) {
+                    if let Some(xp) = experience(recipe_id) {
                         total_xp += xp * (*count as f32);
                     }
                 }
@@ -128,7 +133,7 @@ macro_rules! impl_cooking_block_entity_base {
 
             fn can_accept_recipe_output(
                 &self,
-                recipe: Option<&pumpkin_data::recipes::CookingRecipe>,
+                recipe: Option<&$crate::server::recipe::CookingRecipe>,
                 max_count: u8,
             ) -> bool {
                 let Some(recipe) = recipe else { return false };
@@ -136,29 +141,14 @@ macro_rules! impl_cooking_block_entity_base {
                     return false;
                 };
 
-                let is_top_items_empty = items[0].is_empty();
-                let side_item_stack = &items[2];
-
-                if side_item_stack.is_empty() {
-                    return !is_top_items_empty;
-                }
-
-                if let Some(recipe_output_item) = pumpkin_data::item::Item::from_registry_key(
-                    recipe
-                        .result
-                        .id
-                        .strip_prefix("minecraft:")
-                        .unwrap_or(&recipe.result.id),
-                ) && !is_top_items_empty
-                    && recipe_output_item.id == side_item_stack.item.id
-                    && side_item_stack.item_count < max_count
-                    && side_item_stack.item_count < side_item_stack.get_max_stack_size()
-                {
-                    return true;
-                }
-                false
+                let result = ItemStack::new(recipe.count, recipe.result);
+                let output = &items[2];
+                !items[0].is_empty()
+                    && (output.is_empty() || output.are_items_and_components_equal(&result))
+                    && u16::from(output.item_count) + u16::from(recipe.count)
+                        <= u16::from(max_count.min(result.get_max_stack_size()))
             }
-            fn craft_recipe(&self, recipe: Option<&pumpkin_data::recipes::CookingRecipe>) -> bool {
+            fn craft_recipe(&self, recipe: Option<&$crate::server::recipe::CookingRecipe>) -> bool {
                 let can_accept_output =
                     self.can_accept_recipe_output(recipe, self.get_max_count_per_stack());
                 if let Some(recipe) = recipe {
@@ -166,21 +156,11 @@ macro_rules! impl_cooking_block_entity_base {
                         let Ok(mut items) = self.items.try_write() else {
                             return false;
                         };
-                        let Some(output_item) = pumpkin_data::item::Item::from_registry_key(
-                            recipe
-                                .result
-                                .id
-                                .strip_prefix("minecraft:")
-                                .unwrap_or(&recipe.result.id),
-                        ) else {
-                            return false;
-                        };
-                        let output_item_stack = ItemStack::new(recipe.result.count, output_item);
-
-                        if items[2].are_equal(ItemStack::EMPTY) {
+                        let output_item_stack = ItemStack::new(recipe.count, recipe.result);
+                        if items[2].is_empty() {
                             items[2] = output_item_stack;
-                        } else if items[2].are_items_and_components_equal(&output_item_stack) {
-                            items[2].increment(1);
+                        } else {
+                            items[2].increment(recipe.count);
                         }
 
                         // Track recipe usage for XP calculation (vanilla RecipesUsed format)
@@ -258,9 +238,9 @@ macro_rules! impl_experience_container_for_cooking {
         impl $crate::block::entities::furnace_like_block_entity::ExperienceContainer
             for $struct_name
         {
-            fn extract_experience(&self) -> i32 {
+            fn extract_experience(&self, recipe: &dyn Fn(&str) -> Option<f32>) -> i32 {
                 // Delegate to the CookingBlockEntityBase method
-                self.extract_experience_from_recipes()
+                self.extract_experience_from_recipes(recipe)
             }
         }
     };
@@ -447,13 +427,13 @@ macro_rules! impl_block_entity_for_cooking {
 
                 let is_top_items_empty = top_item.is_empty();
 
-                let furnace_recipe = pumpkin_data::recipes::get_cooking_recipe_with_ingredient(
-                    top_item.item,
+                let furnace_recipe = $crate::server::recipe::cooking_recipe(
+                    world, top_item.item,
                     $recipe_kind,
                 );
 
                 let can_accept_output = self
-                    .can_accept_recipe_output(furnace_recipe, self.get_max_count_per_stack());
+                    .can_accept_recipe_output(furnace_recipe.as_ref(), self.get_max_count_per_stack());
 
                 let bottom_items_is_empty = bottom_item.is_empty();
                 if self.is_burning() || !bottom_items_is_empty && !is_top_items_empty {
@@ -521,6 +501,9 @@ macro_rules! impl_block_entity_for_cooking {
                     if self.is_burning() && can_accept_output {
                         let mut start_cancelled = false;
                         if self.get_cooking_time_spent() == 0 {
+                            if let Some(recipe) = &furnace_recipe {
+                                self.set_cooking_total_time(recipe.ticks as u16);
+                            }
                             if let Some(server) = world.server.upgrade() {
                                 let mut start_event = $crate::plugin::api::events::inventory::furnace_start_smelt::FurnaceStartSmeltEvent::new(
                                     self.position,
@@ -541,7 +524,7 @@ macro_rules! impl_block_entity_for_cooking {
                             if self.get_cooking_time_spent() == self.get_cooking_total_time() {
                                 self.set_cooking_time_spent(0);
                                 if let Some(cooking_recipe) = furnace_recipe {
-                                    let cooking_total_time = cooking_recipe.cookingtime;
+                                    let cooking_total_time = cooking_recipe.ticks;
                                     self.set_cooking_total_time(cooking_total_time as u16);
 
                                     let mut smelt_cancelled = false;
@@ -549,7 +532,7 @@ macro_rules! impl_block_entity_for_cooking {
                                         let mut smelt_event = $crate::plugin::api::events::inventory::furnace_smelt::FurnaceSmeltEvent::new(
                                             self.position,
                                             top_item.item.registry_key.to_string(),
-                                            cooking_recipe.result.id.to_string(),
+                                            cooking_recipe.result.identifier().into_owned(),
                                         );
                                         server.plugin_manager.fire_blocking(&server, &mut smelt_event);
                                         if smelt_event.cancelled {
@@ -557,7 +540,7 @@ macro_rules! impl_block_entity_for_cooking {
                                         }
                                     }
                                     if !smelt_cancelled {
-                                        self.craft_recipe(Some(cooking_recipe));
+                                        self.craft_recipe(Some(&cooking_recipe));
                                         is_dirty = true;
                                     }
                                 }

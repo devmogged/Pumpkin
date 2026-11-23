@@ -9398,6 +9398,13 @@ impl InventoryPlayer for Player {
         }
     }
 
+    fn cooking_experience(&self, recipe: &str) -> Option<f32> {
+        self.world().server.upgrade().map_or_else(
+            || pumpkin_data::recipes::get_recipe_experience(recipe),
+            |server| server.recipe_manager.cooking_experience(recipe),
+        )
+    }
+
     fn award_experience(&self, amount: i32) {
         debug!("Player::award_experience called with amount={amount}");
         if amount > 0 {

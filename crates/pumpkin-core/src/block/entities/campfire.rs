@@ -1,13 +1,13 @@
 use super::BlockEntity;
 use crate::entity::Entity;
 use crate::entity::item::ItemEntity;
+use crate::server::recipe::cooking_recipe;
 use crate::world::World;
 use pumpkin_data::Block;
 use pumpkin_data::block_properties::CampfireLikeProperties;
 use pumpkin_data::entity::EntityType;
-use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
-use pumpkin_data::recipes::{CookingRecipeKind, get_cooking_recipe_with_ingredient};
+use pumpkin_data::recipes::CookingRecipeKind;
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_util::math::position::BlockPos;
@@ -110,7 +110,7 @@ impl BlockEntity for CampfireBlockEntity {
             }
 
             let Some(recipe) =
-                get_cooking_recipe_with_ingredient(stack.item, CookingRecipeKind::CampfireCooking)
+                cooking_recipe(world, stack.item, CookingRecipeKind::CampfireCooking)
             else {
                 continue;
             };
@@ -120,7 +120,7 @@ impl BlockEntity for CampfireBlockEntity {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if *total <= 0 {
-                    let mut cooking_time = recipe.cookingtime;
+                    let mut cooking_time = recipe.ticks;
                     if let Some(server) = world.server.upgrade() {
                         let mut event = crate::plugin::api::events::block::campfire_start::CampfireStartEvent::new(
                             self.position,
@@ -153,11 +153,7 @@ impl BlockEntity for CampfireBlockEntity {
                 continue;
             }
 
-            let Some(result_item) = Item::from_registry_key(recipe.result.id) else {
-                continue;
-            };
-
-            let mut result = ItemStack::new(recipe.result.count, result_item);
+            let mut result = ItemStack::new(recipe.count, recipe.result);
             if let Some(server) = world.server.upgrade() {
                 let mut event = crate::plugin::api::events::block::block_cook::BlockCookEvent::new(
                     self.position,
@@ -360,6 +356,7 @@ pub fn build_campfire_actor(position: BlockPos, items: &[ItemStack; 4]) -> NbtCo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pumpkin_data::item::Item;
 
     #[test]
     fn campfire_actor_builder() {

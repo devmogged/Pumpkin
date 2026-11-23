@@ -205,6 +205,10 @@ pub trait InventoryPlayer: Send + Sync {
     /// Awards experience points to the player (used for furnace smelting, etc.)
     fn award_experience(&self, amount: i32);
 
+    fn cooking_experience(&self, recipe: &str) -> Option<f32> {
+        pumpkin_data::recipes::get_recipe_experience(recipe)
+    }
+
     /// Increments a statistic for the player.
     fn increment_stat(&self, category: StatisticCategory, stat_id: i32, amount: i32);
 
