@@ -334,7 +334,9 @@ impl CommandExecutor for PlaceStructureExecutor {
                     block_pos,
                     structure.use_expansion_hack.unwrap_or(false),
                     structure.project_start_to_heightmap.is_some(),
-                    &MaxDistance::new(structure.max_distance_from_center.unwrap_or(128)),
+                    &structure
+                        .max_distance_from_center
+                        .unwrap_or(MaxDistance::new(128)),
                     DimensionPadding::ZERO,
                     LiquidSettings::ApplyWaterlog,
                     &pool_alias_lookup,

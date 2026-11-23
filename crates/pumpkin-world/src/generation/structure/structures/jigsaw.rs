@@ -1000,7 +1000,7 @@ impl JigsawGenerator {
 
         let max_distance = structure
             .and_then(|s| s.max_distance_from_center)
-            .unwrap_or(80); // Vanilla default is 80
+            .unwrap_or(MaxDistance::new(80));
 
         let liquid_settings =
             structure
@@ -1058,7 +1058,7 @@ impl JigsawGenerator {
             start_pos,
             use_expansion_hack,
             project_start_to_heightmap,
-            &MaxDistance::new(max_distance),
+            &max_distance,
             dimension_padding,
             liquid_settings,
             &pool_alias_lookup,

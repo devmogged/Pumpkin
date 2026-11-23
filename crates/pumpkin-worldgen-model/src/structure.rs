@@ -143,7 +143,7 @@ pub struct StructureStruct {
     /// Optional heightmap to project the start to.
     pub project_start_to_heightmap: Option<String>,
     /// Optional max distance from center.
-    pub max_distance_from_center: Option<i32>,
+    pub max_distance_from_center: Option<MaxDistanceJson>,
     /// Optional liquid settings.
     pub liquid_settings: Option<String>,
     /// Optional dimension padding.
@@ -394,7 +394,8 @@ mod tokens {
                 quote!(None)
             };
             let max_distance_from_center = if let Some(m) = self.max_distance_from_center {
-                quote!(Some(#m))
+                let (horizontal, vertical) = m.axes();
+                quote!(Some(MaxDistance { horizontal: #horizontal, vertical: #vertical }))
             } else {
                 quote!(None)
             };
@@ -735,6 +736,39 @@ mod tokens {
     }
 }
 
+/// `DimensionType.Y_SIZE`, the default vertical jigsaw reach.
+pub const Y_SIZE: i32 = (1 << 12) - 32;
+
+/// A jigsaw `max_distance_from_center`: one value for both axes, or separate ones.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(untagged)]
+pub enum MaxDistanceJson {
+    Value(i32),
+    Full {
+        horizontal: i32,
+        #[serde(default = "y_size")]
+        vertical: i32,
+    },
+}
+
+const fn y_size() -> i32 {
+    Y_SIZE
+}
+
+impl MaxDistanceJson {
+    /// `(horizontal, vertical)`, where a single value covers both like `MaxDistance(int)`.
+    #[must_use]
+    pub const fn axes(self) -> (i32, i32) {
+        match self {
+            Self::Value(value) => (value, value),
+            Self::Full {
+                horizontal,
+                vertical,
+            } => (horizontal, vertical),
+        }
+    }
+}
+
 /// A registry holder set: `#tag`, one ID, or a list of IDs.
 #[derive(Deserialize, Clone)]
 #[serde(untagged)]
@@ -758,7 +792,7 @@ impl HolderSetJson {
 mod runtime {
     use pumpkin_data::structures::{
         BoundingBoxType, ConcentricRingsStructurePlacement, ExclusionZone,
-        FrequencyReductionMethod, GenerationStep, HeightProvider, PoolAliasBinding,
+        FrequencyReductionMethod, GenerationStep, HeightProvider, MaxDistance, PoolAliasBinding,
         RandomSpreadStructurePlacement, SpawnEntry, SpawnOverride, SpreadType, Structure,
         StructureKeys, StructurePlacement, StructurePlacementType, StructureSet, StructureType,
         TerrainAdaptation, TrapezoidHeightProvider, UniformHeightProvider,
@@ -994,7 +1028,13 @@ mod runtime {
                 terrain_adaptation: terrain_adaptation(self.terrain_adaptation.as_deref())?,
                 start_height: height.map(height_provider).transpose()?,
                 project_start_to_heightmap: self.project_start_to_heightmap.map(leak),
-                max_distance_from_center: self.max_distance_from_center,
+                max_distance_from_center: self.max_distance_from_center.map(|m| {
+                    let (horizontal, vertical) = m.axes();
+                    MaxDistance {
+                        horizontal,
+                        vertical,
+                    }
+                }),
                 liquid_settings: self.liquid_settings.map(leak),
                 dimension_padding: self.dimension_padding,
                 use_expansion_hack: self.use_expansion_hack,

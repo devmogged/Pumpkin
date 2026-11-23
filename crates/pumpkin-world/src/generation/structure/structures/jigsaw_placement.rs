@@ -36,20 +36,7 @@ pub enum LiquidSettings {
     ApplyWaterlog,
 }
 
-pub struct MaxDistance {
-    pub horizontal: i32,
-    pub vertical: i32,
-}
-
-impl MaxDistance {
-    #[must_use]
-    pub const fn new(horizontal: i32) -> Self {
-        Self {
-            horizontal,
-            vertical: 384, // Default Y_SIZE (min_y to max_y)
-        }
-    }
-}
+pub use pumpkin_data::structures::MaxDistance;
 
 pub const MAX_TOTAL_STRUCTURE_RANGE: i32 = 128;
 pub const MIN_DEPTH: i32 = 0;

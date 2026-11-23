@@ -436,6 +436,21 @@ pub fn build() -> TokenStream {
             pub weight: u32,
         }
 
+        /// How far jigsaw pieces may reach from the start, per axis.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct MaxDistance {
+            pub horizontal: i32,
+            pub vertical: i32,
+        }
+
+        impl MaxDistance {
+            /// One reach for both axes, like vanilla's `MaxDistance(int)`.
+            #[must_use]
+            pub const fn new(value: i32) -> Self {
+                Self { horizontal: value, vertical: value }
+            }
+        }
+
         pub struct Structure {
             pub biomes: &'static str,
             pub step: GenerationStep,
@@ -445,7 +460,7 @@ pub fn build() -> TokenStream {
             pub terrain_adaptation: TerrainAdaptation,
             pub start_height: Option<HeightProvider>,
             pub project_start_to_heightmap: Option<&'static str>,
-            pub max_distance_from_center: Option<i32>,
+            pub max_distance_from_center: Option<MaxDistance>,
             pub liquid_settings: Option<&'static str>,
             pub dimension_padding: Option<i32>,
             pub use_expansion_hack: Option<bool>,
