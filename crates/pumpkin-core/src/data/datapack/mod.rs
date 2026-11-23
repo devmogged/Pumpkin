@@ -446,14 +446,13 @@ impl DatapackManager {
         let Some(category_tags) = tags.get(category) else {
             return std::collections::BTreeMap::new();
         };
-        category_tags
-            .keys()
+        tag_loader::tag_names(category_tags, registry)
             .map(|name| {
                 let mut ids = Vec::new();
                 tag_loader::resolve_tag(category_tags, registry, id, name, 0, &mut ids);
                 ids.sort_unstable();
                 ids.dedup();
-                (name.clone(), ids)
+                (name.to_owned(), ids)
             })
             .collect()
     }

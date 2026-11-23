@@ -143,9 +143,13 @@ fn load_datapack_registry_ids(dir: &std::path::Path) -> BTreeMap<String, u16> {
     id_map
 }
 
-fn load_datapack_tags(
-    data_dir: &std::path::Path,
-) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+/// Tag members resolved to entry names, and each tag's direct `#` references, by category.
+type DatapackTags = (
+    BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    BTreeMap<String, BTreeMap<String, Vec<String>>>,
+);
+
+fn load_datapack_tags(data_dir: &std::path::Path) -> DatapackTags {
     let mut raw_categories: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
     fn walk_namespace_tags(
@@ -234,6 +238,30 @@ fn load_datapack_tags(
         }
     }
 
+    let references = raw_categories
+        .iter()
+        .map(|(cat, tag_map)| {
+            let refs = tag_map
+                .iter()
+                .filter_map(|(tag_name, values)| {
+                    let refs: Vec<String> = values
+                        .iter()
+                        .filter_map(|v| v.strip_prefix('#'))
+                        .map(|sub| {
+                            if sub.contains(':') {
+                                sub.to_string()
+                            } else {
+                                format!("minecraft:{sub}")
+                            }
+                        })
+                        .collect();
+                    (!refs.is_empty()).then(|| (tag_name.clone(), refs))
+                })
+                .collect();
+            (cat.clone(), refs)
+        })
+        .collect();
+
     // Recursively resolve references for each category
     let mut resolved_categories: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
@@ -284,7 +312,7 @@ fn load_datapack_tags(
         resolved_categories.insert(cat.clone(), cat_resolved);
     }
 
-    resolved_categories
+    (resolved_categories, references)
 }
 
 /// Generates the `TokenStream` for the `Tag` type, `RegistryKey` enum, tag
@@ -365,6 +393,7 @@ pub(crate) fn build() -> TokenStream {
 
     let mut latest_tag_modules = Vec::new();
     let mut latest_match_arms = Vec::new();
+    let mut reference_match_arms = Vec::new();
     let mut all_version_code = Vec::new();
     let mut version_fn_match_arms = Vec::new();
 
@@ -372,7 +401,7 @@ pub(crate) fn build() -> TokenStream {
         let datapack_data_dir = std::path::Path::new("../../assets/datapack/data");
         let datapack_base = datapack_data_dir.join("minecraft");
 
-        let tags = load_datapack_tags(&datapack_data_dir);
+        let (tags, references) = load_datapack_tags(&datapack_data_dir);
         let is_latest = ver_folder == "26_3";
 
         let mut ver_cat_match_arms = Vec::new();
@@ -433,6 +462,19 @@ pub(crate) fn build() -> TokenStream {
             }
 
             if is_latest {
+                let refs_name =
+                    format_ident!("{}_TAG_REFERENCES", key.to_pascal_case().to_uppercase());
+                let ref_entries = references
+                    .get(&key)
+                    .into_iter()
+                    .flatten()
+                    .map(|(tag_name, refs)| quote! { #tag_name => &[#(#refs),*] });
+                latest_tag_modules.push(quote! {
+                    static #refs_name: phf::Map<&'static str, &'static [&'static str]> = phf::phf_map! {
+                        #(#ref_entries),*
+                    };
+                });
+                reference_match_arms.push(quote! { RegistryKey::#key_pascal => &#refs_name });
                 latest_tag_modules.push(quote! {
                     #[allow(non_snake_case)]
                     pub mod #key_pascal {
@@ -515,6 +557,16 @@ pub(crate) fn build() -> TokenStream {
         #[must_use]
         pub fn get_tag_ids(tag_category: RegistryKey, tag: &str) -> Option<&'static [u16]> {
             get_latest_map(tag_category).get(tag).map(|t| t.1)
+        }
+
+        /// The tags a generated tag names directly with `#`. Its members already include theirs;
+        /// this lets datapacks that extend a nested tag reach the tags around it.
+        #[must_use]
+        pub fn get_tag_references(tag_category: RegistryKey, tag: &str) -> &'static [&'static str] {
+            let references: &'static phf::Map<&'static str, &'static [&'static str]> = match tag_category {
+                #(#reference_match_arms,)*
+            };
+            references.get(tag).copied().unwrap_or_default()
         }
 
         #[must_use]

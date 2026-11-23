@@ -4,7 +4,7 @@ use std::path::Path;
 
 use pumpkin_data::Block;
 use pumpkin_data::item::Item;
-use pumpkin_data::tag::{RegistryKey, get_tag_ids};
+use pumpkin_data::tag::{RegistryKey, get_latest_map, get_tag_ids, get_tag_references};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -85,8 +85,7 @@ pub fn load_tags_from_dir<S1: std::hash::BuildHasher + Default, S2: std::hash::B
 
 /// Hands the loaded block and item tag memberships to [`pumpkin_data::tag_overlay`].
 ///
-/// Only memberships beyond the generated vanilla tags go there. A generated tag that nests a
-/// loaded one doesn't pick up its additions, because the generated tags are flattened.
+/// Only memberships beyond the generated vanilla tags go there.
 pub fn publish_overlay<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
     tags: &HashMap<String, HashMap<String, DynamicTagEntry, S1>, S2>,
 ) {
@@ -103,7 +102,7 @@ pub fn publish_overlay<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
         let Some(category_tags) = tags.get(category) else {
             continue;
         };
-        for name in category_tags.keys() {
+        for name in tag_names(category_tags, key) {
             let mut ids = Vec::new();
             resolve_tag(category_tags, key, lookup, name, 0, &mut ids);
             let generated = get_tag_ids(key, name).unwrap_or_default();
@@ -112,8 +111,8 @@ pub fn publish_overlay<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
                     continue;
                 }
                 let joined = memberships.entry((key, id)).or_default();
-                if !joined.contains(name) {
-                    joined.push(name.clone());
+                if !joined.iter().any(|joined| joined == name) {
+                    joined.push(name.to_owned());
                 }
             }
         }
@@ -122,6 +121,20 @@ pub fn publish_overlay<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
 }
 
 type IdLookup = fn(&str) -> Option<u16>;
+
+/// Every tag a registry has once packs load: the loaded ones and the generated vanilla ones,
+/// which can gain members through a nested tag a pack extends.
+pub(super) fn tag_names<S: std::hash::BuildHasher>(
+    tags: &HashMap<String, DynamicTagEntry, S>,
+    key: RegistryKey,
+) -> impl Iterator<Item = &str> {
+    tags.keys().map(String::as_str).chain(
+        get_latest_map(key)
+            .keys()
+            .copied()
+            .filter(|name| !tags.contains_key(*name)),
+    )
+}
 
 /// Vanilla rejects deeper or cyclic references; this only has to stop.
 const MAX_TAG_DEPTH: u8 = 32;
@@ -142,6 +155,11 @@ pub(super) fn resolve_tag<S: std::hash::BuildHasher>(
         && let Some(ids) = get_tag_ids(key, name)
     {
         out.extend_from_slice(ids);
+        // The generated members are flattened; follow the vanilla references so a pack that
+        // extends a nested tag reaches this one too.
+        for nested in get_tag_references(key, name) {
+            resolve_tag(tags, key, lookup, nested, depth + 1, out);
+        }
     }
     let Some(entry) = entry else {
         return;
