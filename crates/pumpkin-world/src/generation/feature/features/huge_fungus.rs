@@ -61,17 +61,11 @@ impl HugeFungusFeature {
         pos: BlockPos,
         check_non_replaceable_plants: bool,
     ) -> bool {
-        if chunk.is_air(&pos.0)
-            || GenerationCache::get_block_state(chunk, &pos.0)
-                .to_state()
-                .is_air()
-        {
-            true
-        } else if check_non_replaceable_plants {
-            self.replaceable_blocks.test(block_registry, chunk, &pos)
-        } else {
-            false
-        }
+        GenerationCache::get_block_state(chunk, &pos.0)
+            .to_state()
+            .replaceable()
+            || (check_non_replaceable_plants
+                && self.replaceable_blocks.test(block_registry, chunk, &pos))
     }
 
     fn place_stem<T: GenerationCache>(
@@ -263,7 +257,7 @@ mod tests {
 
     use super::*;
 
-    fn grow_crimson_fungus(y: i32) -> (bool, ProtoChunk) {
+    fn grow_crimson_fungus(y: i32, roots_above: bool) -> (bool, ProtoChunk) {
         let generator = get_world_gen(
             Seed(42),
             Dimension::THE_NETHER,
@@ -273,6 +267,9 @@ mod tests {
         );
         let mut chunk = ProtoChunk::new(0, 0, &generator);
         chunk.set_block_state(8, y - 1, 8, Block::CRIMSON_NYLIUM.default_state);
+        if roots_above {
+            chunk.set_block_state(8, y + 1, 8, Block::CRIMSON_ROOTS.default_state);
+        }
         let height = chunk.generation_height();
         let ConfiguredFeature::HugeFungus(feature) =
             &CONFIGURED_FEATURES[&ConfiguredId::CrimsonFungus]
@@ -293,9 +290,20 @@ mod tests {
 
     #[test]
     fn wild_huge_fungus_respects_the_generator_ceiling() {
-        let (placed, chunk) = grow_crimson_fungus(124);
+        let (placed, chunk) = grow_crimson_fungus(124, false);
         assert!(!placed);
         assert!(chunk.is_air(&BlockPos::new(8, 124, 8).0));
     }
 
+    #[test]
+    fn huge_fungus_stem_replaces_crimson_roots() {
+        let (placed, chunk) = grow_crimson_fungus(65, true);
+        assert!(placed);
+        assert_eq!(
+            chunk
+                .get_block_state(&BlockPos::new(8, 66, 8).0)
+                .to_block_id(),
+            Block::CRIMSON_STEM.id,
+        );
+    }
 }
