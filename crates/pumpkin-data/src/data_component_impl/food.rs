@@ -645,8 +645,15 @@ impl PotionContentsImpl {
 impl DataComponentImpl for PotionContentsImpl {
     fn write_data(&self) -> NbtTag {
         let mut compound = NbtCompound::new();
+        // PotionContents.CODEC saves the potion holder as its resource identifier.
         if let Some(potion_id) = self.potion_id {
-            compound.put_int("potion", potion_id);
+            match u8::try_from(potion_id)
+                .ok()
+                .and_then(crate::potion::Potion::from_id)
+            {
+                Some(potion) => compound.put_string("potion", format!("minecraft:{}", potion.name)),
+                None => compound.put_int("potion", potion_id),
+            }
         }
         if let Some(color) = self.custom_color {
             compound.put_int("custom_color", color);
@@ -721,7 +728,7 @@ impl Hash for PotionDurationScaleImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::{DataComponentImpl, PotionDurationScaleImpl};
+    use super::{DataComponentImpl, PotionContentsImpl, PotionDurationScaleImpl};
     use crate::item::Item;
 
     #[test]
@@ -731,6 +738,29 @@ mod tests {
         let decoded = PotionDurationScaleImpl::read_data(&encoded).expect("scale should decode");
 
         assert_eq!(decoded, scale);
+    }
+
+    #[test]
+    fn potion_contents_save_the_potion_identifier() {
+        let water = crate::potion::Potion::from_name("water").expect("water potion");
+        let contents = PotionContentsImpl {
+            potion_id: Some(i32::from(water.id)),
+            custom_color: None,
+            custom_effects: Vec::new(),
+            custom_name: None,
+        };
+        let encoded = contents.write_data();
+        let saved = encoded.extract_compound().expect("compound");
+        assert_eq!(saved.get_string("potion"), Some("minecraft:water"));
+        assert_eq!(
+            PotionContentsImpl::read_data(&encoded),
+            Some(contents.clone())
+        );
+
+        let mut legacy = pumpkin_nbt::compound::NbtCompound::new();
+        legacy.put_int("potion", i32::from(water.id));
+        let legacy = PotionContentsImpl::read_data(&pumpkin_nbt::tag::NbtTag::Compound(legacy));
+        assert_eq!(legacy, Some(contents));
     }
 
     #[test]
