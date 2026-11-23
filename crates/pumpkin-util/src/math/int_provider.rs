@@ -457,8 +457,10 @@ impl ClampedIntProvider {
 #[derive(Deserialize, Clone, Debug)]
 pub struct TrapezoidIntProvider {
     /// The minimum value (inclusive) to clamp to.
+    #[serde(alias = "min")]
     pub min_inclusive: i32,
     /// The maximum value (inclusive) to clamp to.
+    #[serde(alias = "max")]
     pub max_inclusive: i32,
     pub plateau: i32,
 }
