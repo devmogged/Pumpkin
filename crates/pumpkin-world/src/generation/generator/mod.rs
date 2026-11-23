@@ -291,7 +291,7 @@ impl VanillaGenerator {
         let base_router = ProtoNoiseRouters::generate(base, &random_config);
 
         let mut structure_allowed_biomes = FxHashMap::default();
-        for (i, set) in StructureSet::ALL.iter().enumerate() {
+        for (i, set) in StructureSet::all().iter().enumerate() {
             structure_allowed_biomes.insert(
                 i,
                 crate::generation::proto_chunk::ProtoChunk::get_allowed_biomes(set),
@@ -315,7 +315,7 @@ impl VanillaGenerator {
                 .then_some(first)
             })
         };
-        let enabled_structure_sets = StructureSet::NAMES
+        let enabled_structure_sets = StructureSet::names()
             .iter()
             .enumerate()
             .filter_map(|(index, &name)| {
@@ -438,11 +438,11 @@ mod tests {
             Some(&village_overrides),
         );
         let enabled = filtered_gen.enabled_structure_sets;
-        let village_idx = StructureSet::NAMES
+        let village_idx = StructureSet::names()
             .iter()
             .position(|&n| n == "villages")
             .unwrap();
-        let mineshaft_idx = StructureSet::NAMES
+        let mineshaft_idx = StructureSet::names()
             .iter()
             .position(|&n| n == "mineshafts")
             .unwrap();

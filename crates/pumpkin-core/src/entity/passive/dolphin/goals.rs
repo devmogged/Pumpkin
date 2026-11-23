@@ -145,7 +145,7 @@ impl Goal for DolphinSwimToTreasureGoal {
             .collect();
         let mut scans: Vec<(usize, Vec<StructureKeys>)> = Vec::new();
         for key in wanted {
-            let Some(index) = StructureSet::ALL
+            let Some(index) = StructureSet::all()
                 .iter()
                 .position(|set| set.structures.iter().any(|entry| entry.structure == key))
             else {
@@ -159,7 +159,7 @@ impl Goal for DolphinSwimToTreasureGoal {
         }
         let searches: Vec<_> = scans
             .iter()
-            .map(|(index, keys)| (&StructureSet::ALL[*index], keys.as_slice()))
+            .map(|(index, keys)| (StructureSet::all()[*index], keys.as_slice()))
             .collect();
         if let Some((pos, _)) =
             find_nearest_structure_start_in_sets(origin, &searches, 50, &generator)

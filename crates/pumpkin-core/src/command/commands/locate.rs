@@ -142,13 +142,13 @@ fn wanted_structures(searched: &ResourceOrTag) -> Option<Vec<StructureKeys>> {
     }
 }
 
-/// Index into [`StructureSet::ALL`] of the set a structure belongs to, whose
+/// Index into [`StructureSet::all`] of the set a structure belongs to, whose
 /// placement decides where it may generate. Vanilla keeps this as a prepared
 /// reverse map (`ChunkGeneratorStructureState.placementsForStructure`); there
 /// are ~21 sets, so a scan is cheap enough for a command. An index rather than
-/// a reference because the sets are consts, whose addresses are not stable.
+/// a reference so callers can index the generator's enabled sets.
 fn structure_set_containing(key: StructureKeys) -> Option<usize> {
-    StructureSet::ALL
+    StructureSet::all()
         .iter()
         .position(|set| set.structures.iter().any(|entry| entry.structure == key))
 }
@@ -236,7 +236,7 @@ impl CommandExecutor for LocateStructureExecutor {
 
         let mut found: Option<(BlockPos, StructureKeys)> = None;
         for (set_index, keys) in scans {
-            let set = &StructureSet::ALL[set_index];
+            let set = StructureSet::all()[set_index];
             let nearest = match &set.placement.placement_type {
                 // Strongholds come out of the pre-computed ring cache, which
                 // already holds positions they really occupy. A concentric-ring
@@ -292,7 +292,10 @@ impl CommandExecutor for LocateStructureExecutor {
             context,
             translation::java::COMMANDS_LOCATE_STRUCTURE_SUCCESS,
             translation::bedrock::COMMANDS_LOCATE_STRUCTURE_SUCCESS,
-            result_name(searched, &format!("minecraft:{}", key.to_name())),
+            result_name(
+                searched,
+                &pumpkin_data::structure_registry::full_id(key.to_name()),
+            ),
             &target,
             false,
             distance,

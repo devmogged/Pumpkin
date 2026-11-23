@@ -50,6 +50,8 @@ pub struct WorldgenOverrides {
     configured_features: BTreeMap<String, PathBuf>,
     placed_features: BTreeMap<String, PathBuf>,
     state_providers: BTreeMap<String, PathBuf>,
+    structures: BTreeMap<String, PathBuf>,
+    structure_sets: BTreeMap<String, PathBuf>,
     biome_tags: BTreeMap<String, Vec<u16>>,
     block_tags: BlockTags,
     settings: BTreeMap<String, PathBuf>,
@@ -89,6 +91,8 @@ impl WorldgenOverrides {
                     ("feature", &mut overrides.configured_features),
                     ("placed_feature", &mut overrides.placed_features),
                     ("block_state_provider", &mut overrides.state_providers),
+                    ("structure", &mut overrides.structures),
+                    ("structure_set", &mut overrides.structure_sets),
                     ("noise_settings", &mut overrides.settings),
                     ("density_function", &mut overrides.densities),
                     ("noise", &mut overrides.noises),
@@ -129,6 +133,86 @@ impl WorldgenOverrides {
     }
 
     /// Installs biome definitions at the same IDs as the server's synced registry.
+    /// Installs the datapack structures and structure sets over the vanilla ones, with every
+    /// structure's biomes resolved against the merged biome tags. Call after
+    /// [`Self::set_biome_tags`] and before creating generators.
+    pub fn install_structures(&self) -> Result<(), String> {
+        use pumpkin_data::structures::{Structure, StructureKeys};
+        use pumpkin_worldgen_model::structure::{
+            HolderSetJson, StructureSetStruct, StructureStruct,
+        };
+
+        let mut registry = pumpkin_data::structure_registry::StructureRegistry::vanilla();
+        let biome_ids = |biomes: &HolderSetJson| -> Result<Vec<u16>, String> {
+            let mut ids = Vec::new();
+            for entry in biomes.entries() {
+                if let Some(tag) = entry.strip_prefix('#') {
+                    let tag = pumpkin_data::structure_registry::full_id(tag);
+                    match self.biome_tags.get(&tag) {
+                        Some(members) => ids.extend_from_slice(members),
+                        None => ids.extend_from_slice(
+                            pumpkin_data::tag::get_tag_ids(
+                                pumpkin_data::tag::RegistryKey::WorldgenBiome,
+                                &tag,
+                            )
+                            .ok_or_else(|| format!("unknown biome tag {tag}"))?,
+                        ),
+                    }
+                } else {
+                    let biome =
+                        Biome::from_name(entry).ok_or_else(|| format!("unknown biome {entry}"))?;
+                    ids.push(u16::from(biome.id));
+                }
+            }
+            ids.sort_unstable();
+            ids.dedup();
+            Ok(ids)
+        };
+
+        // Vanilla structures keep their tags, whose members datapacks may have changed.
+        for &name in StructureKeys::VANILLA_NAMES {
+            let Some(key) = registry.key(name) else {
+                continue;
+            };
+            let biomes = HolderSetJson::One(Structure::vanilla(&key).biomes.to_owned());
+            registry.set_biomes(key, biome_ids(&biomes)?);
+        }
+        for (id, path) in &self.structures {
+            let structure: StructureStruct = serde_json::from_value(read_json(path)?)
+                .map_err(|error| format!("structure {id}: {error}"))?;
+            let key = registry
+                .key(id)
+                .ok_or_else(|| format!("structure {id}: too many structures"))?;
+            registry.set_biomes(
+                key,
+                biome_ids(&structure.biomes).map_err(|error| format!("structure {id}: {error}"))?,
+            );
+            registry.set_structure(
+                key,
+                structure
+                    .build()
+                    .map_err(|error| format!("structure {id}: {error}"))?,
+            );
+        }
+        for (id, path) in &self.structure_sets {
+            let set: StructureSetStruct = serde_json::from_value(read_json(path)?)
+                .map_err(|error| format!("structure set {id}: {error}"))?;
+            let set = set
+                .build(|structure| registry.key(structure))
+                .map_err(|error| format!("structure set {id}: {error}"))?;
+            registry.set_structure_set(id, set);
+        }
+        let undefined = registry.undefined();
+        if !undefined.is_empty() {
+            return Err(format!(
+                "structure sets name undefined structures: {undefined:?}"
+            ));
+        }
+        registry.set_biome_tags(self.biome_tags.clone());
+        pumpkin_data::structure_registry::install(registry);
+        Ok(())
+    }
+
     pub fn install_biomes(&self, registry: &[RegistryEntryData]) -> Result<(), String> {
         if registry.len() > usize::from(u8::MAX) + 1 {
             return Err(format!(

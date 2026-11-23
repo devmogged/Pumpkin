@@ -8,3 +8,4 @@ pub mod noise_parameter;
 pub mod noise_router;
 pub mod noise_settings;
 pub mod state_provider;
+pub mod structure;

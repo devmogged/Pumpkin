@@ -1,5 +1,5 @@
 use pumpkin_data::{
-    structures::{Structure, StructureKeys},
+    structures::{Structure, StructureKeys, StructureType},
     tag::{RegistryKey, get_tag_ids},
 };
 
@@ -60,7 +60,31 @@ fn generate_structure_position_checked(
     context: StructureGeneratorContext<'_>,
     is_valid_biome: impl FnOnce(pumpkin_util::math::position::BlockPos) -> bool,
 ) -> Option<StructurePosition> {
+    // A datapack structure runs the generator of its codec type, configured by its own fields.
+    let key = match key {
+        StructureKeys::Custom(_) => match structure.structure_type {
+            StructureType::Jigsaw => StructureKeys::VillagePlains,
+            StructureType::BuriedTreasure => StructureKeys::BuriedTreasure,
+            StructureType::DesertPyramid => StructureKeys::DesertPyramid,
+            StructureType::EndCity => StructureKeys::EndCity,
+            StructureType::Fortress => StructureKeys::Fortress,
+            StructureType::Igloo => StructureKeys::Igloo,
+            StructureType::JungleTemple => StructureKeys::JunglePyramid,
+            StructureType::WoodlandMansion => StructureKeys::Mansion,
+            StructureType::Mineshaft => StructureKeys::Mineshaft,
+            StructureType::OceanMonument => StructureKeys::Monument,
+            StructureType::NetherFossil => StructureKeys::NetherFossil,
+            StructureType::OceanRuin => StructureKeys::OceanRuinCold,
+            StructureType::Shipwreck => StructureKeys::Shipwreck,
+            StructureType::Stronghold => StructureKeys::Stronghold,
+            StructureType::SwampHut => StructureKeys::SwampHut,
+            // Ruined portal setups are still hardcoded per vanilla structure.
+            StructureType::RuinedPortal | StructureType::Unknown => return None,
+        },
+        key => key,
+    };
     match key {
+        StructureKeys::Custom(_) => None,
         StructureKeys::BuriedTreasure => {
             BuriedTreasureGenerator::get_structure_position(&BuriedTreasureGenerator, context)
                 .filter(|pos| is_valid_biome(pos.start_pos))
@@ -184,6 +208,29 @@ fn generate_structure_position_checked(
     }
 }
 
+/// The biomes a structure may start in (vanilla `Structure.biomes()`), resolved against the
+/// datapack biome tags when a datapack registry is installed.
+#[must_use]
+pub fn structure_biome_ids(key: StructureKeys, structure: &Structure) -> Option<&'static [u16]> {
+    pumpkin_data::structure_registry::biomes(key).or_else(|| {
+        get_tag_ids(
+            RegistryKey::WorldgenBiome,
+            structure
+                .biomes
+                .strip_prefix('#')
+                .unwrap_or(structure.biomes),
+        )
+    })
+}
+
+/// A biome tag's members, including the biomes datapacks added to it.
+#[must_use]
+pub fn biome_tag_ids(tag: &str) -> Option<&'static [u16]> {
+    let tag = tag.strip_prefix('#').unwrap_or(tag);
+    pumpkin_data::structure_registry::biome_tag(tag)
+        .or_else(|| get_tag_ids(RegistryKey::WorldgenBiome, tag))
+}
+
 #[must_use]
 pub fn try_generate_structure(
     key: &StructureKeys,
@@ -193,13 +240,7 @@ pub fn try_generate_structure(
     sea_level: i32,
     height_sampler: Option<&mut dyn crate::generation::structure::structures::HeightSampler>,
 ) -> Option<StructurePosition> {
-    let biomes = get_tag_ids(
-        RegistryKey::WorldgenBiome,
-        structure
-            .biomes
-            .strip_prefix('#')
-            .unwrap_or(structure.biomes),
-    )?;
+    let biomes = structure_biome_ids(*key, structure)?;
     let random = create_chunk_random(seed, chunk.x, chunk.z);
     let context = StructureGeneratorContext {
         seed,
@@ -236,13 +277,7 @@ pub fn lazily_generate_structure(
     biome_supplier: &dyn BiomeSupplier,
     multi_noise_sampler: &mut MultiNoiseSampler,
 ) -> Option<StructurePosition> {
-    let biomes = get_tag_ids(
-        RegistryKey::WorldgenBiome,
-        structure
-            .biomes
-            .strip_prefix('#')
-            .unwrap_or(structure.biomes),
-    )?;
+    let biomes = structure_biome_ids(*key, structure)?;
     if *key == StructureKeys::Monument {
         let center_x = crate::generation::positions::chunk_pos::get_center_x(context.chunk_x);
         let center_z = crate::generation::positions::chunk_pos::get_center_z(context.chunk_z);

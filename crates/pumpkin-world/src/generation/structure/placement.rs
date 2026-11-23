@@ -251,14 +251,7 @@ impl GlobalStructureCache {
         let mut spread = placement.spread;
         let count = placement.count;
 
-        let preferred_biomes = pumpkin_data::tag::get_tag_ids(
-            pumpkin_data::tag::RegistryKey::WorldgenBiome,
-            placement
-                .preferred_biomes
-                .strip_prefix('#')
-                .unwrap_or(placement.preferred_biomes),
-        )
-        .unwrap_or(&[]);
+        let preferred_biomes = super::biome_tag_ids(placement.preferred_biomes).unwrap_or(&[]);
 
         let mut random = LegacyRand::from_seed(seed as u64);
         let mut angle = random.next_f64() * PI * 2.0;

@@ -186,7 +186,7 @@ pub const fn all_template_names() -> &'static [&'static str] {
 
 /// Returns a list of all available structure names for `/place structure` tab-completion.
 #[must_use]
-pub const fn all_structure_names() -> &'static [&'static str] {
+pub fn all_structure_names() -> &'static [&'static str] {
     pumpkin_data::structures::StructureKeys::all_names()
 }
 

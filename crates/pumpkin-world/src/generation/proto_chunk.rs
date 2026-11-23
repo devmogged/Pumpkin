@@ -7,7 +7,6 @@ use pumpkin_data::fluid::{Fluid, FluidState};
 use pumpkin_data::structures::{
     Structure, StructureKeys, StructurePlacementType, StructureSet, WeightedEntry,
 };
-use pumpkin_data::tag::RegistryKey;
 use pumpkin_data::{Block, BlockState, block_properties::blocks_movement, chunk::Biome};
 use pumpkin_data::{BlockId, BlockStateId, tag};
 use pumpkin_util::random::xoroshiro128::XoroshiroSplitter;
@@ -61,7 +60,6 @@ use crate::{
     generation::{biome, positions::chunk_pos},
     world::{BlockAccessor, WorldPortalExt},
 };
-use pumpkin_data::tag::get_tag_ids;
 use pumpkin_nbt::compound::NbtCompound;
 
 use crate::generation::structure::template::BlockPlacer;
@@ -213,6 +211,29 @@ impl ProtoChunk {
     #[must_use]
     pub const fn get_sea_level(&self) -> i32 {
         self.sea_level
+    }
+
+    /// The piece boxes of the `key` structure that starts in this chunk, after
+    /// [`Self::set_structure_starts`].
+    #[must_use]
+    pub fn structure_start_boxes(
+        &self,
+        key: StructureKeys,
+    ) -> Option<Vec<pumpkin_util::math::block_box::BlockBox>> {
+        let StructureInstance::Start(start) = self.structure_starts.get(&key)? else {
+            return None;
+        };
+        let collector = start
+            .collector
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(
+            collector
+                .pieces
+                .iter()
+                .map(|piece| piece.bounding_box())
+                .collect(),
+        )
     }
 
     #[cfg(test)]
@@ -1633,15 +1654,8 @@ impl ProtoChunk {
     /// The biomes a structure may start in (vanilla `Structure.biomes()`).
     #[must_use]
     pub fn structure_biomes(key: StructureKeys) -> &'static [u16] {
-        let structure = Structure::get(&key);
-        get_tag_ids(
-            RegistryKey::WorldgenBiome,
-            structure
-                .biomes
-                .strip_prefix('#')
-                .unwrap_or(structure.biomes),
-        )
-        .unwrap_or_default()
+        crate::generation::structure::structure_biome_ids(key, Structure::get(&key))
+            .unwrap_or_default()
     }
 
     /// Returns the deterministic weighted fallback order for structures in a set.
@@ -1692,7 +1706,7 @@ impl ProtoChunk {
         > = None;
         let mut multi_noise_sampler: Option<MultiNoiseSampler<'_>> = None;
 
-        for (i, set) in StructureSet::ALL.iter().enumerate() {
+        for (i, set) in StructureSet::all().iter().enumerate() {
             if !generator.enabled_structure_sets.contains(&i) {
                 continue;
             }
@@ -1822,7 +1836,7 @@ impl ProtoChunk {
         let mut references = Vec::new();
         let mut candidate_chunks = Vec::with_capacity(4);
 
-        for (set_index, set) in StructureSet::ALL.iter().enumerate() {
+        for (set_index, set) in StructureSet::all().iter().enumerate() {
             if !generator.enabled_structure_sets.contains(&set_index)
                 || !set.structures.iter().any(|entry| wanted(entry.structure))
             {

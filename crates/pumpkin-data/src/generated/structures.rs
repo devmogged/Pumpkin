@@ -59,11 +59,69 @@ pub enum StructureKeys {
     AbandonedCampTaiga,
     AbandonedCampWindsweptForest,
     AbandonedCampWoodedBadlands,
+    #[doc = r" A structure a datapack added, numbered by [`crate::structure_registry`]."]
+    Custom(u16),
 }
 impl StructureKeys {
-    pub fn from_name(name: &str) -> Option<Self> {
-        let name = name.strip_prefix("minecraft:").unwrap_or(name);
-        match name {
+    #[doc = r" Every vanilla structure ID."]
+    pub const VANILLA_NAMES: &'static [&'static str] = &[
+        "minecraft:abandoned_camp_bamboo_jungle",
+        "minecraft:abandoned_camp_birch_forest",
+        "minecraft:abandoned_camp_cherry_grove",
+        "minecraft:abandoned_camp_dappled_forest",
+        "minecraft:abandoned_camp_flower_forest",
+        "minecraft:abandoned_camp_forest",
+        "minecraft:abandoned_camp_meadow",
+        "minecraft:abandoned_camp_old_growth_birch_forest",
+        "minecraft:abandoned_camp_old_growth_pine_taiga",
+        "minecraft:abandoned_camp_old_growth_spruce_taiga",
+        "minecraft:abandoned_camp_pale_garden",
+        "minecraft:abandoned_camp_savanna",
+        "minecraft:abandoned_camp_snowy_taiga",
+        "minecraft:abandoned_camp_sparse_jungle",
+        "minecraft:abandoned_camp_swamp",
+        "minecraft:abandoned_camp_taiga",
+        "minecraft:abandoned_camp_windswept_forest",
+        "minecraft:abandoned_camp_wooded_badlands",
+        "minecraft:ancient_city",
+        "minecraft:bastion_remnant",
+        "minecraft:buried_treasure",
+        "minecraft:desert_pyramid",
+        "minecraft:end_city",
+        "minecraft:fortress",
+        "minecraft:igloo",
+        "minecraft:jungle_pyramid",
+        "minecraft:mansion",
+        "minecraft:mineshaft",
+        "minecraft:mineshaft_mesa",
+        "minecraft:monument",
+        "minecraft:nether_fossil",
+        "minecraft:ocean_ruin_cold",
+        "minecraft:ocean_ruin_warm",
+        "minecraft:pillager_outpost",
+        "minecraft:ruined_portal",
+        "minecraft:ruined_portal_desert",
+        "minecraft:ruined_portal_jungle",
+        "minecraft:ruined_portal_mountain",
+        "minecraft:ruined_portal_nether",
+        "minecraft:ruined_portal_ocean",
+        "minecraft:ruined_portal_swamp",
+        "minecraft:shipwreck",
+        "minecraft:shipwreck_beached",
+        "minecraft:stronghold",
+        "minecraft:swamp_hut",
+        "minecraft:trail_ruins",
+        "minecraft:trial_chambers",
+        "minecraft:village_desert",
+        "minecraft:village_plains",
+        "minecraft:village_savanna",
+        "minecraft:village_snowy",
+        "minecraft:village_taiga",
+    ];
+    #[doc = r" The vanilla structure with this path in the `minecraft` namespace."]
+    #[must_use]
+    pub fn vanilla(path: &str) -> Option<Self> {
+        match path {
             "abandoned_camp_bamboo_jungle" => Some(Self::AbandonedCampBambooJungle),
             "abandoned_camp_birch_forest" => Some(Self::AbandonedCampBirchForest),
             "abandoned_camp_cherry_grove" => Some(Self::AbandonedCampCherryGrove),
@@ -123,8 +181,13 @@ impl StructureKeys {
             _ => None,
         }
     }
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::vanilla(name.strip_prefix("minecraft:").unwrap_or(name))
+            .or_else(|| crate::structure_registry::custom_key(name))
+    }
+    #[doc = r" The path of a vanilla structure, or the full ID of a datapack one."]
     #[must_use]
-    pub const fn to_name(&self) -> &'static str {
+    pub fn to_name(&self) -> &'static str {
         match self {
             Self::AbandonedCampBambooJungle => "abandoned_camp_bamboo_jungle",
             Self::AbandonedCampBirchForest => "abandoned_camp_birch_forest",
@@ -178,64 +241,13 @@ impl StructureKeys {
             Self::VillageSavanna => "village_savanna",
             Self::VillageSnowy => "village_snowy",
             Self::VillageTaiga => "village_taiga",
+            Self::Custom(index) => crate::structure_registry::custom_name(*index),
         }
     }
+    #[doc = r" Every structure ID, including the ones datapacks added."]
     #[must_use]
-    pub const fn all_names() -> &'static [&'static str] {
-        &[
-            "minecraft:abandoned_camp_bamboo_jungle",
-            "minecraft:abandoned_camp_birch_forest",
-            "minecraft:abandoned_camp_cherry_grove",
-            "minecraft:abandoned_camp_dappled_forest",
-            "minecraft:abandoned_camp_flower_forest",
-            "minecraft:abandoned_camp_forest",
-            "minecraft:abandoned_camp_meadow",
-            "minecraft:abandoned_camp_old_growth_birch_forest",
-            "minecraft:abandoned_camp_old_growth_pine_taiga",
-            "minecraft:abandoned_camp_old_growth_spruce_taiga",
-            "minecraft:abandoned_camp_pale_garden",
-            "minecraft:abandoned_camp_savanna",
-            "minecraft:abandoned_camp_snowy_taiga",
-            "minecraft:abandoned_camp_sparse_jungle",
-            "minecraft:abandoned_camp_swamp",
-            "minecraft:abandoned_camp_taiga",
-            "minecraft:abandoned_camp_windswept_forest",
-            "minecraft:abandoned_camp_wooded_badlands",
-            "minecraft:ancient_city",
-            "minecraft:bastion_remnant",
-            "minecraft:buried_treasure",
-            "minecraft:desert_pyramid",
-            "minecraft:end_city",
-            "minecraft:fortress",
-            "minecraft:igloo",
-            "minecraft:jungle_pyramid",
-            "minecraft:mansion",
-            "minecraft:mineshaft",
-            "minecraft:mineshaft_mesa",
-            "minecraft:monument",
-            "minecraft:nether_fossil",
-            "minecraft:ocean_ruin_cold",
-            "minecraft:ocean_ruin_warm",
-            "minecraft:pillager_outpost",
-            "minecraft:ruined_portal",
-            "minecraft:ruined_portal_desert",
-            "minecraft:ruined_portal_jungle",
-            "minecraft:ruined_portal_mountain",
-            "minecraft:ruined_portal_nether",
-            "minecraft:ruined_portal_ocean",
-            "minecraft:ruined_portal_swamp",
-            "minecraft:shipwreck",
-            "minecraft:shipwreck_beached",
-            "minecraft:stronghold",
-            "minecraft:swamp_hut",
-            "minecraft:trail_ruins",
-            "minecraft:trial_chambers",
-            "minecraft:village_desert",
-            "minecraft:village_plains",
-            "minecraft:village_savanna",
-            "minecraft:village_snowy",
-            "minecraft:village_taiga",
-        ]
+    pub fn all_names() -> &'static [&'static str] {
+        crate::structure_registry::names().unwrap_or(Self::VANILLA_NAMES)
     }
 }
 pub struct StructureSet {
@@ -1976,8 +1988,33 @@ impl Structure {
         large_probability: None,
         structure_type: StructureType::Jigsaw,
     };
+    #[doc = r" Stands in for a custom structure that a set names but no file defines. It"]
+    #[doc = r" allows no biomes, so it never starts."]
+    pub const UNDEFINED: Self = Structure {
+        biomes: "",
+        step: GenerationStep::SurfaceStructures,
+        start_pool: None,
+        start_jigsaw_name: None,
+        size: None,
+        terrain_adaptation: TerrainAdaptation::None,
+        start_height: None,
+        project_start_to_heightmap: None,
+        max_distance_from_center: None,
+        liquid_settings: None,
+        dimension_padding: None,
+        use_expansion_hack: None,
+        pool_aliases: &[],
+        spawn_overrides: &[],
+        is_beached: None,
+        mineshaft_type: None,
+        biome_temp: None,
+        cluster_probability: None,
+        large_probability: None,
+        structure_type: StructureType::Unknown,
+    };
+    #[doc = r" The generated vanilla definition."]
     #[must_use]
-    pub const fn get(key: &StructureKeys) -> &'static Self {
+    pub const fn vanilla(key: &StructureKeys) -> &'static Self {
         match *key {
             StructureKeys::AbandonedCampBambooJungle => &Self::ABANDONED_CAMP_BAMBOO_JUNGLE,
             StructureKeys::AbandonedCampBirchForest => &Self::ABANDONED_CAMP_BIRCH_FOREST,
@@ -2037,7 +2074,13 @@ impl Structure {
             StructureKeys::VillageSavanna => &Self::VILLAGE_SAVANNA,
             StructureKeys::VillageSnowy => &Self::VILLAGE_SNOWY,
             StructureKeys::VillageTaiga => &Self::VILLAGE_TAIGA,
+            StructureKeys::Custom(_) => &Self::UNDEFINED,
         }
+    }
+    #[doc = r" The active definition, including datapack replacements."]
+    #[must_use]
+    pub fn get(key: &StructureKeys) -> &'static Self {
+        crate::structure_registry::structure(*key).unwrap_or_else(|| Self::vanilla(key))
     }
 }
 impl StructureSet {
@@ -2542,30 +2585,31 @@ impl StructureSet {
             weight: 1u32,
         }],
     };
-    pub const ALL: &'static [StructureSet] = &[
-        Self::ABANDONED_CAMP,
-        Self::ANCIENT_CITIES,
-        Self::BURIED_TREASURES,
-        Self::DESERT_PYRAMIDS,
-        Self::END_CITIES,
-        Self::IGLOOS,
-        Self::JUNGLE_TEMPLES,
-        Self::MINESHAFTS,
-        Self::NETHER_COMPLEXES,
-        Self::NETHER_FOSSILS,
-        Self::OCEAN_MONUMENTS,
-        Self::OCEAN_RUINS,
-        Self::PILLAGER_OUTPOSTS,
-        Self::RUINED_PORTALS,
-        Self::SHIPWRECKS,
-        Self::STRONGHOLDS,
-        Self::SWAMP_HUTS,
-        Self::TRAIL_RUINS,
-        Self::TRIAL_CHAMBERS,
-        Self::VILLAGES,
-        Self::WOODLAND_MANSIONS,
+    #[doc = r" The generated vanilla sets, in the same order as [`Self::NAMES`]."]
+    pub const VANILLA: &'static [&'static StructureSet] = &[
+        &Self::ABANDONED_CAMP,
+        &Self::ANCIENT_CITIES,
+        &Self::BURIED_TREASURES,
+        &Self::DESERT_PYRAMIDS,
+        &Self::END_CITIES,
+        &Self::IGLOOS,
+        &Self::JUNGLE_TEMPLES,
+        &Self::MINESHAFTS,
+        &Self::NETHER_COMPLEXES,
+        &Self::NETHER_FOSSILS,
+        &Self::OCEAN_MONUMENTS,
+        &Self::OCEAN_RUINS,
+        &Self::PILLAGER_OUTPOSTS,
+        &Self::RUINED_PORTALS,
+        &Self::SHIPWRECKS,
+        &Self::STRONGHOLDS,
+        &Self::SWAMP_HUTS,
+        &Self::TRAIL_RUINS,
+        &Self::TRIAL_CHAMBERS,
+        &Self::VILLAGES,
+        &Self::WOODLAND_MANSIONS,
     ];
-    #[doc = r" The registry names of all structure sets, in the same order as [`Self::ALL`]."]
+    #[doc = r" The registry names of the vanilla structure sets, without the `minecraft:` prefix."]
     pub const NAMES: &'static [&'static str] = &[
         "abandoned_camp",
         "ancient_cities",
@@ -2589,31 +2633,22 @@ impl StructureSet {
         "villages",
         "woodland_mansions",
     ];
+    #[doc = r" Every active set, vanilla ones first at their generated index."]
+    #[must_use]
+    pub fn all() -> &'static [&'static Self] {
+        crate::structure_registry::sets().map_or(Self::VANILLA, |(sets, _)| sets)
+    }
+    #[doc = r" The names of [`Self::all`], without the `minecraft:` prefix for vanilla's namespace."]
+    #[must_use]
+    pub fn names() -> &'static [&'static str] {
+        crate::structure_registry::sets().map_or(Self::NAMES, |(_, names)| names)
+    }
     #[must_use]
     pub fn get(name: &str) -> Option<&'static Self> {
-        match name {
-            "abandoned_camp" => Some(&Self::ABANDONED_CAMP),
-            "ancient_cities" => Some(&Self::ANCIENT_CITIES),
-            "buried_treasures" => Some(&Self::BURIED_TREASURES),
-            "desert_pyramids" => Some(&Self::DESERT_PYRAMIDS),
-            "end_cities" => Some(&Self::END_CITIES),
-            "igloos" => Some(&Self::IGLOOS),
-            "jungle_temples" => Some(&Self::JUNGLE_TEMPLES),
-            "mineshafts" => Some(&Self::MINESHAFTS),
-            "nether_complexes" => Some(&Self::NETHER_COMPLEXES),
-            "nether_fossils" => Some(&Self::NETHER_FOSSILS),
-            "ocean_monuments" => Some(&Self::OCEAN_MONUMENTS),
-            "ocean_ruins" => Some(&Self::OCEAN_RUINS),
-            "pillager_outposts" => Some(&Self::PILLAGER_OUTPOSTS),
-            "ruined_portals" => Some(&Self::RUINED_PORTALS),
-            "shipwrecks" => Some(&Self::SHIPWRECKS),
-            "strongholds" => Some(&Self::STRONGHOLDS),
-            "swamp_huts" => Some(&Self::SWAMP_HUTS),
-            "trail_ruins" => Some(&Self::TRAIL_RUINS),
-            "trial_chambers" => Some(&Self::TRIAL_CHAMBERS),
-            "villages" => Some(&Self::VILLAGES),
-            "woodland_mansions" => Some(&Self::WOODLAND_MANSIONS),
-            _ => None,
-        }
+        let name = name.strip_prefix("minecraft:").unwrap_or(name);
+        let index = Self::names()
+            .iter()
+            .position(|existing| *existing == name)?;
+        Self::all().get(index).copied()
     }
 }

@@ -314,6 +314,9 @@ impl Server {
                 .map_err(WorldInfoError::DeserializationError)?;
         }
         worldgen.set_biome_tags(datapack_manager.worldgen_biome_tags());
+        worldgen
+            .install_structures()
+            .map_err(WorldInfoError::DeserializationError)?;
         let dimensions = worldgen
             .resolve_dimensions(
                 dimensions,
