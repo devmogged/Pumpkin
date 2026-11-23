@@ -427,6 +427,27 @@ impl DatapackManager {
         })
     }
 
+    /// Item tags as seen by a vanilla client, whose registry contains only carrier items.
+    pub(crate) fn network_item_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
+        use pumpkin_data::{item::Item, tag::RegistryKey};
+
+        let mut tags = self.worldgen_tags("item", RegistryKey::Item, |name| {
+            Item::from_registry_key(name).map(|item| item.id)
+        });
+        for ids in tags.values_mut() {
+            ids.retain_mut(|id| {
+                let Some(item) = Item::from_id(*id) else {
+                    return false;
+                };
+                *id = item.vanilla_view().id;
+                true
+            });
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        tags
+    }
+
     pub(crate) fn worldgen_block_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
         self.worldgen_tags("block", pumpkin_data::tag::RegistryKey::Block, |name| {
             pumpkin_data::Block::from_registry_key(name).map(|block| block.id.as_u16())
