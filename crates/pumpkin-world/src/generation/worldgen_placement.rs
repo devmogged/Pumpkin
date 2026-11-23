@@ -34,8 +34,8 @@ use super::{
         SurfaceThresholdFilterPlacementModifier, SurfaceWaterDepthFilterPlacementModifier,
     },
     height_provider::{
-        HeightProvider, TrapezoidHeightProvider, UniformHeightProvider,
-        VeryBiasedToBottomHeightProvider,
+        BiasedToBottomHeightProvider, HeightProvider, TrapezoidHeightProvider,
+        UniformHeightProvider, VeryBiasedToBottomHeightProvider,
     },
     worldgen_overrides::{block_state, resource_id},
 };
@@ -46,6 +46,27 @@ pub(super) fn read<T: DeserializeOwned>(value: &Value) -> Result<T, String> {
 
 pub(super) fn field<T: DeserializeOwned>(value: &Value, key: &str) -> Result<T, String> {
     read(&value[key]).map_err(|error| format!("{key}: {error}"))
+}
+
+/// Reads an optional int field like vanilla's `Codec.INT` reads a Gson number: a fraction is
+/// dropped and a value past 32 bits keeps its low 32 bits.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Gson's LazilyParsedNumber.intValue truncates"
+)]
+pub(super) fn java_int(value: &Value, key: &str) -> Result<Option<i32>, String> {
+    let number = match &value[key] {
+        Value::Null => return Ok(None),
+        Value::Number(number) => number,
+        _ => return Err(format!("{key}: expected a number")),
+    };
+    let wide = match (number.as_i64(), number.as_u64(), number.as_f64()) {
+        (Some(int), _, _) => i128::from(int),
+        (None, Some(int), _) => i128::from(int),
+        (None, None, Some(float)) => float.trunc() as i128,
+        (None, None, None) => return Err(format!("{key}: expected a number")),
+    };
+    Ok(Some(wide as i32))
 }
 
 fn anchor(value: &Value) -> Result<pumpkin_util::y_offset::YOffset, String> {
@@ -75,6 +96,13 @@ pub(super) fn height(value: &Value) -> Result<HeightProvider, String> {
             max_inclusive,
             plateau: field(value, "plateau")?,
         })),
+        "biased_to_bottom" => Ok(HeightProvider::BiasedToBottom(
+            BiasedToBottomHeightProvider {
+                min_inclusive,
+                max_inclusive,
+                inner: field(value, "inner")?,
+            },
+        )),
         "very_biased_to_bottom" => Ok(HeightProvider::VeryBiasedToBottom(
             VeryBiasedToBottomHeightProvider {
                 min_inclusive,

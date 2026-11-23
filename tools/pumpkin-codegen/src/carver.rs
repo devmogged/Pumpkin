@@ -46,6 +46,7 @@ pub fn build() -> TokenStream {
             Constant(YOffset),
             Uniform(UniformHeightProvider),
             Trapezoid(TrapezoidHeightProvider),
+            BiasedToBottom(BiasedToBottomHeightProvider),
             VeryBiasedToBottom(VeryBiasedToBottomHeightProvider),
         }
 
@@ -60,6 +61,13 @@ pub fn build() -> TokenStream {
             pub min_inclusive: YOffset,
             pub max_inclusive: YOffset,
             pub plateau: Option<i32>,
+        }
+
+        #[derive(Clone, Debug)]
+        pub struct BiasedToBottomHeightProvider {
+            pub min_inclusive: YOffset,
+            pub max_inclusive: YOffset,
+            pub inner: Option<std::num::NonZero<u32>>,
         }
 
         #[derive(Clone, Debug)]

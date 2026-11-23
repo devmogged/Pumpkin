@@ -80,6 +80,12 @@ enum HeightDistribution {
         max_inclusive: YOffsetStruct,
         plateau: Option<i32>,
     },
+    #[serde(rename = "minecraft:biased_to_bottom", alias = "biased_to_bottom")]
+    BiasedToBottom {
+        min_inclusive: YOffsetStruct,
+        max_inclusive: YOffsetStruct,
+        inner: Option<NonZeroU32>,
+    },
     #[serde(
         rename = "minecraft:very_biased_to_bottom",
         alias = "very_biased_to_bottom"
@@ -134,6 +140,20 @@ impl CarverJson {
             }) => {
                 let plateau = plateau.map_or_else(|| quote!(None), |p| quote!(Some(#p)));
                 quote!(HeightProvider::Trapezoid(TrapezoidHeightProvider { min_inclusive: #min_inclusive, max_inclusive: #max_inclusive, plateau: #plateau }))
+            }
+            HeightJson::Provider(HeightDistribution::BiasedToBottom {
+                min_inclusive,
+                max_inclusive,
+                inner,
+            }) => {
+                let inner = inner.map_or_else(
+                    || quote!(None),
+                    |n| {
+                        let n = n.get();
+                        quote!(std::num::NonZero::new(#n))
+                    },
+                );
+                quote!(HeightProvider::BiasedToBottom(BiasedToBottomHeightProvider { min_inclusive: #min_inclusive, max_inclusive: #max_inclusive, inner: #inner }))
             }
             HeightJson::Provider(HeightDistribution::VeryBiasedToBottom {
                 min_inclusive,
@@ -204,9 +224,9 @@ impl CarverJson {
     #[must_use]
     pub fn build(self, registry_id: &'static str) -> pumpkin_data::carver::CarverConfig {
         use pumpkin_data::carver::{
-            CanyonCarverConfig, CanyonShapeConfig, CarverAdditionalConfig, CarverConfig,
-            CaveCarverConfig, HeightProvider, TrapezoidHeightProvider, UniformHeightProvider,
-            VeryBiasedToBottomHeightProvider,
+            BiasedToBottomHeightProvider, CanyonCarverConfig, CanyonShapeConfig,
+            CarverAdditionalConfig, CarverConfig, CaveCarverConfig, HeightProvider,
+            TrapezoidHeightProvider, UniformHeightProvider, VeryBiasedToBottomHeightProvider,
         };
         let y = match self.y {
             HeightJson::Anchor(anchor)
@@ -228,6 +248,15 @@ impl CarverJson {
                 min_inclusive: min_inclusive.into_offset(),
                 max_inclusive: max_inclusive.into_offset(),
                 plateau,
+            }),
+            HeightJson::Provider(HeightDistribution::BiasedToBottom {
+                min_inclusive,
+                max_inclusive,
+                inner,
+            }) => HeightProvider::BiasedToBottom(BiasedToBottomHeightProvider {
+                min_inclusive: min_inclusive.into_offset(),
+                max_inclusive: max_inclusive.into_offset(),
+                inner,
             }),
             HeightJson::Provider(HeightDistribution::VeryBiasedToBottom {
                 min_inclusive,

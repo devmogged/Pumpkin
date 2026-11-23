@@ -1,5 +1,5 @@
 pub use pumpkin_data::carver::{
-    HeightProvider, TrapezoidHeightProvider, UniformHeightProvider,
+    BiasedToBottomHeightProvider, HeightProvider, TrapezoidHeightProvider, UniformHeightProvider,
     VeryBiasedToBottomHeightProvider,
 };
 use pumpkin_util::random::{RandomGenerator, RandomImpl};
@@ -39,6 +39,17 @@ pub fn sample(
                 let l = (k - plateau) / 2;
                 let m = k - l;
                 i + random.next_inbetween_i32(0, m) + random.next_inbetween_i32(0, l)
+            }
+        }
+        HeightProvider::BiasedToBottom(p) => {
+            let min = resolve(&p.min_inclusive);
+            let max = resolve(&p.max_inclusive);
+            let inner = p.inner.map_or(1, std::num::NonZero::get) as i32;
+            if max - min - inner < 0 {
+                min
+            } else {
+                let limit = random.next_bounded_i32(max - min - inner + 1);
+                random.next_bounded_i32(limit + inner) + min
             }
         }
         HeightProvider::VeryBiasedToBottom(p) => {

@@ -13,6 +13,7 @@ pub enum HeightProvider {
     Constant(YOffset),
     Uniform(UniformHeightProvider),
     Trapezoid(TrapezoidHeightProvider),
+    BiasedToBottom(BiasedToBottomHeightProvider),
     VeryBiasedToBottom(VeryBiasedToBottomHeightProvider),
 }
 #[derive(Clone, Debug)]
@@ -25,6 +26,12 @@ pub struct TrapezoidHeightProvider {
     pub min_inclusive: YOffset,
     pub max_inclusive: YOffset,
     pub plateau: Option<i32>,
+}
+#[derive(Clone, Debug)]
+pub struct BiasedToBottomHeightProvider {
+    pub min_inclusive: YOffset,
+    pub max_inclusive: YOffset,
+    pub inner: Option<std::num::NonZero<u32>>,
 }
 #[derive(Clone, Debug)]
 pub struct VeryBiasedToBottomHeightProvider {
