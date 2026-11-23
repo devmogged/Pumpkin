@@ -1,17 +1,20 @@
 use std::sync::Arc;
 
-use pumpkin_data::{Block, BlockDirection, BlockState, Mirror, Rotation};
+use pumpkin_data::{
+    Block, BlockDirection, BlockState, BlockStateId, Mirror, Rotation,
+    structures::{Structure, StructureKeys},
+};
+use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_util::{
     math::{block_box::BlockBox, position::BlockPos, vector3::Vector3},
-    random::{
-        RandomDeriverImpl, RandomGenerator, RandomImpl, hash_block_pos, legacy_rand::LegacyRand,
-    },
+    random::{RandomDeriverImpl, RandomGenerator, RandomImpl, legacy_rand::LegacyRand},
 };
 
 use crate::{
     ProtoChunk,
     generation::{
         positions::chunk_pos::{start_block_x, start_block_z},
+        proto_chunk::GenerationCache,
         structure::{
             piece::StructurePieceType,
             structures::{
@@ -19,8 +22,9 @@ use crate::{
                 StructurePiecesCollector, StructurePosition, WorldPortalExt,
             },
             template::{
-                BlockStateResolver, StructurePlaceSettings, StructureTemplate, get_template,
-                processor::{IgnoredBlock, ProcessorContext, StructureProcessor},
+                BlockPlacer, StructurePlaceSettings, StructureTemplate, get_template,
+                place_template,
+                processor::{IgnoredBlock, StructureProcessor},
             },
         },
     },
@@ -43,13 +47,6 @@ pub const FOSSILS: [&str; 14] = [
     "nether_fossils/fossil_14",
 ];
 
-/// Vanilla height provider bounds for nether fossils.
-/// From `nether_fossil.json`: uniform(absolute=32, `below_top=2`).
-/// In vanilla Nether, generator gen depth is 128:
-/// `below_top=2`: height - 1 + `min_y` - offset = 128 - 1 + 0 - 2 = 125.
-const HEIGHT_MIN: i32 = 32;
-const HEIGHT_MAX: i32 = 125;
-
 pub struct NetherFossilGenerator;
 
 impl StructureGenerator for NetherFossilGenerator {
@@ -69,16 +66,12 @@ impl StructureGenerator for NetherFossilGenerator {
         let x = start_block_x(context.chunk_x) + context.random.next_bounded_i32(16);
         let z = start_block_z(context.chunk_z) + context.random.next_bounded_i32(16);
 
-        let structure = context
-            .structure_key
-            .map(|key| pumpkin_data::structures::Structure::get(&key));
-
-        let initial_y = if let Some(hp) = structure.and_then(|s| s.start_height) {
-            hp.get(&mut context.random, context.min_y as i8, context.height)
-        } else {
-            let height_range = HEIGHT_MAX - HEIGHT_MIN + 1;
-            HEIGHT_MIN + context.random.next_bounded_i32(height_range)
-        };
+        let structure =
+            Structure::get(&context.structure_key.unwrap_or(StructureKeys::NetherFossil));
+        let initial_y =
+            structure
+                .start_height?
+                .get(&mut context.random, context.min_y as i8, context.height);
 
         let mut y = initial_y;
         if let Some(sampler) = context.height_sampler.as_deref_mut() {
@@ -155,95 +148,45 @@ impl NetherFossilPiece {
         }
     }
 
-    fn place_blocks(&self, chunk: &mut ProtoChunk, chunk_box: &BlockBox) {
-        let rotation = self.place_settings.get_rotation();
-        let mirror = self.place_settings.get_mirror();
-        let pivot = self.place_settings.get_rotation_pivot();
-
-        let mut context_rng = LegacyRand::from_seed(hash_block_pos(
-            self.template_position.x,
-            self.template_position.y,
-            self.template_position.z,
-        ) as u64);
-        let mut context = ProcessorContext::new(
-            self.template_position,
+    fn place_fossil(&self, cache: &mut dyn GenerationCache, seed: i64, chunk_box: &BlockBox) {
+        let fossil_box = self.piece.bounding_box;
+        let mut enlarged_box = *chunk_box;
+        enlarged_box.encompass(&fossil_box);
+        place_template(
+            &mut FossilPlacer(cache),
+            &self.template,
+            // place_template normalizes rotated coordinates to the minimum corner.
+            fossil_box.min,
+            (0, 0),
+            self.place_settings.get_rotation(),
+            true,
+            false,
             self.place_settings.get_processors(),
-            &mut context_rng,
+            Some(&enlarged_box),
         );
-
-        for block in &self.template.blocks {
-            let palette_entry = &self.template.palette[block.state as usize];
-
-            let mut block_entity_nbt = block.nbt.clone();
-            let placed_entry = palette_entry.clone();
-
-            let Some(state) = BlockStateResolver::resolve(&placed_entry, rotation, mirror) else {
-                continue;
-            };
-
-            let local_pos =
-                StructureTemplate::transform_block_pos(block.pos, mirror, rotation, pivot);
-            let world_pos = self.template_position + local_pos;
-
-            if !chunk_box.contains_pos(&world_pos) {
-                continue;
-            }
-
-            let mut processed_state = Some(state);
-            let mut capped_idx = 0;
-            for processor in self.place_settings.get_processors() {
-                let Some(current_state) = processed_state else {
-                    break;
-                };
-                processed_state = processor.process_with_context(
-                    chunk,
-                    world_pos,
-                    current_state,
-                    &mut block_entity_nbt,
-                    &mut context,
-                    &mut capped_idx,
-                    &mut context_rng,
-                );
-            }
-
-            let Some(final_state) = processed_state else {
-                continue;
-            };
-
-            chunk.set_block_state(world_pos.x, world_pos.y, world_pos.z, final_state);
-        }
+        Self::place_dried_ghast(cache, seed, &fossil_box, &enlarged_box);
     }
 
     fn place_dried_ghast(
-        chunk: &mut ProtoChunk,
+        cache: &mut dyn GenerationCache,
         seed: i64,
-        fossil_bb: &BlockBox,
-        chunk_bb: &BlockBox,
+        fossil_box: &BlockBox,
+        chunk_box: &BlockBox,
     ) {
-        use pumpkin_util::random::xoroshiro128::Xoroshiro;
+        let size = fossil_box.max - fossil_box.min + Vector3::new(1, 1, 1);
+        let center = fossil_box.min + Vector3::new(size.x / 2, size.y / 2, size.z / 2);
+        let splitter = LegacyRand::from_seed(seed as u64).next_splitter();
+        let mut random = splitter.split_pos(center.x, center.y, center.z);
 
-        let center_x = i32::midpoint(fossil_bb.min.x, fossil_bb.max.x);
-        let center_y = i32::midpoint(fossil_bb.min.y, fossil_bb.max.y);
-        let center_z = i32::midpoint(fossil_bb.min.z, fossil_bb.max.z);
-
-        let mut rng = RandomGenerator::Xoroshiro(Xoroshiro::from_seed(seed as u64));
-        let splitter = rng.next_splitter();
-        let mut positional_random = splitter.split_pos(center_x, center_y, center_z);
-
-        if positional_random.next_f32() < 0.5 {
-            let x_span = (fossil_bb.max.x - fossil_bb.min.x + 1).max(1);
-            let z_span = (fossil_bb.max.z - fossil_bb.min.z + 1).max(1);
-            let x = fossil_bb.min.x + positional_random.next_bounded_i32(x_span);
-            let y = fossil_bb.min.y;
-            let z = fossil_bb.min.z + positional_random.next_bounded_i32(z_span);
-            let random_pos = Vector3::new(x, y, z);
-
-            let block_at = chunk.get_block_state(&random_pos);
-            if BlockState::from_id(block_at).is_air() && chunk_bb.contains_pos(&random_pos) {
-                let rot_idx = positional_random.next_bounded_i32(4) as u8;
-                let rot = Rotation::from_index(rot_idx);
-                let state = Block::DRIED_GHAST.default_state.rotate(rot);
-                chunk.set_block_state(random_pos.x, random_pos.y, random_pos.z, state);
+        if random.next_f32() < 0.5 {
+            let pos = Vector3::new(
+                fossil_box.min.x + random.next_bounded_i32(size.x),
+                fossil_box.min.y,
+                fossil_box.min.z + random.next_bounded_i32(size.z),
+            );
+            if cache.is_air(&pos) && chunk_box.contains_pos(&pos) {
+                let rotation = Rotation::from_index(random.next_bounded_i32(4) as u8);
+                cache.set_block_state(&pos, Block::DRIED_GHAST.default_state.rotate(rotation));
             }
         }
     }
@@ -267,12 +210,37 @@ impl StructurePieceBase for NetherFossilPiece {
         seed: i64,
         chunk_box: &BlockBox,
     ) {
-        let fossil_bb = self.piece.bounding_box;
-        let mut enlarged_box = *chunk_box;
-        enlarged_box.encompass(&fossil_bb);
+        self.place_fossil(chunk, seed, chunk_box);
+    }
 
-        self.place_blocks(chunk, &enlarged_box);
-        Self::place_dried_ghast(chunk, seed, &fossil_bb, chunk_box);
+    fn place_in_cache(
+        &mut self,
+        cache: &mut dyn GenerationCache,
+        _block_registry: &dyn WorldPortalExt,
+        _random: &mut RandomGenerator,
+        seed: i64,
+        chunk_box: &BlockBox,
+    ) {
+        self.place_fossil(cache, seed, chunk_box);
+    }
+}
+
+struct FossilPlacer<'a>(&'a mut dyn GenerationCache);
+
+impl BlockPlacer for FossilPlacer<'_> {
+    fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId {
+        GenerationCache::get_block_state(self.0, pos)
+    }
+
+    fn set_block_state(&mut self, pos: &Vector3<i32>, state: &BlockState) {
+        self.0.set_block_state(pos, state);
+    }
+
+    fn add_block_entity(&mut self, nbt: NbtCompound) {
+        if let (Some(x), Some(y), Some(z)) = (nbt.get_int("x"), nbt.get_int("y"), nbt.get_int("z"))
+        {
+            self.0.add_block_entity(&Vector3::new(x, y, z), nbt);
+        }
     }
 }
 
@@ -319,6 +287,67 @@ mod tests {
                 Some(Block::NETHERRACK.default_state)
             }
         }
+    }
+
+    #[test]
+    fn nether_fossil_writes_its_template_across_the_chunk_border() {
+        use crate::chunk_system::{Cache, Chunk};
+        use crate::generation::{
+            get_world_gen,
+            proto_chunk_test::stage_parity::TestBlockRegistry,
+            structure::template::{PaletteEntry, TemplateBlock},
+        };
+        use pumpkin_data::dimension::Dimension;
+        use pumpkin_util::world_seed::Seed;
+
+        let generator = get_world_gen(
+            Seed(42),
+            Dimension::THE_NETHER,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut cache = Cache::new(-1, -1, 3);
+        for x in -1..=1 {
+            for z in -1..=1 {
+                cache
+                    .chunks
+                    .push(Chunk::Proto(Box::new(ProtoChunk::new(x, z, &generator))));
+            }
+        }
+
+        let mut template = StructureTemplate::default();
+        template.size = Vector3::new(1, 1, 2);
+        template
+            .palette
+            .push(PaletteEntry::new("minecraft:bone_block".into()));
+        template.blocks.push(TemplateBlock {
+            pos: Vector3::new(0, 0, 0),
+            state: 0,
+            nbt: None,
+        });
+        let mut collector = StructurePiecesCollector::default();
+        collector.add_piece(Box::new(NetherFossilPiece::new(
+            Arc::new(template),
+            "border_fixture".into(),
+            Vector3::new(16, 64, 8),
+            Rotation::Clockwise90,
+        )));
+        collector.generate_in_chunk(
+            &mut cache,
+            &TestBlockRegistry,
+            &mut crate::generation::structure::structures::create_chunk_random(42, 0, 0),
+            42,
+        );
+
+        assert_eq!(
+            GenerationCache::get_block_state(&cache, &Vector3::new(16, 64, 8)).to_block_id(),
+            Block::BONE_BLOCK.id
+        );
+        assert_ne!(
+            GenerationCache::get_block_state(&cache, &Vector3::new(17, 64, 8)).to_block_id(),
+            Block::BONE_BLOCK.id
+        );
     }
 
     #[test]

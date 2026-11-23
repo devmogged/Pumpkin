@@ -10,6 +10,7 @@ use pumpkin_util::{
 };
 use tracing::trace;
 
+use crate::generation::proto_chunk::GenerationCache;
 use crate::generation::structure::structures::stronghold::StrongholdPieceType;
 pub use crate::world::WorldPortalExt;
 use crate::{
@@ -67,6 +68,23 @@ pub trait StructurePieceBase: Send + Sync {
         seed: i64,
         _chunk_box: &BlockBox,
     );
+
+    fn place_in_cache(
+        &mut self,
+        cache: &mut dyn GenerationCache,
+        block_registry: &dyn WorldPortalExt,
+        random: &mut RandomGenerator,
+        seed: i64,
+        chunk_box: &BlockBox,
+    ) {
+        self.place(
+            cache.get_center_chunk_mut(),
+            block_registry,
+            random,
+            seed,
+            chunk_box,
+        );
+    }
 
     #[expect(clippy::too_many_arguments)]
     fn fill_openings(
@@ -733,11 +751,12 @@ impl StructurePiecesCollector {
     /// Iterates over all pieces and generates them if they intersect the current chunk.
     pub fn generate_in_chunk(
         &mut self,
-        chunk: &mut ProtoChunk,
+        cache: &mut dyn GenerationCache,
         block_registry: &dyn WorldPortalExt,
         random: &mut RandomGenerator,
         seed: i64,
     ) {
+        let chunk = cache.get_center_chunk();
         let chunk_x = start_block_x(chunk.x);
         let chunk_z = start_block_z(chunk.z);
         let chunk_box = BlockBox::new(
@@ -751,7 +770,7 @@ impl StructurePiecesCollector {
 
         for piece in &mut self.pieces {
             if piece.bounding_box().intersects(&chunk_box) {
-                piece.place(chunk, block_registry, random, seed, &chunk_box);
+                piece.place_in_cache(cache, block_registry, random, seed, &chunk_box);
             }
         }
     }
