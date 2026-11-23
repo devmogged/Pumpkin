@@ -12,7 +12,7 @@ use pumpkin_util::text::hover::HoverEvent;
 use pumpkin_util::text::{TextComponent, color::NamedColor};
 use pumpkin_world::generation::generator::biome_finder::find_closest_biome_3d;
 use pumpkin_world::generation::generator::structure_finder::{
-    StructureSearch, find_nearest_structure, find_nearest_structure_start,
+    StructureSearch, find_nearest_structure, find_nearest_structure_start_in_sets,
 };
 use rustc_hash::FxHashSet;
 
@@ -126,11 +126,9 @@ fn result_name(searched: &ResourceOrTag, found: &str) -> String {
 /// `None` means the id or tag is unknown; a known empty tag is still valid.
 fn wanted_structures(searched: &ResourceOrTag) -> Option<Vec<StructureKeys>> {
     match searched {
-        ResourceOrTag::Resource(id) => id
-            .is_vanilla()
-            .then(|| StructureKeys::from_name(id.path()))
-            .flatten()
-            .map(|key| vec![key]),
+        ResourceOrTag::Resource(id) => {
+            StructureKeys::from_name(&id.to_string()).map(|key| vec![key])
+        }
         ResourceOrTag::Tag(id) => {
             tag::get_tag_values(RegistryKey::WorldgenStructure, &id.to_string()).map(|names| {
                 names
@@ -234,10 +232,11 @@ impl CommandExecutor for LocateStructureExecutor {
 
         let origin = BlockPos::floored_v(context.source.position);
 
-        let mut found: Option<(BlockPos, StructureKeys)> = None;
-        for (set_index, keys) in scans {
-            let set = StructureSet::all()[set_index];
-            let nearest = match &set.placement.placement_type {
+        let mut spread_searches = Vec::new();
+        let mut candidates = Vec::new();
+        for (set_index, keys) in &scans {
+            let set = StructureSet::all()[*set_index];
+            match &set.placement.placement_type {
                 // Strongholds come out of the pre-computed ring cache, which
                 // already holds positions they really occupy. A concentric-ring
                 // set holds exactly one structure, so the hit is unambiguous.
@@ -252,37 +251,34 @@ impl CommandExecutor for LocateStructureExecutor {
                         )
                     });
                     match search {
-                        Some(StructureSearch::Found(pos)) => Some((pos, keys[0])),
+                        Some(StructureSearch::Found(pos)) => candidates.push((pos, keys[0])),
                         Some(StructureSearch::Pending) => {
                             return Err(STRUCTURE_PENDING_ERROR_TYPE.create_without_context());
                         }
-                        Some(StructureSearch::NotFound) | None => None,
+                        Some(StructureSearch::NotFound) | None => {}
                     }
                 }
-                // Everything else is spread over a grid whose candidate chunks
-                // are only *possible* sites: the biome at a candidate can still
-                // reject every structure in the set. Resolving the start makes
-                // sure the reported position actually holds one, and says which.
-                StructurePlacementType::RandomSpread(_) => find_nearest_structure_start(
-                    origin,
-                    set,
-                    &keys,
-                    STRUCTURE_SEARCH_RADIUS,
-                    &world_gen,
-                ),
-            };
-
-            if let Some((pos, key)) = nearest
-                && found.as_ref().is_none_or(|(best, _)| {
-                    horizontal_distance_exact(&origin, &pos)
-                        < horizontal_distance_exact(&origin, best)
-                })
-            {
-                found = Some((pos, key));
+                StructurePlacementType::RandomSpread(_) => {
+                    spread_searches.push((set, keys.as_slice()));
+                }
             }
         }
+        // Grid candidates are only possible sites: the biome can still reject every
+        // structure in the set. Vanilla walks all grid placements ring by ring together
+        // and resolves the starts, so the reported position really holds one.
+        if !spread_searches.is_empty() {
+            candidates.extend(find_nearest_structure_start_in_sets(
+                origin,
+                &spread_searches,
+                STRUCTURE_SEARCH_RADIUS,
+                &world_gen,
+            ));
+        }
 
-        let Some((target, key)) = found else {
+        let nearest = candidates.into_iter().min_by(|(a, _), (b, _)| {
+            horizontal_distance_exact(&origin, a).total_cmp(&horizontal_distance_exact(&origin, b))
+        });
+        let Some((target, key)) = nearest else {
             return Err(STRUCTURE_NOT_FOUND_ERROR_TYPE
                 .create_without_context(TextComponent::text(searched.printable())));
         };
