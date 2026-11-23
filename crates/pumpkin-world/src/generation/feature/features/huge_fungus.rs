@@ -26,7 +26,7 @@ impl HugeFungusFeature {
         chunk: &mut T,
         block_registry: &dyn WorldPortalExt,
         _min_y: i8,
-        _height: u16,
+        height: u16,
         _feature: pumpkin_data::placed_feature::PlacedFeature,
         random: &mut RandomGenerator,
         pos: BlockPos,
@@ -43,7 +43,7 @@ impl HugeFungusFeature {
             total_height *= 2;
         }
 
-        if !self.planted && pos.0.y + total_height + 1 >= chunk.top_y() as i32 {
+        if !self.planted && pos.0.y + total_height + 1 >= i32::from(height) {
             return false;
         }
 
@@ -244,4 +244,58 @@ impl HugeFungusFeature {
             );
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use pumpkin_data::{
+        configured_feature::ConfiguredFeature as ConfiguredId, dimension::Dimension,
+        placed_feature::PlacedFeature,
+    };
+    use pumpkin_util::{random::worldgen_random::WorldgenRandom, world_seed::Seed};
+
+    use crate::generation::{
+        feature::configured_features::{CONFIGURED_FEATURES, ConfiguredFeature},
+        get_world_gen,
+        proto_chunk::ProtoChunk,
+        proto_chunk_test::stage_parity::TestBlockRegistry,
+    };
+
+    use super::*;
+
+    fn grow_crimson_fungus(y: i32) -> (bool, ProtoChunk) {
+        let generator = get_world_gen(
+            Seed(42),
+            Dimension::THE_NETHER,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut chunk = ProtoChunk::new(0, 0, &generator);
+        chunk.set_block_state(8, y - 1, 8, Block::CRIMSON_NYLIUM.default_state);
+        let height = chunk.generation_height();
+        let ConfiguredFeature::HugeFungus(feature) =
+            &CONFIGURED_FEATURES[&ConfiguredId::CrimsonFungus]
+        else {
+            panic!("crimson fungus must be a huge fungus feature");
+        };
+        let placed = feature.generate(
+            &mut chunk,
+            &TestBlockRegistry,
+            0,
+            height,
+            PlacedFeature::CrimsonFungi,
+            &mut RandomGenerator::Worldgen(WorldgenRandom::from_seed(42)),
+            BlockPos::new(8, y, 8),
+        );
+        (placed, chunk)
+    }
+
+    #[test]
+    fn wild_huge_fungus_respects_the_generator_ceiling() {
+        let (placed, chunk) = grow_crimson_fungus(124);
+        assert!(!placed);
+        assert!(chunk.is_air(&BlockPos::new(8, 124, 8).0));
+    }
+
 }
