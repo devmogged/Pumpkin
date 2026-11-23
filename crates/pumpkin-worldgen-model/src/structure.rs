@@ -22,6 +22,21 @@ pub struct WeightedEntryStruct {
     pub weight: u32,
 }
 
+/// Reads an integer like vanilla's `ExtraCodecs.NON_NEGATIVE_INT` through Gson, whose
+/// `intValue()` keeps the low 32 bits of a larger number.
+fn java_non_negative_int<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let value = i64::deserialize(deserializer)?;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Gson's LazilyParsedNumber.intValue truncates a long"
+    )]
+    let int = value as i32;
+    u32::try_from(int)
+        .map_err(|_| serde::de::Error::custom(format!("value must be non-negative: {value}")))
+}
+
 /// Deserialized placement configuration for a structure set.
 #[derive(Deserialize)]
 pub struct StructurePlacementStruct {
@@ -30,6 +45,7 @@ pub struct StructurePlacementStruct {
     /// Optional probability (0–1) that a candidate chunk actually spawns the structure.
     pub frequency: Option<f32>,
     /// Per-structure salt mixed into the placement RNG seed.
+    #[serde(deserialize_with = "java_non_negative_int")]
     pub salt: u32,
     /// Optional exclusion zone to prevent this structure from generating near others.
     pub exclusion_zone: Option<ExclusionZoneStruct>,
