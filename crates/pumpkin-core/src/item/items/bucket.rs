@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 
 use crate::{
     entity::{EntityBase, player::Player, r#type::from_type},
@@ -32,6 +32,35 @@ use crate::world::World;
 pub struct EmptyBucketItem;
 pub struct FilledBucketItem;
 pub struct MilkBucketItem;
+
+/// Registered water buckets for custom fish that use a vanilla bucketable carrier.
+pub trait CustomFishBuckets: Send + Sync {
+    fn bucket_for(&self, mob: &dyn EntityBase) -> Option<&'static Item>;
+    fn contains(&self, item: &Item) -> bool;
+    fn create(
+        &self,
+        item: &Item,
+        world: &Arc<World>,
+        position: Vector3<f64>,
+    ) -> Option<Arc<dyn EntityBase>>;
+}
+
+static CUSTOM_FISH_BUCKETS: OnceLock<Box<dyn CustomFishBuckets>> = OnceLock::new();
+
+pub fn install_custom_fish_buckets(buckets: Box<dyn CustomFishBuckets>) -> bool {
+    CUSTOM_FISH_BUCKETS.set(buckets).is_ok()
+}
+
+pub(crate) fn custom_fish_bucket_for(mob: &dyn EntityBase) -> Option<&'static Item> {
+    CUSTOM_FISH_BUCKETS.get()?.bucket_for(mob)
+}
+
+pub(crate) fn is_custom_fish_bucket(item: &Item) -> bool {
+    item.id >= Item::VANILLA_COUNT
+        && CUSTOM_FISH_BUCKETS
+            .get()
+            .is_some_and(|buckets| buckets.contains(item))
+}
 
 impl ItemMetadata for EmptyBucketItem {
     fn ids() -> Box<[u16]> {
@@ -83,8 +112,10 @@ const fn get_mob_for_bucket(item: &Item) -> Option<(&'static EntityType, Sound)>
     }
 }
 
-const fn get_empty_sound(item: &Item) -> Sound {
-    if let Some((_, sound)) = get_mob_for_bucket(item) {
+fn get_empty_sound(item: &Item) -> Sound {
+    if is_custom_fish_bucket(item) {
+        Sound::ItemBucketEmptyFish
+    } else if let Some((_, sound)) = get_mob_for_bucket(item) {
         sound
     } else if item.id == Item::LAVA_BUCKET.id {
         Sound::ItemBucketEmptyLava
@@ -472,6 +503,9 @@ fn finish_empty_filled_bucket(
     player: Option<&Player>,
 ) {
     let item = bucket_stack.item;
+    let vanilla_mob = get_mob_for_bucket(item);
+    let custom_fish = is_custom_fish_bucket(item);
+    let has_mob = custom_fish || vanilla_mob.is_some();
     if item.id == Item::SULFUR_CUBE_BUCKET.id {
         world.play_sound(
             get_empty_sound(item),
@@ -479,7 +513,7 @@ fn finish_empty_filled_bucket(
             &place_pos.to_f64(),
         );
     } else if item.id != Item::POWDER_SNOW_BUCKET.id && !should_evaporate_in_nether(item, world) {
-        let sound_category = if get_mob_for_bucket(item).is_some() {
+        let sound_category = if has_mob {
             SoundCategory::Neutral
         } else {
             SoundCategory::Blocks
@@ -487,7 +521,7 @@ fn finish_empty_filled_bucket(
 
         world.play_sound(get_empty_sound(item), sound_category, &place_pos.to_f64());
         world.emit_game_event(GameEvent::FluidPlace.name(), place_pos.to_f64());
-    } else if get_mob_for_bucket(item).is_some() && should_evaporate_in_nether(item, world) {
+    } else if has_mob && should_evaporate_in_nether(item, world) {
         world.play_sound(
             get_empty_sound(item),
             SoundCategory::Neutral,
@@ -495,13 +529,22 @@ fn finish_empty_filled_bucket(
         );
     }
 
-    if let Some((entity_type, _)) = get_mob_for_bucket(item) {
+    if has_mob {
         let spawn_coord = Vector3::new(
             f64::from(place_pos.0.x) + 0.5,
             f64::from(place_pos.0.y),
             f64::from(place_pos.0.z) + 0.5,
         );
-        let mob = from_type(entity_type, spawn_coord, world, Uuid::new_v4());
+        let mob = if let Some((entity_type, _)) = vanilla_mob {
+            from_type(entity_type, spawn_coord, world, Uuid::new_v4())
+        } else if let Some(mob) = CUSTOM_FISH_BUCKETS
+            .get()
+            .and_then(|buckets| buckets.create(item, world, spawn_coord))
+        {
+            mob
+        } else {
+            return;
+        };
         if mob.get_mob().and_then(|mob| mob.as_bucketable()).is_some() {
             crate::entity::mob::spawn::finalize_spawn(
                 &mob,

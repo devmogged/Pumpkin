@@ -89,13 +89,15 @@ pub fn bucket_mob_pickup(
     {
         return None;
     }
+    let bucket_item = crate::item::items::bucket::custom_fish_bucket_for(mob)
+        .unwrap_or_else(|| mob.bucket_item());
     let world = entity.world.load();
     if let Some(server) = world.server.upgrade() {
         let mut event =
             crate::plugin::api::events::player::player_bucket_entity::PlayerBucketEntityEvent {
                 player: player.clone(),
                 entity_id: entity.entity_id,
-                bucket_item: mob.bucket_item().registry_key.to_string(),
+                bucket_item: bucket_item.registry_key.to_string(),
                 cancelled: false,
             };
         server.plugin_manager.fire_blocking(&server, &mut event);
@@ -110,7 +112,7 @@ pub fn bucket_mob_pickup(
             &entity.pos.load(),
         );
     }
-    let mut bucket = ItemStack::new(1, mob.bucket_item());
+    let mut bucket = ItemStack::new(1, bucket_item);
     mob.save_to_bucket_tag(&mut bucket);
     crate::item::items::bucket::give_filled_mob_bucket(stack, player, bucket);
     let leashed = entity.is_leashed();

@@ -65,6 +65,9 @@ impl ItemRegistry {
 
         if let Some(pumpkin_item) = self.get_pumpkin_item(item.id) {
             pumpkin_item.normal_use_with_hand(item, player, yaw, pitch, hand);
+        } else if crate::item::items::bucket::is_custom_fish_bucket(item) {
+            crate::item::items::bucket::FilledBucketItem
+                .normal_use_with_hand(item, player, yaw, pitch, hand);
         } else if stack
             .get_data_component::<pumpkin_data::data_component_impl::KineticWeaponImpl>()
             .is_some()
