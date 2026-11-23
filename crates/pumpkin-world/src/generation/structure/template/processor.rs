@@ -749,7 +749,7 @@ enum RawBlockStateOrName {
 
 #[derive(Deserialize, Debug)]
 struct RawRule {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_pos_rule_test")]
     position_predicate: Option<RawPosRuleTest>,
     input_predicate: RawRuleTest,
     #[serde(default)]
@@ -858,6 +858,15 @@ enum RawPosRuleTest {
         #[serde(default)]
         max_chance: f32,
     },
+}
+
+/// Vanilla reads `position_predicate` with `lenientOptionalFieldOf`: one that fails to parse
+/// counts as absent, so the rule always passes the position test.
+fn lenient_pos_rule_test<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RawPosRuleTest>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(RawPosRuleTest::deserialize(value).ok())
 }
 
 fn default_axis() -> String {
