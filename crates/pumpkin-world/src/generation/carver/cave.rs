@@ -271,8 +271,10 @@ impl CaveCarver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ProtoChunk;
     use pumpkin_data::carver::CAVE;
     use pumpkin_data::{Block, BlockStateId, dimension::Dimension};
+    use pumpkin_util::math::position::BlockPos;
 
     type Run<'a, 'b> = super::super::CarveRun<'a, 'b>;
 
@@ -324,12 +326,21 @@ mod tests {
             let (x, y, z, expected_state) =
                 find_aquifer_carve_state(run, |state, schedule| state.is_liquid() && schedule)
                     .expect("expected scheduled aquifer fluid in test chunk");
+            let marks_at_position = |chunk: &ProtoChunk| {
+                chunk
+                    .post_processing
+                    .clone()
+                    .positions(chunk.x, chunk.z, i32::from(chunk.bottom_y()))
+                    .filter(|pos| *pos == BlockPos::new(x, y, z))
+                    .count()
+            };
+            let old_mark_count = marks_at_position(run.chunk);
             let old_tick_count = run.chunk.fluid_ticks.len();
 
             carve_at(run, x, y, z, Block::STONE.default_state, expected_state.id);
-            assert_eq!(run.chunk.fluid_ticks.len(), old_tick_count + 1);
-            let pos = run.chunk.fluid_ticks.last().unwrap().position.0;
-            assert_eq!((pos.x, pos.y, pos.z), (x, y, z));
+
+            assert_eq!(marks_at_position(run.chunk), old_mark_count + 1);
+            assert_eq!(run.chunk.fluid_ticks.len(), old_tick_count);
         });
     }
 

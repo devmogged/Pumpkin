@@ -2,12 +2,14 @@ use std::collections::HashSet;
 
 use pumpkin_data::{
     Block, BlockDirection, BlockId, BlockState,
+    fluid::Fluid,
     tag::{RegistryKey, get_registry_key_tags},
 };
 use pumpkin_util::version::JavaMinecraftVersion;
 use pumpkin_util::{math::position::BlockPos, random::RandomGenerator};
 
 use crate::generation::proto_chunk::GenerationCache;
+use crate::tick::{ScheduledTick, TickPriority};
 use crate::world::WorldPortalExt;
 
 pub struct SpringFeatureFeature {
@@ -158,6 +160,16 @@ impl SpringFeatureFeature {
         }
         if valid == self.rock_count && air == self.hole_count {
             chunk.set_block_state(&pos.0, self.state);
+            if let Some(fluid) =
+                Fluid::from_state_id(self.state.id).filter(|fluid| **fluid != Fluid::EMPTY)
+            {
+                chunk.schedule_fluid_tick(ScheduledTick {
+                    position: pos,
+                    delay: 0,
+                    priority: TickPriority::Normal,
+                    value: fluid,
+                });
+            }
             return true;
         }
         false

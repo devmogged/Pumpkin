@@ -19,6 +19,8 @@ pub struct ChunkLoading {
 impl ChunkLoading {
     // pub const FULL_CHUNK_LEVEL: i8 = 33;
     pub const FULL_CHUNK_LEVEL: i8 = 43;
+    // Ticking and client-visible chunks need a full border for post-processing.
+    const TICKING_CHUNK_LEVEL: i8 = Self::FULL_CHUNK_LEVEL - 1;
     pub const MAX_LEVEL: i8 = 49; // level 49 will be unloaded.
     fn debug_check_error(&self) -> bool {
         let mut temp = ChunkLevel::default();
@@ -104,13 +106,13 @@ impl ChunkLoading {
     #[inline]
     #[must_use]
     pub const fn get_level_from_view_distance(view_distance: u8) -> i8 {
-        Self::FULL_CHUNK_LEVEL - (view_distance as i8)
+        Self::TICKING_CHUNK_LEVEL - (view_distance as i8)
     }
 
     #[inline]
     #[must_use]
     pub const fn get_level_from_simulation_distance(simulation_distance: u8) -> i8 {
-        Self::FULL_CHUNK_LEVEL - (simulation_distance as i8)
+        Self::TICKING_CHUNK_LEVEL - (simulation_distance as i8)
     }
 
     pub fn new(sender: Arc<LevelChannel>) -> Self {
@@ -177,7 +179,7 @@ impl ChunkLoading {
         // debug!("add force ticket at {pos:?}");
         self.high_priority.push(pos);
         self.is_priority_dirty = true;
-        self.add_ticket(pos, Self::FULL_CHUNK_LEVEL);
+        self.add_ticket(pos, Self::TICKING_CHUNK_LEVEL);
     }
 
     pub fn remove_force_ticket(&mut self, pos: ChunkPos) {
@@ -186,7 +188,7 @@ impl ChunkLoading {
             self.high_priority.remove(index);
         }
         self.is_priority_dirty = true;
-        self.remove_ticket(pos, Self::FULL_CHUNK_LEVEL);
+        self.remove_ticket(pos, Self::TICKING_CHUNK_LEVEL);
     }
 
     pub fn add_ticket(&mut self, pos: ChunkPos, level: i8) {

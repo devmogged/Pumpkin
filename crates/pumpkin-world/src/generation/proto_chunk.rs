@@ -78,6 +78,21 @@ pub trait GenerationCache: HeightLimitView + BlockAccessor {
     fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState);
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState);
     fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound);
+    fn mark_above_for_post_processing(&mut self, pos: BlockPos) {
+        let mut above = pos;
+        for _ in 0..2 {
+            above = above.up();
+            if self.is_air(&above.0) {
+                break;
+            }
+            self.mark_pos_for_post_processing(above);
+        }
+    }
+    fn mark_pos_for_post_processing(&mut self, pos: BlockPos) {
+        if let Some(chunk) = self.get_chunk_mut(pos.0.x >> 4, pos.0.z >> 4) {
+            chunk.mark_pos_for_post_processing(pos);
+        }
+    }
     fn schedule_block_tick(&mut self, tick: ScheduledTick<&'static Block>) {
         if let Some(chunk) = self.get_chunk_mut(tick.position.0.x >> 4, tick.position.0.z >> 4) {
             chunk.block_ticks.push(tick);
@@ -171,6 +186,7 @@ pub struct ProtoChunk {
     pending_structure_entities: Vec<NbtCompound>,
     pub block_ticks: Vec<ScheduledTick<&'static Block>>,
     pub fluid_ticks: Vec<ScheduledTick<&'static Fluid>>,
+    pub(crate) post_processing: crate::chunk::post_processing::PostProcessing,
     pub(crate) surface_height_cache: FxHashMap<u64, i32>,
     pub(crate) aquifer_sampler:
         Option<Box<crate::generation::noise::aquifer_sampler::WorldAquiferSampler>>,
@@ -316,6 +332,7 @@ impl ProtoChunk {
             pending_structure_entities: Vec::new(),
             block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
+            post_processing: crate::chunk::post_processing::PostProcessing::default(),
             surface_height_cache: FxHashMap::default(),
             aquifer_sampler: None,
         }
@@ -343,6 +360,11 @@ impl ProtoChunk {
         // becomes active, and so saving the chunk again does not drop them.
         proto_chunk.block_ticks = chunk_data.block_ticks.to_vec();
         proto_chunk.fluid_ticks = chunk_data.fluid_ticks.to_vec();
+        proto_chunk.post_processing = chunk_data
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         proto_chunk.pending_block_entities = chunk_data
             .pending_block_entities
             .lock()
@@ -523,6 +545,18 @@ impl ProtoChunk {
 
     pub fn take_pending_structure_entities(&mut self) -> Vec<NbtCompound> {
         std::mem::take(&mut self.pending_structure_entities)
+    }
+
+    pub(crate) fn set_generation_block_state(&mut self, pos: &Vector3<i32>, state: &BlockState) {
+        self.set_block_state(pos.x, pos.y, pos.z, state);
+        if let Some(pos) = crate::chunk::post_processing::post_process_pos(state, BlockPos(*pos)) {
+            self.mark_pos_for_post_processing(pos);
+        }
+    }
+
+    pub fn mark_pos_for_post_processing(&mut self, pos: BlockPos) {
+        self.post_processing
+            .mark(pos, i32::from(self.bottom_y), self.height);
     }
 
     pub fn schedule_fluid_tick(&mut self, x: i32, y: i32, z: i32, fluid: &'static Fluid) {
@@ -1189,18 +1223,22 @@ impl ProtoChunk {
                 for y in (0..volume.size_y).rev() {
                     let block_y = volume.block_y(y);
                     let index = volume.index_unchecked(x, y, z);
-                    let block_state = noise_sampler
-                        .sample_block_state(
-                            ore_random_deriver,
-                            &Vector3::new(block_x, block_y, block_z),
-                            densities.density[index],
-                            densities.vein_sample(index).as_ref(),
-                            surface_height_estimate_sampler,
-                        )
-                        .unwrap_or(generator.default_block);
+                    let (block_state, mark_fluid) = noise_sampler.sample_block_state(
+                        ore_random_deriver,
+                        &Vector3::new(block_x, block_y, block_z),
+                        densities.density[index],
+                        densities.vein_sample(index).as_ref(),
+                        surface_height_estimate_sampler,
+                    );
+                    let block_state = block_state.unwrap_or(generator.default_block);
                     // Noise is the first stage to place blocks, so air is already there.
                     if block_state.id != BlockStateId::AIR {
                         self.set_block_state(block_x, block_y, block_z, block_state);
+                        if mark_fluid && block_state.is_liquid() {
+                            self.mark_pos_for_post_processing(BlockPos::new(
+                                block_x, block_y, block_z,
+                            ));
+                        }
                     }
                 }
             }
@@ -1430,6 +1468,9 @@ impl ProtoChunk {
 
                     if let Some(state) = new_state {
                         self.set_block_state(x, y, z, state);
+                        if state.is_liquid() || state.is_waterlogged() {
+                            self.mark_pos_for_post_processing(BlockPos::new(x, y, z));
+                        }
                     }
                 }
                 if let Some(this_biome) = this_biome
@@ -2089,7 +2130,7 @@ impl GenerationCache for ProtoChunk {
     }
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState) {
         if pos.x >> 4 == self.x && pos.z >> 4 == self.z {
-            Self::set_block_state(self, pos.x, pos.y, pos.z, block_state);
+            self.set_generation_block_state(pos, block_state);
         }
     }
     fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound) {

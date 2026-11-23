@@ -474,7 +474,11 @@ impl World {
         }
     }
 
-    pub fn update_active_chunks(&self) {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "chunk activation keeps generation post-processing and migration ordered"
+    )]
+    pub fn update_active_chunks(self: &Arc<Self>) {
         let sim_dist = self.server.upgrade().map_or(10, |s| {
             s.advanced_config.networking.java.simulation_distance.get()
         }) as i32;
@@ -538,6 +542,13 @@ impl World {
         for change in self.level.loaded_chunk_changes() {
             match change {
                 pumpkin_world::level::LoadedChunkChange::Loaded(pos) => {
+                    if self
+                        .level
+                        .read_chunk_sync(&pos, |chunk| chunk.has_pending_post_processing())
+                        .unwrap_or(false)
+                    {
+                        tracker.pending_post_processing.insert(pos);
+                    }
                     if active_chunks.contains(&pos)
                         && self.level.is_chunk_loaded(&pos)
                         && tracker.loaded_active_chunks.insert(pos)
@@ -561,8 +572,19 @@ impl World {
                 migrations.push(pos);
             }
         }
+        migrations.retain(|pos| !tracker.pending_post_processing.contains(pos));
+        let ready = self.ready_post_processing(&mut tracker);
+        migrations.extend(
+            ready
+                .iter()
+                .copied()
+                .filter(|pos| active_chunks.contains(pos)),
+        );
         drop(active_chunks);
         drop(tracker);
+        for pos in ready {
+            self.post_process_generation(pos);
+        }
         let spawnable_chunks = self.count_natural_spawn_chunks(
             players
                 .iter()
@@ -578,6 +600,69 @@ impl World {
             &self.entities,
             self,
         )));
+    }
+
+    fn ready_post_processing(
+        &self,
+        tracker: &mut active_chunks::ActiveChunkTracker,
+    ) -> Vec<Vector2<i32>> {
+        let mut ready = Vec::new();
+        tracker.pending_post_processing.retain(|pos| {
+            if !self.level.is_chunk_loaded(pos) {
+                return false;
+            }
+            let x = pos.x << 4;
+            let z = pos.y << 4;
+            if self.has_chunks_at(x - 16, z - 16, x + 16, z + 16) {
+                ready.push(*pos);
+                return false;
+            }
+            true
+        });
+        ready
+    }
+
+    fn post_process_generation(self: &Arc<Self>, chunk_pos: Vector2<i32>) {
+        let Some(chunk) = self.level.read_chunk_sync(&chunk_pos, Arc::clone) else {
+            return;
+        };
+        let updates = chunk
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if updates.is_empty() {
+            return;
+        }
+
+        // Vanilla uses UPDATE_INVISIBLE | UPDATE_KNOWN_SHAPE | UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS.
+        let flags =
+            BlockFlags::UPDATE_KNOWN_SHAPE | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK;
+        for pos in updates.positions(chunk_pos.x, chunk_pos.y, chunk.section.min_y) {
+            let state = self.get_block_state_id(&pos);
+            let fluid = self.get_fluid(&pos);
+            if let Some(behavior) = self.block_registry.get_pumpkin_fluid(fluid.id) {
+                behavior.on_scheduled_tick(self, fluid, &pos);
+            }
+
+            let block = state.to_block();
+            if block == &Block::WATER {
+                crate::block::blocks::bubble_column::post_process_water(self, pos, state);
+            } else if block != &Block::LAVA {
+                let shaped = self.update_from_neighbor_shapes(state, &pos);
+                if shaped != state {
+                    self.set_block_state(&pos, shaped, flags);
+                }
+            }
+        }
+        *chunk
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            pumpkin_world::chunk::post_processing::PostProcessing::default();
+        chunk
+            .dirty
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn process_poi_chunks(&self) {
@@ -4708,7 +4793,6 @@ impl World {
         target_world.send_world_info(player);
         target_world.send_center_chunk(player).await;
 
-        // Send teleport packet after at least the center chunk was delivered
         player.request_teleport(position, yaw, pitch);
 
         target_world.refresh_java_player_for_bedrock(player).await;
@@ -5283,6 +5367,10 @@ impl World {
             .level
             .get_or_fetch_chunk(center_chunk, std::clone::Clone::clone)
             .await;
+        if chunk.has_pending_post_processing() {
+            // The normal batch sends the watched chunk after post-processing.
+            return;
+        }
         // A cancelled `ChunkSend` keeps the chunk pending -> the batch path fires it again,
         // and parks it for a later retry if cancelled there too.
         if java_client
@@ -7013,7 +7101,7 @@ impl World {
         pos: &BlockPos,
     ) -> BlockStateId {
         let mut current_state_id = state_id;
-        for direction in BlockDirection::all() {
+        for direction in BlockDirection::abstract_block_update_order() {
             let block = Block::from_state_id(current_state_id);
             let neighbor_pos = pos.offset(direction.to_offset());
             let neighbor_state_id = self.get_block_state_id(&neighbor_pos);

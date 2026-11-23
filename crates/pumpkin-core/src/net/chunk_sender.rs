@@ -370,6 +370,13 @@ impl ChunkSender {
     ) -> Vec<PreparedChunk> {
         let quota_limit = self.send_quota.floor() as usize;
         let mut ready = Vec::with_capacity(quota_limit);
+        let ready_chunk = |position| {
+            let chunk = level.loaded_chunks.get(&position)?;
+            (!chunk.has_pending_post_processing()).then(|| PreparedChunk {
+                position,
+                chunk: chunk.value().clone(),
+            })
+        };
 
         // If pending_chunks is small, sorting it directly avoids scanning offsets.
         if self.pending_chunks.len() <= 16 {
@@ -385,11 +392,8 @@ impl ChunkSender {
                     break;
                 }
 
-                if let Some(chunk) = level.loaded_chunks.get(&pos) {
-                    ready.push(PreparedChunk {
-                        position: pos,
-                        chunk: chunk.value().clone(),
-                    });
+                if let Some(chunk) = ready_chunk(pos) {
+                    ready.push(chunk);
                 }
             }
         } else {
@@ -402,12 +406,9 @@ impl ChunkSender {
 
                 let pos = Vector2::new(center.x + i32::from(dx), center.y + i32::from(dy));
                 if self.pending_chunks.contains(&pos)
-                    && let Some(chunk) = level.loaded_chunks.get(&pos)
+                    && let Some(chunk) = ready_chunk(pos)
                 {
-                    ready.push(PreparedChunk {
-                        position: pos,
-                        chunk: chunk.value().clone(),
-                    });
+                    ready.push(chunk);
                 }
             }
 
@@ -417,11 +418,8 @@ impl ChunkSender {
                     if ready.len() >= quota_limit {
                         break;
                     }
-                    if let Some(chunk) = level.loaded_chunks.get(&pos) {
-                        ready.push(PreparedChunk {
-                            position: pos,
-                            chunk: chunk.value().clone(),
-                        });
+                    if let Some(chunk) = ready_chunk(pos) {
+                        ready.push(chunk);
                     }
                 }
             }

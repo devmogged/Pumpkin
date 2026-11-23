@@ -29,6 +29,7 @@ use pumpkin_util::math::vector2::Vector2;
 use super::{
     ChunkData, ChunkHeightmaps, ChunkLight, ChunkParsingError, ChunkSections,
     palette::{BiomePalette, BlockPalette, saved_block_state},
+    post_processing::PostProcessing,
 };
 pub mod anvil;
 pub mod linear;
@@ -503,6 +504,8 @@ impl ChunkData {
             _ => ChunkStatus::Empty,
         };
 
+        let post_processing =
+            PostProcessing::from_nbt(root_tag.get_list("PostProcessing"), section.count);
         let custom_data = root_tag
             .get_compound("PumpkinCustomData")
             .or_else(|| root_tag.get_compound("BukkitValues"))
@@ -517,6 +520,7 @@ impl ChunkData {
             dirty: AtomicBool::new(removed),
             block_ticks: ChunkTickScheduler::from_iter(block_ticks),
             fluid_ticks: ChunkTickScheduler::from_iter(fluid_ticks),
+            post_processing: std::sync::Mutex::new(post_processing),
             pending_block_entities: std::sync::Mutex::new(block_entities),
             light_engine: std::sync::Mutex::new(light_engine),
             light_populated: AtomicBool::new(light_correct),
@@ -687,6 +691,13 @@ impl ChunkData {
             fluid_ticks_list.push(NbtTag::Compound(tick_comp));
         }
         root_compound.put_list("fluid_ticks", fluid_ticks_list);
+        root_compound.put_list(
+            "PostProcessing",
+            self.post_processing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .to_nbt(self.section.count),
+        );
 
         let mut block_entities_list = Vec::new();
         for entity_comp in block_entities_nbt {
@@ -761,6 +772,10 @@ impl ChunkData {
             .as_deref()
             .filter(|a| a.len() == ChunkHeightmaps::LONGS);
         let has_custom = !custom_data.is_empty();
+        let post_processing = self
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let mut flags = u8::from(is_light_correct);
         if ws.is_some() {
@@ -774,6 +789,10 @@ impl ChunkData {
         }
         if has_custom {
             flags |= 1 << 4;
+        }
+
+        if !post_processing.is_empty() {
+            flags |= 1 << 5;
         }
 
         let status_u8 = match self.status {
@@ -870,6 +889,14 @@ impl ChunkData {
 
         if has_custom {
             let bytes = pumpkin_nbt::Nbt::new(String::new(), custom_data.clone()).write_unnamed();
+            out.put_u32(bytes.len() as u32);
+            out.extend_from_slice(&bytes);
+        }
+
+        if !post_processing.is_empty() {
+            let mut data = NbtCompound::new();
+            data.put_list("PostProcessing", post_processing.to_nbt(self.section.count));
+            let bytes = pumpkin_nbt::Nbt::new(String::new(), data).write_unnamed();
             out.put_u32(bytes.len() as u32);
             out.extend_from_slice(&bytes);
         }
@@ -1150,6 +1177,28 @@ impl ChunkData {
             NbtCompound::default()
         };
 
+        let post_processing = if (flags & (1 << 5)) != 0 {
+            if buf.remaining() < 4 {
+                return Err(ChunkParsingError::ErrorDeserializingChunk(
+                    "Unexpected EOF reading post-processing length".into(),
+                ));
+            }
+            let len = buf.get_u32() as usize;
+            let payload = buf.get(..len).ok_or_else(|| {
+                ChunkParsingError::ErrorDeserializingChunk(
+                    "Unexpected EOF reading post-processing payload".into(),
+                )
+            })?;
+            let mut cursor = std::io::Cursor::new(payload);
+            let mut reader = pumpkin_nbt::deserializer::NbtReadHelperJava::new(&mut cursor);
+            let data = pumpkin_nbt::Nbt::read_unnamed(&mut reader)
+                .map_err(|e| ChunkParsingError::ErrorDeserializingChunk(e.to_string()))?
+                .root_tag;
+            PostProcessing::from_nbt(data.get_list("PostProcessing"), section.count)
+        } else {
+            PostProcessing::default()
+        };
+
         Ok(Self {
             section,
             heightmap: std::sync::Mutex::new(heightmaps),
@@ -1158,6 +1207,7 @@ impl ChunkData {
             dirty: AtomicBool::new(removed),
             block_ticks: ChunkTickScheduler::from_iter(block_ticks),
             fluid_ticks: ChunkTickScheduler::from_iter(fluid_ticks),
+            post_processing: std::sync::Mutex::new(post_processing),
             pending_block_entities: std::sync::Mutex::new(block_entities),
             light_engine: std::sync::Mutex::new(light_engine),
             light_populated: AtomicBool::new(light_correct),
@@ -1522,6 +1572,45 @@ mod tests {
             NbtTag::List(sections.into_iter().map(NbtTag::Compound).collect()),
         );
         pumpkin_nbt::Nbt::new(String::new(), root)
+    }
+
+    #[test]
+    fn proto_chunk_post_processing_survives_anvil_and_pump_saves() {
+        let mut data = test_chunk(vec![
+            test_section(-4, "minecraft:stone", true),
+            test_section(-3, "minecraft:dirt", true),
+        ]);
+        data.root_tag
+            .put_string("Status", "minecraft:features".into());
+        data.root_tag.put_list(
+            "PostProcessing",
+            vec![
+                NbtTag::List(vec![NbtTag::Short(0xb27), NbtTag::Short(0xb27)]),
+                NbtTag::List(vec![NbtTag::Short(0x101)]),
+            ],
+        );
+        let position = Vector2::new(0, 0);
+        let chunk = ChunkData::internal_from_bytes(&data.write(), position).unwrap();
+        let anvil = ChunkData::internal_from_bytes(&chunk.internal_to_bytes(), position).unwrap();
+        let pump =
+            ChunkData::internal_from_pump_bytes(&chunk.internal_to_pump_bytes(), position).unwrap();
+        for chunk in [chunk, anvil, pump] {
+            assert_eq!(chunk.status, ChunkStatus::Features);
+            let positions = chunk
+                .post_processing
+                .into_inner()
+                .unwrap()
+                .positions(chunk.x, chunk.z, chunk.section.min_y)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                positions,
+                [
+                    BlockPos::new(7, -62, 11),
+                    BlockPos::new(7, -62, 11),
+                    BlockPos::new(1, -48, 1),
+                ]
+            );
+        }
     }
 
     #[test]

@@ -128,6 +128,34 @@ fn reconcile_action(
     }
 }
 
+pub(crate) fn post_process_water(world: &Arc<World>, mut pos: BlockPos, original: BlockStateId) {
+    if !is_source_water_state(original) {
+        return;
+    }
+    let state = world.get_block_state_id(&pos);
+    if state.to_block_id() != BlockId::BUBBLE_COLUMN && !is_source_water_state(state) {
+        return;
+    }
+
+    let below = world.get_block_state_id(&pos.down());
+    let next = match reconcile_action(state.to_block(), state, below.to_block(), below) {
+        ReconcileAction::SetBubble(kind) => bubble_column_state(kind),
+        ReconcileAction::RestoreWater => source_water_state(),
+        ReconcileAction::Stop => state,
+    };
+    world.set_block_state(&pos, next, BlockFlags::NOTIFY_LISTENERS);
+    loop {
+        pos = pos.up();
+        let state = world.get_block_state_id(&pos);
+        if state == next
+            || (state.to_block_id() != BlockId::BUBBLE_COLUMN && !is_source_water_state(state))
+        {
+            break;
+        }
+        world.set_block_state(&pos, next, BlockFlags::NOTIFY_LISTENERS);
+    }
+}
+
 fn schedule_reconcile(world: &Arc<World>, position: BlockPos, delay: u8) {
     world.schedule_block_tick(&Block::BUBBLE_COLUMN, position, delay, TickPriority::Normal);
 }

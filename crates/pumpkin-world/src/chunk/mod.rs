@@ -65,7 +65,8 @@ pub enum CompressionError {
     ZstdError(std::io::Error),
 }
 
-// Clone here cause we want to clone a snapshot of the chunk so we don't block writing for too long
+pub mod post_processing;
+
 pub struct ChunkData {
     pub section: ChunkSections,
     /// See `https://minecraft.wiki/w/Heightmap` for more info
@@ -74,6 +75,7 @@ pub struct ChunkData {
     pub z: i32,
     pub block_ticks: ChunkTickScheduler<&'static Block>,
     pub fluid_ticks: ChunkTickScheduler<&'static Fluid>,
+    pub post_processing: std::sync::Mutex<post_processing::PostProcessing>,
     pub pending_block_entities: std::sync::Mutex<FxHashMap<BlockPos, NbtCompound>>,
     pub light_engine: std::sync::Mutex<ChunkLight>,
     pub light_populated: AtomicBool,
@@ -628,6 +630,16 @@ impl ChunkSections {
 }
 
 impl ChunkData {
+    /// Whether generation still needs to update blocks before the chunk is sent.
+    #[must_use]
+    pub fn has_pending_post_processing(&self) -> bool {
+        !self
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    }
+
     #[must_use]
     pub fn empty(x: i32, z: i32) -> Self {
         Self {
@@ -637,6 +649,7 @@ impl ChunkData {
             z,
             block_ticks: ChunkTickScheduler::default(),
             fluid_ticks: ChunkTickScheduler::default(),
+            post_processing: std::sync::Mutex::default(),
             pending_block_entities: std::sync::Mutex::new(FxHashMap::default()),
             light_engine: std::sync::Mutex::new(ChunkLight::default()),
             light_populated: std::sync::atomic::AtomicBool::new(false),
