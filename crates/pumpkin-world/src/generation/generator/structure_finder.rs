@@ -9,6 +9,7 @@ use crate::generation::structure::placement::{
 };
 
 use super::WorldGenerator;
+use crate::ProtoChunk;
 
 /// Block-level position of a found structure plus squared distance from the
 /// search origin, used internally to track the running nearest candidate.
@@ -125,44 +126,33 @@ pub fn find_nearest_structure_start(
     max_search_radius: i32,
     generator: &WorldGenerator,
 ) -> Option<(BlockPos, pumpkin_data::structures::StructureKeys)> {
-    search_structure_starts(
+    find_nearest_structure_start_in_sets(
         origin,
         &[(structure_set, target_structures)],
         max_search_radius,
         generator,
-        false,
     )
 }
 
 /// Searches every placement at each radius before advancing to the next ring.
+///
+/// Like vanilla `ChunkGenerator.findNearestMapStructure`, each placement reports the first hit
+/// in its ring order, and the nearest of those wins.
 #[must_use]
+#[expect(clippy::too_many_lines)]
 pub fn find_nearest_structure_start_in_sets(
     origin: BlockPos,
     searches: &[(&StructureSet, &[pumpkin_data::structures::StructureKeys])],
     max_search_radius: i32,
     generator: &WorldGenerator,
 ) -> Option<(BlockPos, pumpkin_data::structures::StructureKeys)> {
-    search_structure_starts(origin, searches, max_search_radius, generator, true)
-}
-
-#[expect(clippy::too_many_lines)]
-fn search_structure_starts(
-    origin: BlockPos,
-    searches: &[(&StructureSet, &[pumpkin_data::structures::StructureKeys])],
-    max_search_radius: i32,
-    generator: &WorldGenerator,
-    first_in_each_placement: bool,
-) -> Option<(BlockPos, pumpkin_data::structures::StructureKeys)> {
-    use crate::{
-        biome::{BiomeSupplier, MultiNoiseBiomeSupplier},
-        generation::{
-            noise::router::multi_noise_sampler::MultiNoiseSampler,
-            structure::{
-                height_sampler::NoiseHeightSampler,
-                lazily_generate_structure,
-                placement::should_generate_structure,
-                structures::{StructureGeneratorContext, create_chunk_random},
-            },
+    use crate::generation::{
+        noise::router::multi_noise_sampler::MultiNoiseSampler,
+        structure::{
+            height_sampler::NoiseHeightSampler,
+            lazily_generate_structure,
+            placement::should_generate_structure,
+            structures::{StructureGeneratorContext, create_chunk_random},
         },
     };
     use pumpkin_data::structures::Structure;
@@ -207,7 +197,19 @@ fn search_structure_starts(
                         continue;
                     }
 
-                    for &key in target_structures {
+                    // The chunk holds the first structure of the set's weighted order that can
+                    // start there, as in `set_structure_starts`; it only counts when wanted.
+                    let order = if structure_set.structures.len() == 1 {
+                        structure_set.structures.to_vec()
+                    } else {
+                        ProtoChunk::weighted_structure_order(
+                            structure_set.structures,
+                            world_seed as u64,
+                            chunk_x,
+                            chunk_z,
+                        )
+                    };
+                    for key in order.iter().map(|entry| entry.structure) {
                         let start = global_cache.get_or_compute_structure_start(
                             key,
                             chunk_x,
@@ -218,8 +220,6 @@ fn search_structure_starts(
                                 let mut biome_sampler = MultiNoiseSampler::generate(
                                     &noise_generator.base_router.multi_noise,
                                 );
-                                let biome_supplier: &dyn BiomeSupplier =
-                                    &MultiNoiseBiomeSupplier::OVERWORLD;
                                 let context = StructureGeneratorContext {
                                     seed: world_seed,
                                     chunk_x,
@@ -239,14 +239,17 @@ fn search_structure_starts(
                                     &key,
                                     Structure::get(&key),
                                     context,
-                                    biome_supplier,
+                                    &noise_generator.biome_supplier,
                                     &mut biome_sampler,
                                 )
                             },
                         );
-                        let Some(_start) = start else {
+                        if start.is_none() {
                             continue;
-                        };
+                        }
+                        if !target_structures.contains(&key) {
+                            break;
+                        }
                         // Vanilla getLocatePos: chunkPos.getMinBlockX(), 0, chunkPos.getMinBlockZ()
                         let locate_x = chunk_x << 4;
                         let locate_z = chunk_z << 4;
@@ -263,9 +266,7 @@ fn search_structure_starts(
                         {
                             nearest = Some((found, key));
                         }
-                        if first_in_each_placement {
-                            continue 'placement;
-                        }
+                        continue 'placement;
                     }
                 }
             }
@@ -362,4 +363,44 @@ fn find_nearest_random_spread_at_radius(
     }
 
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use pumpkin_data::{
+        dimension::Dimension,
+        structures::{StructureKeys, StructureSet},
+    };
+    use pumpkin_util::{math::position::BlockPos, world_seed::Seed};
+
+    use super::find_nearest_structure_start;
+    use crate::generation::get_world_gen;
+
+    /// Positions from `/locate structure` on a vanilla 26.3 server, seed 20261120.
+    #[test]
+    fn locates_nether_structures_with_nether_biomes() {
+        let world_gen = get_world_gen(
+            Seed(20_261_120),
+            Dimension::THE_NETHER,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let set = StructureSet::get("nether_complexes").expect("vanilla set");
+        for (origin, key, x, z) in [
+            ((0, 0), StructureKeys::Fortress, 32, 48),
+            ((0, 0), StructureKeys::BastionRemnant, -240, 448),
+            ((3000, -2000), StructureKeys::Fortress, 2896, -2032),
+            ((3000, -2000), StructureKeys::BastionRemnant, 2400, -2560),
+            ((-4000, 5000), StructureKeys::Fortress, -4656, 4512),
+            ((-4000, 5000), StructureKeys::BastionRemnant, -4176, 4880),
+        ] {
+            let origin = BlockPos::new(origin.0, 64, origin.1);
+            assert_eq!(
+                find_nearest_structure_start(origin, set, &[key], 100, &world_gen),
+                Some((BlockPos::new(x, 0, z), key)),
+                "{key:?} from {origin:?}"
+            );
+        }
+    }
 }
