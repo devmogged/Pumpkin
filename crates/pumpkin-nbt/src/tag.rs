@@ -248,10 +248,9 @@ impl NbtTag {
                     return Err(Error::InvalidListTag(tag_type_id));
                 }
 
+                // No element cap: each element consumes input, and the list grows as it reads.
+                // Large structure templates have lists past `MAX_ARRAY_LENGTH`.
                 let len = len as usize;
-                if len > crate::MAX_ARRAY_LENGTH {
-                    return Err(Error::LargeLength(len));
-                }
 
                 for _ in 0..len {
                     Self::skip_data_depth(reader, tag_type_id, depth + 1)?;
@@ -366,10 +365,9 @@ impl NbtTag {
                     return Err(Error::InvalidListTag(tag_type_id));
                 }
 
+                // No element cap: each element consumes input, and the list grows as it reads.
+                // Large structure templates have lists past `MAX_ARRAY_LENGTH`.
                 let len = len as usize;
-                if len > crate::MAX_ARRAY_LENGTH {
-                    return Err(Error::LargeLength(len));
-                }
 
                 let mut list = Vec::with_capacity(len.min(4096));
                 for _ in 0..len {
