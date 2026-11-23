@@ -21,7 +21,7 @@ pub(crate) const fn should_try_block_placement(result: &BlockActionResult) -> bo
 
 static CONTENT_BEHAVIOUR: std::sync::OnceLock<Arc<dyn ItemBehaviour>> = std::sync::OnceLock::new();
 
-/// Set the block-use dispatcher for items in the frozen custom content registry.
+/// Set the content dispatcher for block use, including opt-in vanilla item uses.
 pub fn install_content_behaviour(behaviour: Arc<dyn ItemBehaviour>) -> bool {
     CONTENT_BEHAVIOUR.set(behaviour).is_ok()
 }
@@ -156,14 +156,23 @@ impl ItemRegistry {
             return BlockActionResult::Pass;
         }
 
+        let content_behaviour = CONTENT_BEHAVIOUR.get();
+        let intercepted = if stack.item.id < Item::VANILLA_COUNT {
+            content_behaviour.map_or(BlockActionResult::Pass, |behaviour| {
+                behaviour.use_on_block(stack, player, location, face, cursor_pos, block, server)
+            })
+        } else {
+            BlockActionResult::Pass
+        };
+
         // Custom content items only take over block use; their copied components keep the
         // fallbacks below and in the other dispatchers.
-        let pumpkin_item = self.get_pumpkin_item(stack.item.id).or_else(|| {
-            (stack.item.id >= Item::VANILLA_COUNT)
-                .then(|| CONTENT_BEHAVIOUR.get())
-                .flatten()
-        });
-        let result = if let Some(pumpkin_item) = pumpkin_item {
+        let pumpkin_item = self
+            .get_pumpkin_item(stack.item.id)
+            .or(content_behaviour.filter(|_| stack.item.id >= Item::VANILLA_COUNT));
+        let result = if !should_try_block_placement(&intercepted) {
+            intercepted
+        } else if let Some(pumpkin_item) = pumpkin_item {
             pumpkin_item.use_on_block(stack, player, location, face, cursor_pos, block, server)
         } else if let Some(bt) = stack
             .get_data_component::<pumpkin_data::data_component_impl::BlockTransformerImpl>()
