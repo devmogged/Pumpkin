@@ -163,6 +163,7 @@ pub struct ProtoChunk {
     pub z: i32,
     pub default_block: &'static BlockState,
     biome_mixer_seed: i64,
+    pub(crate) world_seed: u64,
     pub(crate) flat_block_map: Vec<BlockStateId>,
     pub flat_biome_map: Box<[u8]>,
     pub flat_surface_height_map: [i16; CHUNK_AREA],
@@ -297,6 +298,7 @@ impl ProtoChunk {
             z,
             default_block,
             biome_mixer_seed,
+            world_seed: generator.seed(),
             flat_block_map: Vec::new(),
             flat_biome_map: vec![
                 Biome::PLAINS.id;
