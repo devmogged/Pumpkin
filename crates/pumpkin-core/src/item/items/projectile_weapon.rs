@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use crate::enchantment::EnchantmentHelper;
-use crate::entity::projectile::arrow::{ArrowEntity, ArrowPickup};
+use crate::entity::projectile::arrow::{ArrowEntity, ArrowPickup, custom_arrow_ammo};
 use crate::entity::{Entity, EntityBase};
 use crate::world::World;
 use pumpkin_data::item::Item;
@@ -15,14 +15,15 @@ impl ProjectileWeaponItem {
     pub const ARROW_SPEED_MULTIPLIER: f32 = 3.0;
 
     #[must_use]
-    pub const fn is_arrow(item: &Item) -> bool {
+    pub fn is_arrow(item: &Item) -> bool {
         item.id == Item::ARROW.id
             || item.id == Item::TIPPED_ARROW.id
             || item.id == Item::SPECTRAL_ARROW.id
+            || custom_arrow_ammo(item).is_some()
     }
 
     #[must_use]
-    pub const fn is_arrow_or_firework(item: &Item) -> bool {
+    pub fn is_arrow_or_firework(item: &Item) -> bool {
         Self::is_arrow(item) || item.id == Item::FIREWORK_ROCKET.id
     }
 

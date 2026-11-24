@@ -1,8 +1,8 @@
 use crate::block::blocks::bubble_column;
 use crate::entity::projectile::owner::ProjectileOwner;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::entity::projectile::ProjectileHit;
 use crate::entity::projectile::abstract_arrow::{self, AbstractArrow, ArrowFlight};
@@ -12,6 +12,7 @@ use crate::{
     server::Server,
 };
 use bytes::BufMut;
+use crossbeam::atomic::AtomicCell;
 use pumpkin_data::damage::DamageType;
 use pumpkin_data::data_component_impl::PotionDurationScaleImpl;
 use pumpkin_data::entity::EntityType;
@@ -51,12 +52,35 @@ impl ArrowPickup {
     }
 }
 
+pub type ArrowHurt = dyn Fn(&dyn EntityBase) + Send + Sync;
+
+/// Behaviour selected by the saved ammunition item.
+pub struct CustomArrowAmmo {
+    pub velocity_multiplier: f32,
+    pub water_inertia: f64,
+    pub after_hurt: Box<ArrowHurt>,
+}
+
+static CUSTOM_AMMO: OnceLock<HashMap<u16, CustomArrowAmmo>> = OnceLock::new();
+
+pub fn install_custom_arrow_ammo(ammo: HashMap<u16, CustomArrowAmmo>) -> bool {
+    CUSTOM_AMMO.set(ammo).is_ok()
+}
+
+pub(crate) fn custom_arrow_ammo(item: &Item) -> Option<&'static CustomArrowAmmo> {
+    if item.id < Item::VANILLA_COUNT {
+        return None;
+    }
+    CUSTOM_AMMO.get()?.get(&item.id)
+}
+
 pub struct ArrowEntity {
     pub entity: Entity,
     pub owner: ProjectileOwner,
-    pub item_stack: RwLock<ItemStack>,
+    item_stack: RwLock<ItemStack>,
+    custom_ammo: AtomicCell<Option<&'static CustomArrowAmmo>>,
     pub base_damage: AtomicU64,
-    pub pickup: ArrowPickup,
+    pub pickup: AtomicCell<ArrowPickup>,
     pub is_critical: AtomicBool,
     pub pierce_level: AtomicU8,
     pub punch_level: AtomicU8,
@@ -87,8 +111,9 @@ impl ArrowEntity {
             entity,
             owner: ProjectileOwner::new(owner),
             item_stack: RwLock::new(item_stack.copy_with_count(1)),
+            custom_ammo: AtomicCell::new(custom_arrow_ammo(item_stack.item)),
             base_damage: AtomicU64::new(Self::ARROW_BASE_DAMAGE.to_bits()),
-            pickup,
+            pickup: AtomicCell::new(pickup),
             is_critical: AtomicBool::new(false),
             pierce_level: AtomicU8::new(0),
             punch_level: AtomicU8::new(0),
@@ -117,18 +142,7 @@ impl ArrowEntity {
                 .fire_blocking(&server, &mut launch_event);
         }
 
-        Self {
-            entity,
-            owner: ProjectileOwner::new(Some(shooter)),
-            item_stack: RwLock::new(item_stack.copy_with_count(1)),
-            base_damage: AtomicU64::new(Self::ARROW_BASE_DAMAGE.to_bits()),
-            pickup,
-            is_critical: AtomicBool::new(false),
-            pierce_level: AtomicU8::new(0),
-            punch_level: AtomicU8::new(0),
-            flight: ArrowFlight::new(),
-            weapon: RwLock::new(None),
-        }
+        Self::new_with_item(entity, Some(shooter), item_stack, pickup)
     }
 
     pub fn new_shot_with_weapon(
@@ -269,6 +283,10 @@ impl ArrowEntity {
             deviation.mul_add(rand::random::<f64>() - rand::random::<f64>(), mode)
         }
 
+        let power = self
+            .custom_ammo
+            .load()
+            .map_or(power, |ammo| power * f64::from(ammo.velocity_multiplier));
         let velocity = Vector3::new(x, y, z)
             .normalize()
             .add_raw(
@@ -392,11 +410,15 @@ impl EntityBase for ArrowEntity {
             "PierceLevel",
             self.pierce_level.load(Ordering::Relaxed) as i8,
         );
-        nbt.put_byte("pickup", self.pickup.to_byte() as i8);
+        nbt.put_byte("pickup", self.pickup.load().to_byte() as i8);
     }
 
     fn read_custom_nbt(&self, nbt: &pumpkin_nbt::compound::NbtCompound) {
+        if let Some(pickup) = nbt.get_byte("pickup") {
+            self.pickup.store(ArrowPickup::from_byte(pickup as u8));
+        }
         if let Some(item_stack) = Self::read_item_stack_nbt(nbt) {
+            self.custom_ammo.store(custom_arrow_ammo(item_stack.item));
             *self
                 .item_stack
                 .write()
@@ -553,7 +575,7 @@ impl EntityBase for ArrowEntity {
         }
 
         // Check pickup rules
-        match self.pickup {
+        match self.pickup.load() {
             ArrowPickup::Disallowed => return,
             ArrowPickup::CreativeOnly if !player.is_creative() => return,
             _ => {}
@@ -664,7 +686,7 @@ impl ArrowEntity {
                     living.set_arrow_count(living.get_arrow_count() + 1);
                 }
                 self.do_knockback(living);
-                self.do_post_hurt_effects(living);
+                self.do_post_hurt_effects(living, target.as_ref());
                 if let Some(hit_player) = target.get_player()
                     && let Some(shooter) = self.owner.get_player(&world)
                     && !entity.silent.load(Ordering::Relaxed)
@@ -695,7 +717,7 @@ impl ArrowEntity {
                 Vector3::new(0.2, 0.2, 0.2),
             );
             if entity.velocity.load().length_squared() < 1.0e-7 {
-                if self.pickup == ArrowPickup::Allowed {
+                if self.pickup.load() == ArrowPickup::Allowed {
                     let item_stack = self
                         .item_stack
                         .read()
@@ -708,7 +730,7 @@ impl ArrowEntity {
     }
 
     /// Effects for a target the arrow hurt: the tipped potion, or glowing from a spectral arrow.
-    fn do_post_hurt_effects(&self, living: &LivingEntity) {
+    fn do_post_hurt_effects(&self, living: &LivingEntity, target: &dyn EntityBase) {
         let item_stack = self
             .item_stack
             .read()
@@ -723,8 +745,12 @@ impl ArrowEntity {
             crate::item::potion::PotionApplicationSource::Arrow,
             None,
         );
+        drop(item_stack);
         if self.entity.entity_type.id == EntityType::SPECTRAL_ARROW.id {
             living.add_effect(Self::spectral_glowing_effect());
+        }
+        if let Some(ammo) = self.custom_ammo.load() {
+            (ammo.after_hurt)(target);
         }
     }
 
@@ -761,7 +787,9 @@ impl AbstractArrow for ArrowEntity {
     }
 
     fn water_inertia(&self) -> f64 {
-        Self::WATER_INERTIA
+        self.custom_ammo
+            .load()
+            .map_or(Self::WATER_INERTIA, |ammo| ammo.water_inertia)
     }
 
     fn pierce_level(&self) -> u8 {
