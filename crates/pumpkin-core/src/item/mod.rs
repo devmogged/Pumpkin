@@ -21,7 +21,26 @@ pub trait ItemMetadata {
     fn ids() -> Box<[u16]>;
 }
 
+/// The stages of a content item's hand-use action.
+#[derive(Clone, Copy)]
+pub enum ContentItemUse {
+    Start { yaw: f32, pitch: f32 },
+    Finish,
+    Release,
+}
+
 pub trait ItemBehaviour: Send + Sync {
+    /// Handles a content item use and replaces the default completion when it returns true.
+    fn content_use(
+        &self,
+        _stack: &ItemStack,
+        _player: &Player,
+        _hand: Hand,
+        _event: ContentItemUse,
+    ) -> bool {
+        false
+    }
+
     fn normal_use(&self, _item: &Item, _player: &Player) {}
 
     /// Handles an item use with the rotation reported for that action.

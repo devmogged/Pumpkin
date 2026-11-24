@@ -4662,7 +4662,21 @@ impl EntityBase for LivingEntity {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
-            if let Some(item) = item_in_use.as_ref() {
+            let hand = *self
+                .active_hand
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let (Some(item), Some(player), Some(hand)) =
+                (item_in_use.as_ref(), caller.get_player(), hand)
+                && crate::item::registry::ItemRegistry::content_use(
+                    item,
+                    player,
+                    hand,
+                    crate::item::ContentItemUse::Finish,
+                )
+            {
+                self.clear_active_hand();
+            } else if let Some(item) = item_in_use.as_ref() {
                 // Consume item
                 if let Some(food) = item.get_data_component::<FoodImpl>()
                     && let Some(player) = caller.get_player()

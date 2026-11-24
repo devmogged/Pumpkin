@@ -13,7 +13,7 @@ use pumpkin_util::math::vector3::Vector3;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-use super::{ItemBehaviour, ItemMetadata};
+use super::{ContentItemUse, ItemBehaviour, ItemMetadata};
 
 pub(crate) const fn should_try_block_placement(result: &BlockActionResult) -> bool {
     matches!(result, BlockActionResult::Pass)
@@ -117,7 +117,28 @@ impl ItemRegistry {
         })
     }
 
+    pub(crate) fn content_use(
+        stack: &ItemStack,
+        player: &Player,
+        hand: Hand,
+        event: ContentItemUse,
+    ) -> bool {
+        CONTENT_BEHAVIOUR
+            .get()
+            .is_some_and(|handler| handler.content_use(stack, player, hand, event))
+    }
+
     pub fn on_stopped_using(&self, stack: &ItemStack, player: &Player) {
+        let hand = *player
+            .living_entity
+            .active_hand
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(hand) = hand
+            && Self::content_use(stack, player, hand, ContentItemUse::Release)
+        {
+            return;
+        }
         if let Some(behaviour) = self.get_pumpkin_item(stack.item.id) {
             behaviour.on_stopped_using(stack, player);
         }

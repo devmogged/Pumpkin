@@ -33,6 +33,8 @@ pub struct ItemDefinition {
     /// see, drawn with the item's own model.
     pub carrier: &'static Item,
     pub components: Vec<(DataComponent, Box<dyn DataComponentImpl>)>,
+    /// Stock-client defaults that have no effect on the server's item behaviour.
+    pub client_components: Vec<(DataComponent, Box<dyn DataComponentImpl>)>,
 }
 
 pub struct StateDefinition {
@@ -268,14 +270,14 @@ impl Registry {
                 return Err(invalid("invalid custom item definition"));
             }
             let item_id = item_ids.reserve(&def.name)?;
-            let wire_defaults = &*Box::leak(
+            let defaults = &*Box::leak(
                 def.components
                     .iter()
                     .map(|(kind, value)| (*kind, &*Box::leak(value.clone_dyn())))
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             );
-            let components = if wire_defaults.is_empty() {
+            let components = if defaults.is_empty() {
                 def.carrier.components
             } else {
                 let components = def
@@ -283,14 +285,31 @@ impl Registry {
                     .components
                     .iter()
                     .copied()
-                    .filter(|(kind, _)| {
-                        !wire_defaults
-                            .iter()
-                            .any(|(overridden, _)| overridden == kind)
-                    })
-                    .chain(wire_defaults.iter().copied())
+                    .filter(|(kind, _)| !defaults.iter().any(|(overridden, _)| overridden == kind))
+                    .chain(defaults.iter().copied())
                     .collect::<Vec<_>>();
                 &*Box::leak(components.into_boxed_slice())
+            };
+            let wire_defaults = if def.client_components.is_empty() {
+                defaults
+            } else {
+                &*Box::leak(
+                    defaults
+                        .iter()
+                        .copied()
+                        .filter(|(kind, _)| {
+                            !def.client_components
+                                .iter()
+                                .any(|(client, _)| client == kind)
+                        })
+                        .chain(
+                            def.client_components
+                                .iter()
+                                .map(|(kind, value)| (*kind, &*Box::leak(value.clone_dyn()))),
+                        )
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                )
             };
             let name: &'static str = Box::leak(def.name.clone().into_boxed_str());
             let item = Box::leak(Box::new(Item {

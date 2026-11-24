@@ -942,6 +942,10 @@ mod content_tests {
                     DataComponent::MaxDamage,
                     Box::new(MaxDamageImpl { max_damage: 1950 }),
                 )],
+                client_components: vec![(
+                    DataComponent::MaxStackSize,
+                    Box::new(pumpkin_data::data_component_impl::MaxStackSizeImpl { size: 3 }),
+                )],
             }],
         )?;
         let block = registry.block("test:machine").ok_or("missing definition")?;
@@ -966,6 +970,8 @@ mod content_tests {
         let tool = ItemStack::new(1, tool);
         let wire_tool = vanilla_stack(&tool).into_owned();
         assert_eq!(wire_tool.item, &Item::IRON_PICKAXE);
+        assert_eq!(tool.get_max_stack_size(), 1);
+        assert_eq!(wire_tool.get_max_stack_size(), 3);
         assert!(
             wire_tool
                 .patch
