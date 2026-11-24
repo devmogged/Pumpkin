@@ -471,7 +471,7 @@ const IS_SOLID_BLOCK: u16 = 1 << 8;
 const HAS_RANDOM_TICKS: u16 = 1 << 9;
 const IS_SOLID_RENDER: u16 = 1 << 10;
 const CAN_OCCLUDE: u16 = 1 << 11;
-const HAS_ANALOG_OUTPUT_SIGNAL: u16 = 1 << 12;
+pub(crate) const HAS_ANALOG_OUTPUT_SIGNAL: u16 = 1 << 12;
 // codegen flag
 const IS_WATERLOGGED: u16 = 1 << 13;
 

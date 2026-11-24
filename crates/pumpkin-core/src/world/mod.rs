@@ -5982,6 +5982,10 @@ impl World {
                 self.update_neighbors_at(position, old_block, None);
                 if block_state_id.has_analog_output_signal() {
                     self.update_neighbour_for_output_signal(position, new_block);
+                } else if replaced_block_state_id.as_u16() >= BlockStateId::COUNT
+                    && replaced_block_state_id.has_analog_output_signal()
+                {
+                    self.update_neighbour_for_output_signal(position, old_block);
                 }
             }
 

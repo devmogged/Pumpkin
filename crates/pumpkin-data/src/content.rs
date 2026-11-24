@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Block, BlockId, BlockState, BlockStateId, Property, block_properties::BlockProperties,
-    data_component::DataComponent, data_component_impl::DataComponentImpl, item::Item,
+    block_state::HAS_ANALOG_OUTPUT_SIGNAL, data_component::DataComponent,
+    data_component_impl::DataComponentImpl, item::Item,
 };
 
 /// A definition to freeze before opening the world's chunk storage.
@@ -44,6 +45,7 @@ pub struct StateDefinition {
 
 pub struct StateEntry {
     pub state: &'static BlockState,
+    pub comparator_output: Option<u8>,
     pub block: &'static Block,
     pub carrier: BlockStateId,
     pub properties: BTreeMap<String, String>,
@@ -105,6 +107,16 @@ impl Registry {
         definitions: &[BlockDefinition],
         item_definitions: &[ItemDefinition],
     ) -> io::Result<Self> {
+        Self::open_with_comparator_outputs(path, definitions, item_definitions, |_, _| None)
+    }
+
+    /// Supplies fixed analog outputs by block name and index in its ordered state definitions.
+    pub fn open_with_comparator_outputs(
+        path: &Path,
+        definitions: &[BlockDefinition],
+        item_definitions: &[ItemDefinition],
+        comparator_output: impl Fn(&str, usize) -> Option<u8>,
+    ) -> io::Result<Self> {
         let bytes = match fs::read(path) {
             Ok(bytes) => Some(bytes),
             Err(err) if err.kind() == io::ErrorKind::NotFound => None,
@@ -147,7 +159,13 @@ impl Registry {
             let block_id = block_ids.reserve(&def.name)?;
             let item_id = item_ids.reserve(&def.name)?;
             let mut states = Vec::with_capacity(def.states.len());
-            for state in &def.states {
+            let outputs: Vec<_> = (0..def.states.len())
+                .map(|index| comparator_output(&def.name, index))
+                .collect();
+            for (state, output) in def.states.iter().zip(&outputs) {
+                if output.is_some_and(|strength| strength > 15) {
+                    return Err(invalid("invalid comparator output"));
+                }
                 if state.carrier.as_u16() >= BlockStateId::COUNT {
                     return Err(invalid("custom block carrier must be vanilla"));
                 }
@@ -173,6 +191,9 @@ impl Registry {
                 }
                 let mut physical = state.physical.clone();
                 physical.id = BlockStateId::registered(raw);
+                if output.is_some() {
+                    physical.state_flags |= HAS_ANALOG_OUTPUT_SIGNAL;
+                }
                 physical.block_entity_type = if entity.is_some() {
                     CUSTOM_ENTITY_TYPE
                 } else {
@@ -220,11 +241,14 @@ impl Registry {
                     display_name: Box::leak(def.display_name.clone().into_boxed_str()),
                 },
             );
-            for (state, definition) in states.iter().zip(&def.states) {
+            for ((state, definition), comparator_output) in
+                states.iter().zip(&def.states).zip(outputs)
+            {
                 registry.states.insert(
                     state.id.as_u16(),
                     StateEntry {
                         state,
+                        comparator_output,
                         block,
                         carrier: definition.carrier,
                         properties: definition.properties.clone(),
