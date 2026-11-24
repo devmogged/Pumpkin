@@ -49,6 +49,19 @@ pub trait ItemBehaviour: Send + Sync {
         self.normal_use_with_rotation(item, player, yaw, pitch);
     }
 
+    /// Offer Item.use for a registered custom item to the content dispatcher.
+    /// True when the dispatcher handled the action, including a failed use.
+    fn use_content_item(
+        &self,
+        _item: &Item,
+        _player: &Player,
+        _yaw: f32,
+        _pitch: f32,
+        _hand: Hand,
+    ) -> bool {
+        false
+    }
+
     #[expect(clippy::too_many_arguments)]
     fn use_on_block(
         &self,

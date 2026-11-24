@@ -21,7 +21,7 @@ pub(crate) const fn should_try_block_placement(result: &BlockActionResult) -> bo
 
 static CONTENT_BEHAVIOUR: std::sync::OnceLock<Arc<dyn ItemBehaviour>> = std::sync::OnceLock::new();
 
-/// Set the content dispatcher for block use, including opt-in vanilla item uses.
+/// Install the dispatcher for custom item uses and opt-in vanilla item uses on blocks.
 pub fn install_content_behaviour(behaviour: Arc<dyn ItemBehaviour>) -> bool {
     CONTENT_BEHAVIOUR.set(behaviour).is_ok()
 }
@@ -68,7 +68,25 @@ impl ItemRegistry {
         } else if crate::item::items::bucket::is_custom_fish_bucket(item) {
             crate::item::items::bucket::FilledBucketItem
                 .normal_use_with_hand(item, player, yaw, pitch, hand);
-        } else if stack
+        } else if !(item.id >= Item::VANILLA_COUNT
+            && CONTENT_BEHAVIOUR
+                .get()
+                .is_some_and(|handler| handler.use_content_item(item, player, yaw, pitch, hand)))
+        {
+            Self::use_item_component(stack, player, yaw, pitch, hand);
+        }
+
+        if let Some(cooldown) = cooldown
+            && self.get_use_duration(item.id).is_none()
+            && stack.get_max_use_time() == 0
+        {
+            player.start_cooldown(cooldown_group, (cooldown.seconds * 20.0) as i32);
+        }
+    }
+
+    fn use_item_component(stack: &ItemStack, player: &Player, yaw: f32, pitch: f32, hand: Hand) {
+        let item = stack.item;
+        if stack
             .get_data_component::<pumpkin_data::data_component_impl::KineticWeaponImpl>()
             .is_some()
         {
@@ -86,13 +104,6 @@ impl ItemRegistry {
         {
             crate::item::items::knowledge_book::KnowledgeBookItem
                 .normal_use_with_hand(item, player, yaw, pitch, hand);
-        }
-
-        if let Some(cooldown) = cooldown
-            && self.get_use_duration(item.id).is_none()
-            && stack.get_max_use_time() == 0
-        {
-            player.start_cooldown(cooldown_group, (cooldown.seconds * 20.0) as i32);
         }
     }
 
