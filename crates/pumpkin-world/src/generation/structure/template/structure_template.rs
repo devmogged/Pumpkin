@@ -371,9 +371,14 @@ impl PaletteEntry {
     /// Deserializes a palette entry from an NBT compound tag.
     pub fn from_nbt_compound(entry_compound: &NbtCompound) -> Result<Self, TemplateError> {
         // 26.3 renamed the palette keys from Name and Properties to id and properties
+        let legacy_name = entry_compound.get_string("Name").map(|name| match name {
+            "minecraft:grass" => "minecraft:short_grass",
+            "minecraft:chain" => "minecraft:iron_chain",
+            name => name,
+        });
         let name = entry_compound
             .get_string("id")
-            .or_else(|| entry_compound.get_string("Name"))
+            .or(legacy_name)
             .or_else(|| entry_compound.get_string(""))
             .ok_or(TemplateError::MissingField("palette.id"))?
             .to_string();

@@ -324,6 +324,18 @@ pub fn install_entity_added_hook(hook: EntityAddedHook) -> bool {
     ENTITY_ADDED.set(hook).is_ok()
 }
 
+/// Creates an embedder-defined entity from its structure template tag. The tag already
+/// contains the world-space position and rotation. Return None to use the normal loader.
+pub type StructureEntityLoader = fn(&Arc<World>, &NbtCompound) -> Option<Arc<dyn EntityBase>>;
+
+static STRUCTURE_ENTITY_LOADER: std::sync::OnceLock<StructureEntityLoader> =
+    std::sync::OnceLock::new();
+
+/// Installs the structure entity loader before worlds are opened. Only the first call succeeds.
+pub fn install_structure_entity_loader(loader: StructureEntityLoader) -> bool {
+    STRUCTURE_ENTITY_LOADER.set(loader).is_ok()
+}
+
 impl World {
     const TAB_LIST_ADD_FLAGS: u8 = PlayerInfoFlags::ADD_PLAYER.bits()
         | PlayerInfoFlags::UPDATE_LISTED.bits()
@@ -8591,7 +8603,11 @@ impl WorldPortalExt for WorldPortal {
     fn spawn_structure_entities(&self, entities: Vec<(NbtCompound, &'static Biome)>) {
         for (mut nbt, biome) in entities {
             nbt.child_tags.remove("UUID");
-            if let Some(entity) = load_static_entity_from_nbt(&nbt, Vector3::default(), &self.0) {
+            let entity = STRUCTURE_ENTITY_LOADER
+                .get()
+                .and_then(|load| load(&self.0, &nbt))
+                .or_else(|| load_static_entity_from_nbt(&nbt, Vector3::default(), &self.0));
+            if let Some(entity) = entity {
                 if let Some(mob) = entity.get_mob() {
                     mob.finalize_spawn_in_biome(biome);
                 }
