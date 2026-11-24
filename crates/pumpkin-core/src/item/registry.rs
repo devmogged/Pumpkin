@@ -96,6 +96,16 @@ impl ItemRegistry {
         }
     }
 
+    pub(crate) fn modify_content_melee_damage(
+        item: &Item,
+        target: &dyn EntityBase,
+        damage: f32,
+    ) -> f32 {
+        CONTENT_BEHAVIOUR.get().map_or(damage, |handler| {
+            handler.modify_melee_damage(item, target, damage)
+        })
+    }
+
     pub fn on_stopped_using(&self, stack: &ItemStack, player: &Player) {
         if let Some(behaviour) = self.get_pumpkin_item(stack.item.id) {
             behaviour.on_stopped_using(stack, player);

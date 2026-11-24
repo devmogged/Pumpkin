@@ -1733,10 +1733,19 @@ impl Player {
             damage *= 1.5;
         }
 
+        let mut primary_damage = damage as f32;
+        if !is_spin_attack && item_stack.item.id >= pumpkin_data::item::Item::VANILLA_COUNT {
+            primary_damage = crate::item::registry::ItemRegistry::modify_content_melee_damage(
+                item_stack.item,
+                victim.as_ref(),
+                primary_damage,
+            );
+        }
+
         let old_movement = victim_entity.velocity.load();
         if !victim.damage_with_context(
             victim.as_ref(),
-            damage as f32,
+            primary_damage,
             if is_mace_smash {
                 DamageType::MACE_SMASH
             } else {

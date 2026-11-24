@@ -66,6 +66,11 @@ pub trait ItemBehaviour: Send + Sync {
     fn use_on_entity(&self, _item: &mut ItemStack, _player: &Player, _entity: Arc<dyn EntityBase>) {
     }
 
+    /// Adjust the damage of a direct player melee hit before the target applies its defenses.
+    fn modify_melee_damage(&self, _item: &Item, _target: &dyn EntityBase, damage: f32) -> f32 {
+        damage
+    }
+
     fn on_stopped_using(&self, _stack: &ItemStack, _player: &Player) {}
 
     fn on_spear_jab(&self, _stack: &ItemStack, _player: &Player) {}
