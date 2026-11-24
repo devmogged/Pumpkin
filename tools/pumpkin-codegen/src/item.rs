@@ -363,9 +363,7 @@ impl ToTokens for ItemComponents {
         if let Some(playable) = &self.jukebox_playable {
             let song = LitStr::new(playable, Span::call_site());
             tokens.extend(quote! {
-                (JukeboxPlayable, &JukeboxPlayableImpl{
-                    song: #song,
-                }),
+                (JukeboxPlayable, &JukeboxPlayableImpl::Named(#song)),
             });
         }
 

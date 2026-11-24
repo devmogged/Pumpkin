@@ -5,8 +5,12 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use pumpkin_data::data_component_impl::JukeboxPlayableImpl;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::jukebox_song::JukeboxSong;
-use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
+use pumpkin_nbt::{
+    Nbt,
+    compound::NbtCompound,
+    deserializer::{NbtReadHelperJava, NbtStreamReader},
+};
 use pumpkin_util::math::position::BlockPos;
 use rand::RngExt;
 
@@ -54,13 +58,12 @@ impl BlockEntity for JukeboxBlockEntity {
         let (ticks_since_song_started, song_length_ticks) = if let Some(raw_ticks) =
             nbt.get_long(TICKS_SINCE_SONG_STARTED_NBT_KEY)
             && raw_ticks >= 0
-            && let Some(song) = record_stack
+            && let Some(length) = record_stack
                 .get_data_component::<JukeboxPlayableImpl>()
-                .and_then(|p| p.song.rsplit(':').next())
-                .and_then(JukeboxSong::from_name)
+                .and_then(JukeboxPlayableImpl::length_in_ticks)
         {
             let ticks = raw_ticks as u64;
-            let end_ticks = song.length_in_ticks() + Self::SONG_END_PADDING_TICKS;
+            let end_ticks = length.saturating_add(Self::SONG_END_PADDING_TICKS);
             if ticks < end_ticks {
                 (ticks, end_ticks)
             } else {
@@ -276,14 +279,48 @@ impl JukeboxBlockEntity {
         self.mark_dirty();
     }
 
+    /// The client plays records through the synced song registry, keyed by jukebox position.
+    pub fn song_event_id(world: &World, playable: &JukeboxPlayableImpl) -> Option<i32> {
+        let id = match playable {
+            JukeboxPlayableImpl::Named(key) => {
+                let name = key.strip_prefix("minecraft:").unwrap_or(key);
+                JukeboxSong::from_name(name)?.get_id()
+            }
+            JukeboxPlayableImpl::Inline { .. } => {
+                const REGISTRY: &str = "minecraft:jukebox_song";
+                let server = world.server.upgrade()?;
+                let packs = &server.datapack_manager;
+                let entry = packs
+                    .get_custom_registry_entries(REGISTRY)
+                    .into_iter()
+                    .find(|entry| {
+                        let Some(data) = entry.data.as_deref() else {
+                            return false;
+                        };
+                        let Ok(nbt) = Nbt::read_unnamed(&mut NbtReadHelperJava::new(
+                            NbtStreamReader(&mut std::io::Cursor::new(data)),
+                        )) else {
+                            return false;
+                        };
+                        JukeboxPlayableImpl::read_data(&NbtTag::Compound(nbt.root_tag)).as_ref()
+                            == Some(playable)
+                    })?;
+                packs.get_dynamic_registry_raw_id(REGISTRY, &entry.entry_id)?
+            }
+        };
+        i32::try_from(id).ok()
+    }
+
     /// Block state, song and world events for the record now in the slot.
     fn sync_record_state(&self, record: &ItemStack) {
         let inserted = !record.is_empty();
-        let playable_song = record
-            .get_data_component::<pumpkin_data::data_component_impl::JukeboxPlayableImpl>()
-            .and_then(|playable| playable.song.rsplit(':').next())
-            .and_then(pumpkin_data::jukebox_song::JukeboxSong::from_name);
         if let Some(world) = self.world.get().and_then(Weak::upgrade) {
+            let playable_song =
+                record
+                    .get_data_component::<JukeboxPlayableImpl>()
+                    .and_then(|song| {
+                        Some((Self::song_event_id(&world, song)?, song.length_in_ticks()?))
+                    });
             let (block, _) = world.get_block_and_state(&self.position);
             if block == &pumpkin_data::Block::JUKEBOX {
                 let state_id = pumpkin_data::block_properties::JukeboxLikeProperties {
@@ -299,12 +336,12 @@ impl JukeboxBlockEntity {
                     pumpkin_data::game_event::GameEvent::BlockChange.name(),
                     self.position.to_centered_f64(),
                 );
-                if inserted && let Some(song) = playable_song {
-                    self.start_playing(song.length_in_ticks() + Self::SONG_END_PADDING_TICKS);
+                if inserted && let Some((id, length)) = playable_song {
+                    self.start_playing(length.saturating_add(Self::SONG_END_PADDING_TICKS));
                     world.sync_world_event(
                         pumpkin_data::world::WorldEvent::SoundPlayJukeboxSong,
                         self.position,
-                        song.get_id() as i32,
+                        id,
                     );
                     world.update_neighbors(&self.position, None);
                 } else {
@@ -316,8 +353,11 @@ impl JukeboxBlockEntity {
                     );
                 }
             }
-        } else if inserted && let Some(song) = playable_song {
-            self.start_playing(song.length_in_ticks() + Self::SONG_END_PADDING_TICKS);
+        } else if let Some(length) = record
+            .get_data_component::<JukeboxPlayableImpl>()
+            .and_then(JukeboxPlayableImpl::length_in_ticks)
+        {
+            self.start_playing(length.saturating_add(Self::SONG_END_PADDING_TICKS));
         } else {
             self.stop_playing();
         }
@@ -467,10 +507,15 @@ impl Inventory for JukeboxBlockEntity {
 
     fn is_valid_slot_for(&self, slot: usize, stack: &ItemStack) -> bool {
         slot == 0
-            && stack
-                .get_data_component::<pumpkin_data::data_component_impl::JukeboxPlayableImpl>()
-                .is_some()
             && self.is_empty()
+            && stack
+                .get_data_component::<JukeboxPlayableImpl>()
+                .is_some_and(|song| {
+                    self.world
+                        .get()
+                        .and_then(Weak::upgrade)
+                        .is_some_and(|world| Self::song_event_id(&world, song).is_some())
+                })
     }
 
     /// Vanilla `canTakeItem`: only into a container with an empty slot, so a pulled record always fits.

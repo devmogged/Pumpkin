@@ -1289,9 +1289,7 @@ mod tests {
             WrittenBookContentImpl::read_data,
         );
         assert_round_trip(
-            JukeboxPlayableImpl {
-                song: "minecraft:precipice",
-            },
+            JukeboxPlayableImpl::Named("minecraft:precipice"),
             JukeboxPlayableImpl::read_data,
         );
     }

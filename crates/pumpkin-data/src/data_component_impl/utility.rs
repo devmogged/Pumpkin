@@ -1167,8 +1167,15 @@ impl DataComponentImpl for ProfileImpl {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct JukeboxPlayableImpl {
-    pub song: &'static str,
+pub enum JukeboxPlayableImpl {
+    Named(&'static str),
+    Inline {
+        sound: String,
+        range_bits: Option<u32>,
+        description: pumpkin_util::text::TextComponent,
+        length_bits: u32,
+        comparator_output: u8,
+    },
 }
 impl JukeboxPlayableImpl {
     #[must_use]
@@ -1231,25 +1238,102 @@ impl JukeboxPlayableImpl {
     }
 
     pub fn read_data(data: &NbtTag) -> Option<Self> {
-        let raw_song = data
+        if let Some(raw_song) = data
             .extract_string()
-            .or_else(|| data.extract_compound().and_then(|c| c.get_string("song")))?;
-        let song = crate::jukebox_song::JukeboxSong::from_name(
-            raw_song.strip_prefix("minecraft:").unwrap_or(raw_song),
-        )?;
-        Some(Self {
-            song: Self::song_registry_key(song),
+            .or_else(|| data.extract_compound().and_then(|c| c.get_string("song")))
+        {
+            let song = crate::jukebox_song::JukeboxSong::from_name(
+                raw_song.strip_prefix("minecraft:").unwrap_or(raw_song),
+            )?;
+            return Some(Self::Named(Self::song_registry_key(song)));
+        }
+
+        let data = data.extract_compound()?;
+        let sound = data.get_compound("sound_event")?;
+        Self::inline(
+            sound.get_string("sound_id")?.to_owned(),
+            sound.get_numeric_float("range"),
+            pumpkin_util::text::TextComponent::from_nbt(data.get("description")?),
+            data.get_numeric_float("length_in_seconds")?,
+            data.get_numeric_int("comparator_output")?,
+        )
+    }
+
+    pub fn inline(
+        sound: String,
+        range: Option<f32>,
+        description: pumpkin_util::text::TextComponent,
+        length: f32,
+        comparator_output: i32,
+    ) -> Option<Self> {
+        if !length.is_finite()
+            || length <= 0.0
+            || range.is_some_and(|range| !range.is_finite() || range <= 0.0)
+            || !(0..=15).contains(&comparator_output)
+        {
+            return None;
+        }
+        Some(Self::Inline {
+            sound,
+            range_bits: range.map(f32::to_bits),
+            description,
+            length_bits: length.to_bits(),
+            comparator_output: comparator_output as u8,
         })
+    }
+
+    pub fn length_in_ticks(&self) -> Option<u64> {
+        match self {
+            Self::Named(key) => {
+                let name = key.strip_prefix("minecraft:").unwrap_or(key);
+                crate::jukebox_song::JukeboxSong::from_name(name).map(|song| song.length_in_ticks())
+            }
+            Self::Inline { length_bits, .. } => {
+                Some((f64::from(f32::from_bits(*length_bits)) * 20.0).ceil() as u64)
+            }
+        }
+    }
+
+    pub fn comparator_output(&self) -> Option<u8> {
+        match self {
+            Self::Named(key) => {
+                let name = key.strip_prefix("minecraft:").unwrap_or(key);
+                crate::jukebox_song::JukeboxSong::from_name(name)
+                    .map(|song| song.comparator_output())
+            }
+            Self::Inline {
+                comparator_output, ..
+            } => Some(*comparator_output),
+        }
     }
 }
 impl DataComponentImpl for JukeboxPlayableImpl {
     fn write_data(&self) -> NbtTag {
-        let song = if self.song.contains(':') {
-            self.song.to_string()
-        } else {
-            format!("minecraft:{}", self.song)
-        };
-        NbtTag::String(song.into())
+        match self {
+            Self::Named(key) => NbtTag::String((*key).into()),
+            Self::Inline {
+                sound,
+                range_bits,
+                description,
+                length_bits,
+                comparator_output,
+            } => {
+                let mut event = NbtCompound::new();
+                event.put_string("sound_id", sound.clone());
+                if let Some(bits) = range_bits {
+                    event.put_float("range", f32::from_bits(*bits));
+                }
+                let mut song = NbtCompound::new();
+                song.put_compound("sound_event", event);
+                song.put(
+                    "description",
+                    description.to_nbt_tag_for_version(&crate::packet::CURRENT_MC_VERSION),
+                );
+                song.put_float("length_in_seconds", f32::from_bits(*length_bits));
+                song.put_int("comparator_output", i32::from(*comparator_output));
+                NbtTag::Compound(song)
+            }
+        }
     }
     default_impl!(JukeboxPlayable);
 }

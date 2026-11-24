@@ -69617,9 +69617,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:11",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:11"),
             ),
             (
                 ItemName,
@@ -69692,9 +69690,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:13",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:13"),
             ),
             (
                 ItemName,
@@ -69767,9 +69763,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:5",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:5"),
             ),
             (
                 ItemName,
@@ -69842,9 +69836,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:blocks",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:blocks"),
             ),
             (
                 ItemName,
@@ -69917,9 +69909,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:bounce",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:bounce"),
             ),
             (
                 ItemName,
@@ -69992,9 +69982,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:cat",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:cat"),
             ),
             (
                 ItemName,
@@ -70067,9 +70055,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:chirp",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:chirp"),
             ),
             (
                 ItemName,
@@ -70142,9 +70128,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:creator",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:creator"),
             ),
             (
                 ItemName,
@@ -70217,9 +70201,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:creator_music_box",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:creator_music_box"),
             ),
             (
                 ItemName,
@@ -70292,9 +70274,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:far",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:far"),
             ),
             (
                 ItemName,
@@ -70367,9 +70347,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:lava_chicken",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:lava_chicken"),
             ),
             (
                 ItemName,
@@ -70442,9 +70420,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:mall",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:mall"),
             ),
             (
                 ItemName,
@@ -70517,9 +70493,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:mellohi",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:mellohi"),
             ),
             (
                 ItemName,
@@ -70592,9 +70566,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:otherside",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:otherside"),
             ),
             (
                 ItemName,
@@ -70667,9 +70639,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:pigstep",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:pigstep"),
             ),
             (
                 ItemName,
@@ -70742,9 +70712,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:precipice",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:precipice"),
             ),
             (
                 ItemName,
@@ -70817,9 +70785,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:relic",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:relic"),
             ),
             (
                 ItemName,
@@ -70892,9 +70858,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:stal",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:stal"),
             ),
             (
                 ItemName,
@@ -70967,9 +70931,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:strad",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:strad"),
             ),
             (
                 ItemName,
@@ -71042,9 +71004,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:tears",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:tears"),
             ),
             (
                 ItemName,
@@ -71117,9 +71077,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:wait",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:wait"),
             ),
             (
                 ItemName,
@@ -71192,9 +71150,7 @@ impl Item {
             (MaxStackSize, &MaxStackSizeImpl { size: 1 }),
             (
                 JukeboxPlayable,
-                &JukeboxPlayableImpl {
-                    song: "minecraft:ward",
-                },
+                &JukeboxPlayableImpl::Named("minecraft:ward"),
             ),
             (
                 ItemName,

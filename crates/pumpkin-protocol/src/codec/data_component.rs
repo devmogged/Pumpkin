@@ -2824,35 +2824,76 @@ impl DataComponentCodec<Self> for OminousBottleAmplifierImpl {
 
 impl DataComponentCodec<Self> for JukeboxPlayableImpl {
     fn serialize(&self, seq: &mut impl NetworkWriteExt) -> Result<(), WritingError> {
-        let name = self.song.strip_prefix("minecraft:").unwrap_or(self.song);
-        let song_id = pumpkin_data::jukebox_song::JukeboxSong::from_name(name)
-            .map_or(1, |s| i32::try_from(s.get_id()).unwrap_or(0) + 1);
-        seq.write_var_int(&VarInt::from(song_id))
+        match self {
+            Self::Named(key) => {
+                let name = key.strip_prefix("minecraft:").unwrap_or(key);
+                let id = pumpkin_data::jukebox_song::JukeboxSong::from_name(name)
+                    .ok_or_else(|| WritingError::Message(format!("Unknown jukebox song {key}")))?;
+                seq.write_var_int(&VarInt(id.get_id() as i32 + 1))
+            }
+            Self::Inline {
+                sound,
+                range_bits,
+                description,
+                length_bits,
+                comparator_output,
+            } => {
+                seq.write_var_int(&VarInt(0))?;
+                seq.write_var_int(&VarInt(0))?;
+                seq.write_string(sound)?;
+                seq.write_bool(range_bits.is_some())?;
+                if let Some(bits) = range_bits {
+                    seq.write_f32_be(f32::from_bits(*bits))?;
+                }
+                seq.write_nbt_with_version(
+                    Some(&description.to_nbt_tag_for_version(&JavaMinecraftVersion::V_26_3)),
+                    &JavaMinecraftVersion::V_26_3,
+                )?;
+                seq.write_f32_be(f32::from_bits(*length_bits))?;
+                seq.write_var_int(&VarInt(i32::from(*comparator_output)))
+            }
+        }
     }
 
     fn deserialize(seq: &mut impl NetworkReadExt) -> Result<Self, ReadingError> {
         let raw = seq.get_var_int()?.0;
+        if raw > 0 {
+            return Self::song_from_id((raw - 1) as u32)
+                .map(|song| Self::Named(Self::song_registry_key(song)))
+                .ok_or_else(|| {
+                    ReadingError::Message(format!("Unknown jukebox song holder {raw}"))
+                });
+        }
         if raw < 0 {
             return Err(ReadingError::Message(
-                "negative JukeboxSong holder id".to_string(),
+                "Negative jukebox song holder".to_owned(),
             ));
         }
-        if raw == 0 {
-            let sound_raw = seq.get_var_int()?.0;
-            if sound_raw == 0 {
-                let _ = seq.get_str()?;
-                if seq.get_bool()? {
-                    let _ = seq.get_f32()?;
-                }
+        let sound_id = seq.get_var_int()?.0;
+        let (sound, range) = match sound_id {
+            0 => (
+                seq.get_str()?.into_string(),
+                seq.get_option(NetworkReadExt::get_f32)?,
+            ),
+            id => {
+                let name = usize::try_from(i64::from(id) - 1)
+                    .ok()
+                    .and_then(|index| Sound::NAMES.get(index))
+                    .ok_or_else(|| {
+                        ReadingError::Message(format!("Unknown jukebox sound holder {id}"))
+                    })?;
+                (format!("minecraft:{name}"), None)
             }
-            let _ =
-                seq.get_nbt_with_version(&pumpkin_util::version::JavaMinecraftVersion::V_26_2)?;
-            let _ = seq.get_f32()?;
-            let _ = seq.get_var_int()?;
-            return Ok(Self { song: "" });
-        }
-        let song = Self::song_from_id((raw - 1) as u32).map_or("", Self::song_registry_key);
-        Ok(Self { song })
+        };
+        let description = seq
+            .get_nbt_with_version(&JavaMinecraftVersion::V_26_3)?
+            .map_or_else(pumpkin_util::text::TextComponent::empty, |nbt| {
+                pumpkin_util::text::TextComponent::from_nbt(&nbt)
+            });
+        let length = seq.get_f32()?;
+        let comparator_output = seq.get_var_int()?.0;
+        Self::inline(sound, range, description, length, comparator_output)
+            .ok_or_else(|| ReadingError::Message("Invalid inline jukebox song".to_owned()))
     }
 }
 

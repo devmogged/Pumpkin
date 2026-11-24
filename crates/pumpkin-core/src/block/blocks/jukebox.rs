@@ -13,7 +13,6 @@ use crate::world::World;
 use pumpkin_data::data_component_impl::JukeboxPlayableImpl;
 use pumpkin_data::entity::EntityType;
 use pumpkin_data::game_event::GameEvent;
-use pumpkin_data::jukebox_song::JukeboxSong;
 use pumpkin_data::world::WorldEvent;
 use pumpkin_data::{Block, BlockStateId, block_properties::JukeboxLikeProperties};
 use pumpkin_macros::pumpkin_block;
@@ -21,8 +20,6 @@ use pumpkin_util::math::position::BlockPos;
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_world::world::BlockFlags;
 use rand::{RngExt, rng};
-
-use tracing::error;
 
 #[pumpkin_block("minecraft:jukebox")]
 pub struct JukeboxBlock;
@@ -71,11 +68,6 @@ impl JukeboxBlock {
         world.emit_game_event(GameEvent::BlockChange.name(), position.to_centered_f64());
         world.sync_world_event(WorldEvent::SoundStopJukeboxSong, *position, 0);
         world.update_neighbors(position, None);
-    }
-
-    /// Starts playing music
-    fn start_playing(position: &BlockPos, world: &Arc<World>, song_id: u32) {
-        world.sync_world_event(WorldEvent::SoundPlayJukeboxSong, *position, song_id as i32);
     }
 }
 
@@ -126,38 +118,26 @@ impl BlockBehaviour for JukeboxBlock {
 
         let item_stack = &mut *args.item_stack;
 
-        // Vanilla: JukeboxPlayableComponent lv = stack.get(DataComponentTypes.JUKEBOX_PLAYABLE)
-        let jukebox_playable = item_stack
-            .get_data_component::<JukeboxPlayableImpl>()
-            .map(|i| i.song);
-
-        // Vanilla: if (lv == null) return PASS_TO_DEFAULT_BLOCK_ACTION
-        let Some(jukebox_playable) = jukebox_playable else {
+        let Some(song) = item_stack.get_data_component::<JukeboxPlayableImpl>() else {
+            return BlockActionResult::PassToDefaultBlockAction;
+        };
+        let (Some(song_id), Some(length)) = (
+            JukeboxBlockEntity::song_event_id(world, song),
+            song.length_in_ticks(),
+        ) else {
+            return BlockActionResult::PassToDefaultBlockAction;
+        };
+        let Some(block_entity) = world.get_block_entity(args.position) else {
+            return BlockActionResult::PassToDefaultBlockAction;
+        };
+        let Some(jukebox) = block_entity.as_any().downcast_ref::<JukeboxBlockEntity>() else {
             return BlockActionResult::PassToDefaultBlockAction;
         };
 
-        let Some(song_name) = jukebox_playable.rsplit(':').next() else {
-            return BlockActionResult::PassToDefaultBlockAction;
-        };
-
-        let Some(jukebox_song) = JukeboxSong::from_name(song_name) else {
-            error!("Jukebox playable song not registered: {song_name}");
-            return BlockActionResult::PassToDefaultBlockAction;
-        };
-
-        // Vanilla: ItemStack lv3 = stack.splitUnlessCreative(1, player)
         let record = item_stack.split_unless_creative(args.player.gamemode.load(), 1);
-
-        // Vanilla: lv4.setStack(lv3)
-        if let Some(block_entity) = world.get_block_entity(args.position)
-            && let Some(jukebox_entity) = block_entity.as_any().downcast_ref::<JukeboxBlockEntity>()
-        {
-            jukebox_entity.set_world(Arc::downgrade(world));
-            jukebox_entity.set_record(record);
-            jukebox_entity.start_playing(
-                jukebox_song.length_in_ticks() + JukeboxBlockEntity::SONG_END_PADDING_TICKS,
-            );
-        }
+        jukebox.set_world(Arc::downgrade(world));
+        jukebox.set_record(record);
+        jukebox.start_playing(length.saturating_add(JukeboxBlockEntity::SONG_END_PADDING_TICKS));
 
         // Update block state to has_record = true
         Self::set_record_state(true, args.block, args.position, world);
@@ -167,7 +147,7 @@ impl BlockBehaviour for JukeboxBlock {
         );
 
         // Start playing the music (client-side audio) and notify redstone neighbors
-        Self::start_playing(args.position, world, jukebox_song.get_id());
+        world.sync_world_event(WorldEvent::SoundPlayJukeboxSong, *args.position, song_id);
         world.update_neighbors(args.position, None);
 
         args.player.increment_stat(
@@ -211,12 +191,12 @@ impl BlockBehaviour for JukeboxBlock {
         {
             let record = jukebox_entity.get_record();
             // Get the song from the record's jukebox_playable component
-            if let Some(playable) = record.get_data_component::<JukeboxPlayableImpl>()
-                && let Some(song_name) = playable.song.rsplit(':').next()
-                && let Some(song) = JukeboxSong::from_name(song_name)
-            {
-                return Some(song.comparator_output());
-            }
+            return Some(
+                record
+                    .get_data_component::<JukeboxPlayableImpl>()
+                    .and_then(JukeboxPlayableImpl::comparator_output)
+                    .unwrap_or(0),
+            );
         }
         Some(0)
     }
