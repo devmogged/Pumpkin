@@ -24,6 +24,7 @@ use pumpkin_worldgen_model::{
     noise_settings::{
         BlockStateCodecStruct, NoiseSettingsFileStruct, NoiseSettingsStruct, ParameterStruct,
     },
+    structure::{HolderSetJson, generation_step},
 };
 use serde_json::Value;
 
@@ -46,6 +47,7 @@ pub struct WorldgenOverrides {
     dimension_types: BTreeMap<String, PathBuf>,
     dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
+    biome_modifiers: BTreeMap<String, PathBuf>,
     carvers: BTreeMap<String, PathBuf>,
     configured_features: BTreeMap<String, PathBuf>,
     placed_features: BTreeMap<String, PathBuf>,
@@ -85,6 +87,11 @@ impl WorldgenOverrides {
                     &prefix,
                     &mut overrides.dimension_types,
                 );
+                index_json(
+                    &namespace.path().join("neoforge/biome_modifier"),
+                    &prefix,
+                    &mut overrides.biome_modifiers,
+                );
                 for (kind, registry) in [
                     ("biome", &mut overrides.biomes),
                     ("carver", &mut overrides.carvers),
@@ -109,6 +116,7 @@ impl WorldgenOverrides {
     #[must_use]
     pub fn has_biome_generation_overrides(&self) -> bool {
         !self.biomes.is_empty()
+            || !self.biome_modifiers.is_empty()
             || !self.carvers.is_empty()
             || !self.configured_features.is_empty()
             || !self.placed_features.is_empty()
@@ -138,9 +146,7 @@ impl WorldgenOverrides {
     /// [`Self::set_biome_tags`] and before creating generators.
     pub fn install_structures(&self) -> Result<(), String> {
         use pumpkin_data::structures::{Structure, StructureKeys};
-        use pumpkin_worldgen_model::structure::{
-            HolderSetJson, StructureSetStruct, StructureStruct,
-        };
+        use pumpkin_worldgen_model::structure::{StructureSetStruct, StructureStruct};
 
         let mut registry = pumpkin_data::structure_registry::StructureRegistry::vanilla();
         let biome_ids = |biomes: &HolderSetJson| -> Result<Vec<u16>, String> {
@@ -213,6 +219,96 @@ impl WorldgenOverrides {
         Ok(())
     }
 
+    fn feature_additions(
+        &self,
+        registry: &[RegistryEntryData],
+        feature: &mut impl FnMut(&str) -> Option<PlacedFeature>,
+    ) -> BTreeMap<u8, BTreeMap<usize, Vec<PlacedFeature>>> {
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "type")]
+        enum Modifier {
+            #[serde(rename = "neoforge:add_features")]
+            AddFeatures {
+                biomes: HolderSetJson,
+                features: HolderSetJson,
+                step: String,
+            },
+            #[serde(other)]
+            Unsupported,
+        }
+
+        let mut additions = BTreeMap::<_, BTreeMap<_, Vec<_>>>::new();
+        for (name, path) in &self.biome_modifiers {
+            let modifier = read_json(path)
+                .and_then(|json| serde_json::from_value(json).map_err(|error| error.to_string()));
+            let (biomes, features, step) = match modifier {
+                Ok(Modifier::AddFeatures {
+                    biomes,
+                    features,
+                    step,
+                }) => match generation_step(&step) {
+                    Ok(step) => (biomes, features, step.ordinal()),
+                    Err(error) => {
+                        tracing::warn!("Skipping biome modifier {name}: {error}");
+                        continue;
+                    }
+                },
+                Ok(Modifier::Unsupported) => continue,
+                Err(error) => {
+                    tracing::warn!("Skipping biome modifier {name}: {error}");
+                    continue;
+                }
+            };
+            let features = features
+                .entries()
+                .into_iter()
+                .filter_map(&mut *feature)
+                .collect::<Vec<_>>();
+            if features.is_empty() {
+                continue;
+            }
+            let mut ids = BTreeSet::new();
+            for entry in biomes.entries() {
+                if let Some(tag) = entry.strip_prefix('#') {
+                    let tag = resource_id(tag);
+                    let members = self
+                        .biome_tags
+                        .get(tag.as_ref())
+                        .map(Vec::as_slice)
+                        .or_else(|| {
+                            pumpkin_data::tag::get_tag_ids(
+                                pumpkin_data::tag::RegistryKey::WorldgenBiome,
+                                &tag,
+                            )
+                        });
+                    ids.extend(
+                        members
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|id| u8::try_from(*id).ok()),
+                    );
+                } else {
+                    let key = resource_id(entry);
+                    if let Some(id) = registry
+                        .iter()
+                        .position(|biome| resource_id(&biome.entry_id) == key)
+                    {
+                        ids.insert(id as u8);
+                    }
+                }
+            }
+            for id in ids {
+                additions
+                    .entry(id)
+                    .or_default()
+                    .entry(step)
+                    .or_default()
+                    .extend_from_slice(&features);
+            }
+        }
+        additions
+    }
+
     pub fn install_biomes(&self, registry: &[RegistryEntryData]) -> Result<(), String> {
         if registry.len() > usize::from(u8::MAX) + 1 {
             return Err(format!(
@@ -249,7 +345,8 @@ impl WorldgenOverrides {
             }
             built_in
         };
-        let mut custom = Vec::with_capacity(self.biomes.len());
+        let additions = self.feature_additions(registry, &mut feature);
+        let mut custom = Vec::with_capacity(self.biomes.len().max(additions.len()));
         for (id, entry) in registry.iter().enumerate() {
             let key = resource_id(&entry.entry_id);
             let vanilla = Biome::vanilla_from_id(id as u8);
@@ -262,14 +359,35 @@ impl WorldgenOverrides {
                 ));
             }
 
-            let Some(path) = self.biomes.get(key.as_ref()) else {
-                if let Some(vanilla) = vanilla
-                    && vanilla
-                        .carvers
-                        .iter()
-                        .any(|config| carvers.contains_key(config.registry_id))
-                {
-                    let mut biome = vanilla.clone();
+            let additional_features = additions.get(&(id as u8));
+            let mut biome = if let Some(path) = self.biomes.get(key.as_ref()) {
+                let name = vanilla.map_or(key.as_ref(), |biome| biome.registry_id);
+                match read_json(path).and_then(|json| {
+                    crate::biome::registry::build_biome(
+                        id as u8,
+                        name,
+                        json,
+                        &mut carver,
+                        &mut feature,
+                    )
+                }) {
+                    Ok(biome) => biome,
+                    Err(error) => {
+                        tracing::warn!("Skipping biome {key}: {error}");
+                        continue;
+                    }
+                }
+            } else {
+                let Some(vanilla) = vanilla else { continue };
+                let replace_carvers = vanilla
+                    .carvers
+                    .iter()
+                    .any(|config| carvers.contains_key(config.registry_id));
+                if !replace_carvers && additional_features.is_none() {
+                    continue;
+                }
+                let mut biome = vanilla.clone();
+                if replace_carvers {
                     biome.carvers = Box::leak(
                         vanilla
                             .carvers
@@ -278,17 +396,13 @@ impl WorldgenOverrides {
                             .collect::<Vec<_>>()
                             .into_boxed_slice(),
                     );
-                    custom.push(biome);
                 }
-                continue;
+                biome
             };
-            let name = vanilla.map_or(key.as_ref(), |biome| biome.registry_id);
-            match read_json(path).and_then(|json| {
-                crate::biome::registry::build_biome(id as u8, name, json, &mut carver, &mut feature)
-            }) {
-                Ok(biome) => custom.push(biome),
-                Err(error) => tracing::warn!("Skipping biome {key}: {error}"),
+            if let Some(additional_features) = additional_features {
+                append_biome_features(&mut biome, additional_features);
             }
+            custom.push(biome);
         }
 
         if Biome::install_runtime_biomes(registry.len(), custom) {
@@ -421,6 +535,24 @@ impl WorldgenOverrides {
             }
         }
     }
+}
+
+fn append_biome_features(biome: &mut Biome, additions: &BTreeMap<usize, Vec<PlacedFeature>>) {
+    let mut steps = biome.features.to_vec();
+    for (&step, additions) in additions {
+        if steps.len() <= step {
+            steps.resize(step + 1, &[]);
+        }
+        let mut features = steps[step].to_vec();
+        for &feature in additions {
+            // A duplicate in the same step introduces a cycle in FeatureSorter.
+            if !features.contains(&feature) {
+                features.push(feature);
+            }
+        }
+        steps[step] = Box::leak(features.into_boxed_slice());
+    }
+    biome.features = Box::leak(steps.into_boxed_slice());
 }
 
 pub(super) fn default_settings_id(dimension: &Dimension) -> &'static str {

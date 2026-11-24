@@ -305,15 +305,14 @@ impl Server {
         });
         let mut worldgen =
             WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
+        let biomes = datapack_manager.get_dynamic_registry_entries("minecraft:worldgen/biome");
+        worldgen.set_biome_tags(datapack_manager.worldgen_biome_tags(&biomes));
         if worldgen.has_biome_generation_overrides() {
             worldgen.set_block_tags(datapack_manager.worldgen_block_tags());
             worldgen
-                .install_biomes(
-                    &datapack_manager.get_dynamic_registry_entries("minecraft:worldgen/biome"),
-                )
+                .install_biomes(&biomes)
                 .map_err(WorldInfoError::DeserializationError)?;
         }
-        worldgen.set_biome_tags(datapack_manager.worldgen_biome_tags());
         worldgen
             .install_structures()
             .map_err(WorldInfoError::DeserializationError)?;

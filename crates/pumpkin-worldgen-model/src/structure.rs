@@ -805,6 +805,9 @@ impl HolderSetJson {
 }
 
 #[cfg(feature = "runtime")]
+pub use runtime::generation_step;
+
+#[cfg(feature = "runtime")]
 mod runtime {
     use pumpkin_data::structures::{
         BoundingBoxType, ConcentricRingsStructurePlacement, ExclusionZone,
@@ -831,7 +834,7 @@ mod runtime {
         Box::leak(values.into_boxed_slice())
     }
 
-    fn step(name: &str) -> Result<GenerationStep, String> {
+    pub fn generation_step(name: &str) -> Result<GenerationStep, String> {
         Ok(match name {
             "raw_generation" => GenerationStep::RawGeneration,
             "lakes" => GenerationStep::Lakes,
@@ -1037,7 +1040,7 @@ mod runtime {
             let height = self.start_height.as_ref().or(self.height.as_ref());
             Ok(Structure {
                 biomes,
-                step: step(&self.step)?,
+                step: generation_step(&self.step)?,
                 start_pool: self.start_pool.map(leak),
                 start_jigsaw_name: self.start_jigsaw_name.map(leak),
                 size: self.size,

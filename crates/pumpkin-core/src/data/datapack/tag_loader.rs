@@ -142,7 +142,7 @@ const MAX_TAG_DEPTH: u8 = 32;
 pub(super) fn resolve_tag<S: std::hash::BuildHasher>(
     tags: &HashMap<String, DynamicTagEntry, S>,
     key: RegistryKey,
-    lookup: IdLookup,
+    lookup: impl Fn(&str) -> Option<u16> + Copy,
     name: &str,
     depth: u8,
     out: &mut Vec<u16>,

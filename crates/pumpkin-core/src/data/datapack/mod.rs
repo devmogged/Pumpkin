@@ -419,11 +419,21 @@ impl DatapackManager {
         })
     }
 
-    pub(crate) fn worldgen_biome_tags(&self) -> std::collections::BTreeMap<String, Vec<u16>> {
-        use pumpkin_data::{biome::Biome, tag::RegistryKey};
+    pub(crate) fn worldgen_biome_tags(
+        &self,
+        registry: &[RegistryEntryData],
+    ) -> std::collections::BTreeMap<String, Vec<u16>> {
+        use pumpkin_data::tag::RegistryKey;
 
+        let ids: std::collections::HashMap<_, _> = registry
+            .iter()
+            .enumerate()
+            .filter_map(|(id, entry)| Some((entry.entry_id.as_str(), u16::try_from(id).ok()?)))
+            .collect();
         self.worldgen_tags("worldgen/biome", RegistryKey::WorldgenBiome, |name| {
-            Biome::from_name(name).map(|biome| u16::from(biome.id))
+            ids.get(name)
+                .or_else(|| ids.get(format!("minecraft:{name}").as_str()))
+                .copied()
         })
     }
 
@@ -458,7 +468,7 @@ impl DatapackManager {
         &self,
         category: &str,
         registry: pumpkin_data::tag::RegistryKey,
-        id: fn(&str) -> Option<u16>,
+        id: impl Fn(&str) -> Option<u16> + Copy,
     ) -> std::collections::BTreeMap<String, Vec<u16>> {
         let tags = self
             .tags
