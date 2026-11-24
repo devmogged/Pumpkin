@@ -524,11 +524,9 @@ pub fn collect_loot(
     pos: &BlockPos,
     params: &LootContextParameters,
 ) -> Vec<ItemStack> {
-    if let Some(entry) = pumpkin_data::content::item(block.item_id) {
-        return vec![ItemStack::new(1, entry.item)];
-    }
     let Some(loot_table) = block.loot_table.and_then(|key| world.get_loot_table(key)) else {
-        return Vec::new();
+        return pumpkin_data::content::item(block.item_id)
+            .map_or_else(Vec::new, |entry| vec![ItemStack::new(1, entry.item)]);
     };
     // TODO: vanilla rolls from the loot table's `random_sequence`, which is seeded per world.
     let seed: i64 = rand::random();
