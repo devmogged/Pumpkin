@@ -1,8 +1,12 @@
 use pumpkin_nbt::compound::NbtCompound;
+use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io;
 use std::path::PathBuf;
-use std::sync::{PoisonError, RwLock};
+use std::sync::{
+    PoisonError, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 use tempfile::NamedTempFile;
 use tracing::{debug, error};
 use uuid::Uuid;
@@ -16,7 +20,8 @@ pub struct PlayerDataStorage {
     data_path: PathBuf,
     /// Whether player data saving is enabled
     save_enabled: bool,
-    file_access: RwLock<()>,
+    file_access: RwLock<HashMap<Uuid, u64>>,
+    next_snapshot: AtomicU64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -43,7 +48,8 @@ impl PlayerDataStorage {
         Self {
             data_path: path,
             save_enabled: enabled,
-            file_access: RwLock::new(()),
+            file_access: RwLock::new(HashMap::new()),
+            next_snapshot: AtomicU64::new(1),
         }
     }
 
@@ -127,6 +133,22 @@ impl PlayerDataStorage {
     ///
     /// A Result indicating success or the error that occurred.
     pub fn save_player_data(&self, uuid: &Uuid, data: NbtCompound) -> Result<(), PlayerDataError> {
+        self.save_player_snapshot(uuid, self.reserve_snapshot(), data)
+    }
+
+    /// Reserve the ordering for a player snapshot before serializing the player's state.
+    #[must_use]
+    pub fn reserve_snapshot(&self) -> u64 {
+        self.next_snapshot.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Save captured player data unless a newer snapshot has already reached disk.
+    pub fn save_player_snapshot(
+        &self,
+        uuid: &Uuid,
+        revision: u64,
+        data: NbtCompound,
+    ) -> Result<(), PlayerDataError> {
         // Skip saving if disabled in config
         if !self.is_save_enabled() {
             return Ok(());
@@ -149,11 +171,15 @@ impl PlayerDataStorage {
         }
         let pending = pending.into_temp_path();
         // Windows may reject replacement while another handle to the destination is open.
-        let _guard = self
+        let mut saved = self
             .file_access
             .write()
             .unwrap_or_else(PoisonError::into_inner);
+        if saved.get(uuid).is_some_and(|latest| *latest >= revision) {
+            return Ok(());
+        }
         pending.persist(path).map_err(|e| e.error)?;
+        saved.insert(*uuid, revision);
         debug!("Saved player data for {uuid} to disk");
         Ok(())
     }
@@ -164,6 +190,27 @@ mod tests {
     use super::*;
     use pumpkin_nbt::tag::NbtTag;
     use std::sync::Barrier;
+
+    #[test]
+    fn delayed_snapshot_cannot_restore_older_player_data() {
+        let directory = tempfile::tempdir().expect("player data directory");
+        let storage = PlayerDataStorage::new(directory.path(), true);
+        let player = Uuid::nil();
+        let old_revision = storage.reserve_snapshot();
+        let new_revision = storage.reserve_snapshot();
+        let mut old = NbtCompound::new();
+        old.put("InventoryMarker", NbtTag::Int(1));
+        let mut new = NbtCompound::new();
+        new.put("InventoryMarker", NbtTag::Int(2));
+        storage
+            .save_player_snapshot(&player, new_revision, new.clone())
+            .unwrap();
+        storage
+            .save_player_snapshot(&player, old_revision, old)
+            .unwrap();
+        let (_, saved) = storage.load_player_data(&player).unwrap();
+        assert_eq!(saved, new);
+    }
 
     #[test]
     fn player_saves_replace_complete_snapshots() {

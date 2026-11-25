@@ -52,11 +52,7 @@ impl ServerPlayerData {
             .on_closed(player.as_ref());
         player.on_handled_screen_closed();
 
-        let mut nbt = NbtCompound::new();
-        player.write_nbt(&mut nbt);
-
-        self.storage.save_player_data(&player.gameprofile.id, nbt)?;
-        Ok(())
+        self.extract_data_and_save_player(player)
     }
 
     /// Performs periodic maintenance tasks.
@@ -76,9 +72,10 @@ impl ServerPlayerData {
             let mut snapshots = Vec::new();
             for world in server.worlds.load().iter() {
                 for player in world.players.load().iter() {
+                    let revision = self.storage.reserve_snapshot();
                     let mut nbt = NbtCompound::new();
                     player.write_nbt(&mut nbt);
-                    snapshots.push((player.gameprofile.id, nbt));
+                    snapshots.push((player.gameprofile.id, revision, nbt));
                 }
             }
 
@@ -90,8 +87,8 @@ impl ServerPlayerData {
             // The tick runs on a simulation thread with no Tokio context, so use the
             // server's runtime handle instead of `tokio::task::spawn_blocking`.
             server.runtime.spawn_blocking(move || {
-                for (uuid, nbt) in snapshots {
-                    if let Err(e) = storage.save_player_data(&uuid, nbt) {
+                for (uuid, revision, nbt) in snapshots {
+                    if let Err(e) = storage.save_player_snapshot(&uuid, revision, nbt) {
                         error!("Failed to save player data for {uuid}: {e}");
                     }
                 }
@@ -173,11 +170,11 @@ impl ServerPlayerData {
         }
 
         let uuid = player.gameprofile.id;
+        let revision = self.storage.reserve_snapshot();
         let mut nbt = NbtCompound::new();
         player.write_nbt(&mut nbt);
 
-        self.storage.save_player_data(&uuid, nbt)?;
-        Ok(())
+        self.storage.save_player_snapshot(&uuid, revision, nbt)
     }
 }
 
