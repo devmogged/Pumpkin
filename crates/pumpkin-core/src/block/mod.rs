@@ -142,6 +142,11 @@ pub trait BlockBehaviour: Send + Sync {
 
     fn random_tick(&self, _args: RandomTickArgs<'_>) {}
 
+    /// Ordered dispatch for an enabled custom state sampled by the chunk scheduler.
+    fn random_tick_sampled(&self, args: RandomTickArgs<'_>, _state: BlockStateId) {
+        self.random_tick(args);
+    }
+
     fn can_place_at(&self, _args: CanPlaceAtArgs<'_>) -> bool {
         true
     }

@@ -1769,7 +1769,7 @@ impl World {
     }
 
     #[expect(clippy::too_many_lines)]
-    pub fn tick(self: &Arc<Self>, server: &Arc<Server>) {
+    pub fn tick(self: &Arc<Self>, server: &Arc<Server>) -> Vec<(BlockPos, BlockStateId)> {
         let start = std::time::Instant::now();
 
         self.flush_block_updates();
@@ -1798,7 +1798,7 @@ impl World {
         };
 
         let t_chunks = std::time::Instant::now();
-        self.tick_chunks();
+        let content_random_ticks = self.tick_chunks();
         let chunk_elapsed = t_chunks.elapsed();
 
         let players = self.players.load();
@@ -2011,6 +2011,7 @@ impl World {
                 block_entity_elapsed,
             );
         }
+        content_random_ticks
     }
 
     fn send_block_updated(
@@ -2306,7 +2307,7 @@ impl World {
     }
 
     #[expect(clippy::too_many_lines)]
-    pub fn tick_chunks(self: &Arc<Self>) {
+    pub fn tick_chunks(self: &Arc<Self>) -> Vec<(BlockPos, BlockStateId)> {
         const BATCH_SIZE: usize = 32;
         const INHABITED_TIME_BATCH_SIZE: usize = 1024;
         let random_tick_speed = self.level_info.load().game_rules.random_tick_speed;
@@ -2395,20 +2396,6 @@ impl World {
                 }
             });
 
-        for (position, sampled) in tick_data.content_random_ticks {
-            if self.get_block_state_id_if_loaded(&position) != Some(sampled) {
-                continue;
-            }
-            let block = sampled.to_block();
-            if let Some(behaviour) = self.block_registry.get_pumpkin_block(block.id) {
-                behaviour.random_tick(RandomTickArgs {
-                    world: self,
-                    block,
-                    position: &position,
-                });
-            }
-        }
-
         natural_spawner::spawn_pending_generation(self);
 
         // 4. Calculate Spawn List (Sequential setup)
@@ -2464,6 +2451,29 @@ impl World {
                     chunk.inhabited_time.fetch_add(1, Relaxed);
                 }
             });
+        tick_data.content_random_ticks
+    }
+
+    pub(crate) fn dispatch_content_random_ticks(
+        self: &Arc<Self>,
+        samples: Vec<(BlockPos, BlockStateId)>,
+    ) {
+        for (position, sampled) in samples {
+            if self.get_block_state_id_if_loaded(&position) != Some(sampled) {
+                continue;
+            }
+            let block = sampled.to_block();
+            if let Some(behaviour) = self.block_registry.get_pumpkin_block(block.id) {
+                behaviour.random_tick_sampled(
+                    RandomTickArgs {
+                        world: self,
+                        block,
+                        position: &position,
+                    },
+                    sampled,
+                );
+            }
+        }
     }
 
     pub fn contains_any_liquid(&self, bounding_box: BoundingBox) -> bool {

@@ -1353,9 +1353,12 @@ impl Server {
         self.sync_game_time();
 
         let worlds = self.worlds.load();
-        worlds.par_iter().for_each(|world| {
-            world.tick(self);
-        });
+        let samples: Vec<_> = worlds.par_iter().map(|world| world.tick(self)).collect();
+        // Drop-in block callbacks can change the world. Run them in dimension order
+        // once world workers have joined, and recheck each sampled state at dispatch.
+        for (world, samples) in worlds.iter().zip(samples) {
+            world.dispatch_content_random_ticks(samples);
+        }
 
         // Global tasks
         self.player_data_storage.tick(self);
