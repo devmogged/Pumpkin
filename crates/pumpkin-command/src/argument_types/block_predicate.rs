@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pumpkin_data::tag::{RegistryKey, get_tag_ids};
-use pumpkin_data::{Block, BlockStateId, Property, translation};
+use pumpkin_data::{Block, BlockStateId, Property, PropertyLookupError, content, translation};
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_util::identifier::Identifier;
@@ -10,8 +10,8 @@ use pumpkin_util::text::TextComponent;
 use crate::argument_types::FromStringReader;
 use crate::argument_types::argument_type::{ArgumentType, JavaClientArgumentType};
 use crate::argument_types::block::{
-    ERROR_DUPLICATE_PROPERTY, ERROR_EXPECTED_VALUE, ERROR_UNCLOSED_PROPERTIES, parse_block_input,
-    parse_nbt_compound,
+    ERROR_DUPLICATE_PROPERTY, ERROR_EXPECTED_VALUE, ERROR_UNCLOSED_PROPERTIES, parse_nbt_compound,
+    read_block, read_block_input, read_block_properties,
 };
 use crate::argument_types::nbt_path::compare_nbt;
 use crate::context::command_context::CommandContext;
@@ -30,6 +30,11 @@ pub enum BlockPredicate {
     Block {
         block: &'static Block,
         defined_properties: Vec<Property>,
+        nbt: Option<NbtCompound>,
+    },
+    CustomBlock {
+        block: &'static Block,
+        properties: Vec<(String, String)>,
         nbt: Option<NbtCompound>,
     },
     Tag {
@@ -69,6 +74,22 @@ impl BlockPredicate {
                     {
                         return false;
                     }
+                }
+                nbt
+            }
+            Self::CustomBlock {
+                block: expected,
+                properties,
+                nbt,
+            } => {
+                if block.id != expected.id
+                    || !content::state(state_id.as_u16()).is_some_and(|state| {
+                        properties
+                            .iter()
+                            .all(|(key, value)| state.properties.get(key) == Some(value))
+                    })
+                {
+                    return false;
                 }
                 nbt
             }
@@ -115,7 +136,9 @@ impl BlockPredicate {
     #[must_use]
     pub const fn requires_nbt(&self) -> bool {
         match self {
-            Self::Block { nbt, .. } | Self::Tag { nbt, .. } => nbt.is_some(),
+            Self::Block { nbt, .. } | Self::CustomBlock { nbt, .. } | Self::Tag { nbt, .. } => {
+                nbt.is_some()
+            }
         }
     }
 }
@@ -217,6 +240,49 @@ fn parse_tag_predicate_inner(
     })
 }
 
+fn parse_concrete_predicate(
+    reader: &mut StringReader,
+) -> Result<BlockPredicate, CommandSyntaxError> {
+    let (block, id) = read_block(reader)?;
+    if content::state(block.default_state.id.as_u16()).is_none() {
+        let input = read_block_input(reader, block, &id, true)?;
+        return Ok(BlockPredicate::Block {
+            block,
+            defined_properties: input.defined_properties,
+            nbt: input.nbt,
+        });
+    }
+
+    let properties = if reader.peek() == Some('[') {
+        let states = || {
+            block
+                .states
+                .iter()
+                .filter_map(|state| content::state(state.id.as_u16()))
+        };
+        read_block_properties(
+            reader,
+            &id,
+            |key| states().any(|state| state.properties.contains_key(key)),
+            |(key, _): &(String, String)| key,
+            |key, value| {
+                states()
+                    .any(|state| state.properties.get(key).is_some_and(|v| v == value))
+                    .then(|| (key.to_owned(), value.to_owned()))
+                    .ok_or(PropertyLookupError::InvalidValue)
+            },
+        )?
+    } else {
+        Vec::new()
+    };
+
+    Ok(BlockPredicate::CustomBlock {
+        block,
+        properties,
+        nbt: parse_nbt_compound(reader)?,
+    })
+}
+
 pub struct BlockPredicateArgumentType;
 
 impl<S: crate::source::CommandSource> ArgumentType<S> for BlockPredicateArgumentType {
@@ -226,12 +292,8 @@ impl<S: crate::source::CommandSource> ArgumentType<S> for BlockPredicateArgument
         if reader.peek() == Some('#') {
             parse_tag_predicate(reader)
         } else {
-            let input = parse_block_input(reader, true)?;
-            Ok(BlockPredicate::Block {
-                block: input.block,
-                defined_properties: input.defined_properties,
-                nbt: input.nbt,
-            })
+            let initial_cursor = reader.cursor();
+            parse_concrete_predicate(reader).inspect_err(|_| reader.set_cursor(initial_cursor))
         }
     }
 

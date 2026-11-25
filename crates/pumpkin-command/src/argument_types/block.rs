@@ -98,21 +98,23 @@ pub(crate) fn parse_nbt_compound(
     }
 }
 
-fn read_block_properties(
+pub(crate) fn read_block_properties<P>(
     reader: &mut StringReader,
-    block: &'static Block,
     block_id: &str,
-) -> Result<Vec<Property>, CommandSyntaxError> {
+    has_property: impl Fn(&str) -> bool,
+    property_key: impl Fn(&P) -> &str,
+    parse_property: impl Fn(&str, &str) -> Result<P, PropertyLookupError>,
+) -> Result<Vec<P>, CommandSyntaxError> {
     reader.skip();
     reader.skip_whitespace();
-    let mut defined: Vec<Property> = Vec::new();
+    let mut defined = Vec::new();
 
     while reader.can_read_char() && reader.peek() != Some(']') {
         reader.skip_whitespace();
         let key_start = reader.cursor();
         let key = reader.read_string()?;
 
-        if !block.has_property(&key) {
+        if !has_property(&key) {
             reader.set_cursor(key_start);
             return Err(ERROR_UNKNOWN_PROPERTY.create(
                 reader,
@@ -121,7 +123,7 @@ fn read_block_properties(
             ));
         }
 
-        if defined.iter().any(|p| p.key().to_str() == key) {
+        if defined.iter().any(|property| property_key(property) == key) {
             reader.set_cursor(key_start);
             return Err(ERROR_DUPLICATE_PROPERTY.create(
                 reader,
@@ -143,7 +145,7 @@ fn read_block_properties(
 
         let val_start = reader.cursor();
         let raw_value = reader.read_string()?;
-        let prop = match block.parse_property(&key, &raw_value) {
+        let prop = match parse_property(&key, &raw_value) {
             Ok(prop) => prop,
             Err(PropertyLookupError::UnknownProperty) => {
                 reader.set_cursor(key_start);
@@ -197,6 +199,13 @@ fn parse_block_input_inner(
     reader: &mut StringReader,
     allow_nbt: bool,
 ) -> Result<BlockInput, CommandSyntaxError> {
+    let (block, id) = read_block(reader)?;
+    read_block_input(reader, block, &id, allow_nbt)
+}
+
+pub(crate) fn read_block(
+    reader: &mut StringReader,
+) -> Result<(&'static Block, String), CommandSyntaxError> {
     if reader.peek() == Some('#') {
         return Err(ERROR_NO_TAGS_ALLOWED.create(reader));
     }
@@ -209,8 +218,23 @@ fn parse_block_input_inner(
         return Err(INVALID_BLOCK_ERROR_TYPE.create(reader, TextComponent::text(id_str)));
     };
 
+    Ok((block, id_str))
+}
+
+pub(crate) fn read_block_input(
+    reader: &mut StringReader,
+    block: &'static Block,
+    id: &str,
+    allow_nbt: bool,
+) -> Result<BlockInput, CommandSyntaxError> {
     let defined_properties = if reader.peek() == Some('[') {
-        read_block_properties(reader, block, &id_str)?
+        read_block_properties(
+            reader,
+            id,
+            |key| block.has_property(key),
+            |property: &Property| property.key_str(),
+            |key, value| block.parse_property(key, value),
+        )?
     } else {
         Vec::new()
     };
