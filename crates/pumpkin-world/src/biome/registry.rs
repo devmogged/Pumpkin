@@ -40,6 +40,7 @@ pub fn build_biome(
                     r#type: Box::leak(entry.r#type.into_boxed_str()),
                     min_count: entry.min_count,
                     max_count: entry.max_count,
+                    weight: entry.weight,
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),

@@ -362,6 +362,7 @@ pub fn build() -> TokenStream {
             pub r#type: &'static str,
             pub min_count: i32,
             pub max_count: i32,
+            pub weight: i32,
         }
 
         impl PartialEq for Biome {

@@ -2379,6 +2379,8 @@ impl World {
                 }
             });
 
+        natural_spawner::spawn_pending_generation(self);
+
         // 4. Calculate Spawn List (Sequential setup)
         let spawn_state = self.spawn_state.load();
         let (spawn_mobs, spawn_monsters, peaceful) = {
@@ -5513,6 +5515,9 @@ impl World {
         });
         self.record_tick_spawn(entity.get_entity().entity_id);
         self.add_pending_riders(&entity);
+        if let Some(hook) = ENTITY_ADDED.get() {
+            hook(self, &entity);
+        }
     }
 
     /// Records the sequential order of an entity spawned while an entity ticks.

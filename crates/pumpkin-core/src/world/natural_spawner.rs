@@ -1,6 +1,6 @@
 use crate::block::PathComputationType;
 use crate::entity::EntityBase;
-use crate::entity::mob::spawn::finalize_spawn;
+use crate::entity::mob::spawn::{EntitySpawnReason, finalize_spawn};
 use crate::entity::r#type::{check_spawn_rules, from_type};
 use crate::world::World;
 use arc_swap::ArcSwap;
@@ -23,14 +23,238 @@ use pumpkin_util::random::xoroshiro128::Xoroshiro;
 use pumpkin_util::random::{RandomImpl, get_seed};
 use pumpkin_world::chunk::{ChunkData, ChunkHeightmapType};
 use pumpkin_world::generation::proto_chunk::GenerationCache;
-use rand::seq::IndexedRandom;
 use rand::{RngExt, rng};
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering::Relaxed};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use uuid::Uuid;
 
 const MAGIC_NUMBER: i32 = 17 * 17;
+
+/// A natural spawn entry an embedder adds to biome spawn pools, for a mob Pumpkin doesn't define.
+#[derive(Debug)]
+pub struct EmbedderSpawn {
+    /// The embedder's id for the mob, handed back to `check` and `create`.
+    pub id: &'static str,
+    /// The vanilla type whose size, spawn costs, caps and despawn rules the mob uses.
+    pub carrier: &'static EntityType,
+    /// The pool it is in.
+    pub category: &'static MobCategory,
+    pub location: SpawnLocation,
+    pub weight: i32,
+    pub min_count: i32,
+    pub max_count: i32,
+    /// Also apply the carrier's vanilla spawn rules before `check`.
+    pub carrier_rules: bool,
+}
+
+/// Hooks that let an embedder add mobs to the natural spawner.
+pub struct EmbedderSpawns {
+    /// Extra entries for a biome's pool of one category.
+    pub entries: fn(&'static Biome, &'static MobCategory) -> &'static [EmbedderSpawn],
+    /// The mob's own spawn rule at a position (vanilla `SpawnPlacements` predicate).
+    pub check: fn(&Arc<World>, &'static EmbedderSpawn, &BlockPos, EntitySpawnReason) -> bool,
+    /// Create the mob at a position without adding it to the world.
+    pub create:
+        fn(&Arc<World>, &'static EmbedderSpawn, Vector3<f64>) -> Option<Arc<dyn EntityBase>>,
+}
+
+static EMBEDDER_SPAWNS: OnceLock<EmbedderSpawns> = OnceLock::new();
+
+/// Installs the embedder spawn hooks before worlds tick. Only the first call succeeds.
+pub fn install_embedder_spawns(spawns: EmbedderSpawns) -> bool {
+    EMBEDDER_SPAWNS.set(spawns).is_ok()
+}
+
+fn embedder_entries(
+    biome: &'static Biome,
+    category: &'static MobCategory,
+) -> &'static [EmbedderSpawn] {
+    EMBEDDER_SPAWNS
+        .get()
+        .map_or(&[], |spawns| (spawns.entries)(biome, category))
+}
+
+/// One entry of a biome's spawn pool: vanilla, or an embedder's.
+#[derive(Clone, Copy)]
+pub enum SpawnEntry {
+    Vanilla(&'static Spawner, &'static EntityType),
+    Embedder(&'static EmbedderSpawn),
+}
+
+impl SpawnEntry {
+    #[must_use]
+    pub const fn entity_type(self) -> &'static EntityType {
+        match self {
+            Self::Vanilla(_, entity_type) => entity_type,
+            Self::Embedder(spawn) => spawn.carrier,
+        }
+    }
+
+    const fn weight(self) -> i32 {
+        match self {
+            Self::Vanilla(spawner, _) => spawner.weight,
+            Self::Embedder(spawn) => spawn.weight,
+        }
+    }
+
+    const fn counts(self) -> (i32, i32) {
+        match self {
+            Self::Vanilla(spawner, _) => (spawner.min_count, spawner.max_count),
+            Self::Embedder(spawn) => (spawn.min_count, spawn.max_count),
+        }
+    }
+
+    const fn location(self) -> &'static SpawnLocation {
+        match self {
+            Self::Vanilla(_, entity_type) => &entity_type.spawn_restriction.location,
+            Self::Embedder(spawn) => &spawn.location,
+        }
+    }
+
+    fn create(self, world: &Arc<World>, position: Vector3<f64>) -> Option<Arc<dyn EntityBase>> {
+        match self {
+            Self::Vanilla(_, entity_type) => {
+                Some(from_type(entity_type, position, world, Uuid::new_v4()))
+            }
+            Self::Embedder(spawn) => EMBEDDER_SPAWNS
+                .get()
+                .and_then(|spawns| (spawns.create)(world, spawn, position)),
+        }
+    }
+
+    /// Vanilla `SpawnPlacements.checkSpawnRules`, or the carrier's and the embedder's.
+    fn check_rules(
+        self,
+        world: &Arc<World>,
+        pos: &BlockPos,
+        is_thundering: bool,
+        reason: EntitySpawnReason,
+    ) -> bool {
+        match self {
+            Self::Vanilla(_, entity_type) => {
+                check_spawn_rules(entity_type, world, pos, is_thundering, reason)
+            }
+            Self::Embedder(spawn) => {
+                (!spawn.carrier_rules
+                    || check_spawn_rules(spawn.carrier, world, pos, is_thundering, reason))
+                    && EMBEDDER_SPAWNS
+                        .get()
+                        .is_some_and(|spawns| (spawns.check)(world, spawn, pos, reason))
+            }
+        }
+    }
+}
+
+/// A chunk generation spawn group member waiting for its chunk to join the world, so its spawn
+/// rules read the generated blocks instead of an unloaded chunk.
+struct PendingGenerationSpawn {
+    world: Weak<World>,
+    entry: SpawnEntry,
+    chunk: Vector2<i32>,
+    /// The positions vanilla would try in order; the first that passes spawns.
+    candidates: Vec<(Vector3<f64>, BlockPos)>,
+    queued: i64,
+}
+
+static PENDING_GENERATION: Mutex<Vec<PendingGenerationSpawn>> = Mutex::new(Vec::new());
+
+/// Give up on a chunk that never joins the world.
+const PENDING_GENERATION_TICKS: i64 = 1200;
+
+/// Finish chunk generation spawns whose chunks have joined `world`.
+pub fn spawn_pending_generation(world: &Arc<World>) {
+    let now = world.get_world_age();
+    let ready = {
+        let mut pending = PENDING_GENERATION
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if pending.is_empty() {
+            return;
+        }
+        let mut ready = Vec::new();
+        pending.retain_mut(|spawn| {
+            let Some(owner) = spawn.world.upgrade() else {
+                return false;
+            };
+            if !Arc::ptr_eq(&owner, world) {
+                return true;
+            }
+            if world.level.is_chunk_loaded(&spawn.chunk) {
+                ready.push((spawn.entry, std::mem::take(&mut spawn.candidates)));
+                return false;
+            }
+            now - spawn.queued < PENDING_GENERATION_TICKS
+        });
+        ready
+    };
+    for (entry, candidates) in ready {
+        let entity_type = entry.entity_type();
+        for (position, check_pos) in candidates {
+            if world.is_space_empty(
+                entity_type.get_spawn_bounding_box(position.x, position.y, position.z),
+            ) && entry.check_rules(world, &check_pos, false, EntitySpawnReason::ChunkGeneration)
+                && let Some(entity) = entry.create(world, position)
+            {
+                entity
+                    .get_entity()
+                    .set_rotation(rand::random::<f32>() * 360.0, 0.0);
+                if matches!(entry, SpawnEntry::Vanilla(..)) {
+                    finalize_spawn(&entity, world, EntitySpawnReason::ChunkGeneration, None);
+                }
+                world.spawn_entity_non_save(entity);
+                break;
+            }
+        }
+    }
+}
+
+/// Vanilla `WeightedRandomList.getRandom` over the biome's entries and the embedder's.
+fn choose_weighted(
+    vanilla: &'static [Spawner],
+    embedder: &'static [EmbedderSpawn],
+) -> Option<SpawnEntry> {
+    let entries = vanilla
+        .iter()
+        .filter_map(|spawner| {
+            let name = spawner
+                .r#type
+                .strip_prefix("minecraft:")
+                .unwrap_or(spawner.r#type);
+            EntityType::from_name(name).map(|entity_type| SpawnEntry::Vanilla(spawner, entity_type))
+        })
+        .chain(embedder.iter().map(SpawnEntry::Embedder))
+        .filter(|entry| entry.weight() > 0);
+    let total: i32 = entries.clone().map(SpawnEntry::weight).sum();
+    if total <= 0 {
+        return None;
+    }
+    let mut roll = rng().random_range(0..total);
+    for entry in entries {
+        roll -= entry.weight();
+        if roll < 0 {
+            return Some(entry);
+        }
+    }
+    None
+}
+
+/// A biome's vanilla spawn pool of one category.
+#[must_use]
+pub fn pool(biome: &'static Biome, category: &'static MobCategory) -> &'static [Spawner] {
+    match category.id {
+        id if id == MobCategory::MONSTER.id => biome.spawners.monster,
+        id if id == MobCategory::CREATURE.id => biome.spawners.creature,
+        id if id == MobCategory::AMBIENT.id => biome.spawners.ambient,
+        id if id == MobCategory::AXOLOTLS.id => biome.spawners.axolotls,
+        id if id == MobCategory::UNDERGROUND_WATER_CREATURE.id => {
+            biome.spawners.underground_water_creature
+        }
+        id if id == MobCategory::WATER_CREATURE.id => biome.spawners.water_creature,
+        id if id == MobCategory::WATER_AMBIENT.id => biome.spawners.water_ambient,
+        _ => biome.spawners.misc,
+    }
+}
 
 pub(crate) const SPAWN_DISTANCE_CHUNK: u8 = 8;
 
@@ -584,10 +808,12 @@ pub fn spawn_mobs_for_chunk_generation(
     chunk_x: i32,
     chunk_z: i32,
 ) {
-    let mob_settings = &biome.spawners;
-    let creatures = &mob_settings.creature;
+    let creatures = biome.spawners.creature;
+    let embedder = embedder_entries(biome, &MobCategory::CREATURE);
 
-    if creatures.is_empty() || !world.level_info.load().game_rules.spawn_mobs {
+    if (creatures.is_empty() && embedder.is_empty())
+        || !world.level_info.load().game_rules.spawn_mobs
+    {
         return;
     }
 
@@ -595,69 +821,38 @@ pub fn spawn_mobs_for_chunk_generation(
     let zo = chunk_z << 4;
 
     while rand::random::<f32>() < biome.creature_spawn_probability {
-        let Some(spawner_data) = creatures.choose(&mut rand::rng()) else {
-            continue;
-        };
-
-        let count = spawner_data.min_count
-            + rand::random_range(0..=(spawner_data.max_count - spawner_data.min_count).max(0));
-        let name = spawner_data
-            .r#type
-            .strip_prefix("minecraft:")
-            .unwrap_or(spawner_data.r#type);
-        let Some(entity_type) = EntityType::from_name(name) else {
+        let Some(entry) = choose_weighted(creatures, embedder) else {
             return;
         };
+
+        let (min_count, max_count) = entry.counts();
+        let count = min_count + rand::random_range(0..=(max_count - min_count).max(0));
+        let entity_type = entry.entity_type();
 
         let mut x = xo + rand::random_range(0..16);
         let mut z = zo + rand::random_range(0..16);
         let start_x = x;
         let start_z = z;
 
-        let mut group_data = None;
         for _ in 0..count {
-            let mut success = false;
+            let mut candidates = Vec::new();
 
             for _ in 0..4 {
-                if success {
-                    break;
-                }
-
                 let pos = get_top_non_colliding_pos(world, cache, entity_type, x, z);
 
-                if entity_type.summonable && is_spawn_position_ok_cache(cache, &pos, entity_type) {
+                let summonable = matches!(entry, SpawnEntry::Embedder(_)) || entity_type.summonable;
+                if summonable
+                    && is_spawn_position_ok_cache_at(cache, &pos, entity_type, entry.location())
+                {
                     let width = f64::from(entity_type.dimension[0]);
                     let fx =
                         (f64::from(x)).clamp(f64::from(xo) + width, f64::from(xo) + 16.0 - width);
                     let fz =
                         (f64::from(z)).clamp(f64::from(zo) + width, f64::from(zo) + 16.0 - width);
-                    let spawn_pos_f64 = Vector3::new(fx, f64::from(pos.0.y), fz);
-                    let check_pos = BlockPos::new(fx.floor() as i32, pos.0.y, fz.floor() as i32);
-
-                    if world.is_space_empty(entity_type.get_spawn_bounding_box(
-                        fx,
-                        f64::from(pos.0.y),
-                        fz,
-                    )) && check_spawn_rules(
-                        entity_type,
-                        world,
-                        &check_pos,
-                        false,
-                        crate::entity::mob::spawn::EntitySpawnReason::ChunkGeneration,
-                    ) {
-                        let entity = from_type(entity_type, spawn_pos_f64, world, Uuid::new_v4());
-                        entity
-                            .get_entity()
-                            .set_rotation(rand::random::<f32>() * 360.0, 0.0);
-                        group_data = finalize_spawn(
-                            &entity,
-                            world,
-                            crate::entity::mob::spawn::EntitySpawnReason::ChunkGeneration,
-                            group_data,
-                        );
-                        world.spawn_entity_non_save(entity);
-                        success = true;
-                    }
+                    candidates.push((
+                        Vector3::new(fx, f64::from(pos.0.y), fz),
+                        BlockPos::new(fx.floor() as i32, pos.0.y, fz.floor() as i32),
+                    ));
                 }
 
                 x += rand::random_range(0..5) - rand::random_range(0..5);
@@ -666,6 +861,18 @@ pub fn spawn_mobs_for_chunk_generation(
                     x = start_x + rand::random_range(0..5) - rand::random_range(0..5);
                     z = start_z + rand::random_range(0..5) - rand::random_range(0..5);
                 }
+            }
+            if !candidates.is_empty() {
+                PENDING_GENERATION
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(PendingGenerationSpawn {
+                        world: Arc::downgrade(world),
+                        entry,
+                        chunk: Vector2::new(chunk_x, chunk_z),
+                        candidates,
+                        queued: world.get_world_age(),
+                    });
             }
         }
     }
@@ -773,7 +980,7 @@ pub fn spawn_category_for_position(
     for _ in 0..3 {
         let mut x = pos.0.x;
         let mut z = pos.0.z;
-        let mut current_spawner: Option<&'static Spawner> = None;
+        let mut current_spawner: Option<SpawnEntry> = None;
         let mut max = (rng().random::<f32>() * 4.0).ceil() as i32;
         let mut group_size = 0;
         let mut group_data = None;
@@ -799,37 +1006,30 @@ pub fn spawn_category_for_position(
                 )
             {
                 if current_spawner.is_none() {
-                    let Some(spawner) = get_random_spawn_mob_at(world, category, &check_pos) else {
+                    let Some(entry) = choose_spawn_entry(world, category, &check_pos) else {
                         break;
                     };
-                    current_spawner = Some(spawner);
-                    max = spawner.min_count
-                        + rng().random_range(0..=(spawner.max_count - spawner.min_count).max(0));
+                    current_spawner = Some(entry);
+                    let (min_count, max_count) = entry.counts();
+                    max = min_count + rng().random_range(0..=(max_count - min_count).max(0));
                 }
 
-                let Some(spawner) = current_spawner else {
+                let Some(entry) = current_spawner else {
                     break;
                 };
-                let name = spawner
-                    .r#type
-                    .strip_prefix("minecraft:")
-                    .unwrap_or(spawner.r#type);
-                let Some(entity_type) = EntityType::from_name(name) else {
-                    break;
-                };
+                let entity_type = entry.entity_type();
 
-                if is_valid_spawn_position_for_type(
+                if is_valid_spawn_position_for_entry(
                     world,
                     &check_pos,
                     category,
-                    entity_type,
-                    spawner.r#type,
+                    entry,
                     player_distance_sq,
                     is_thundering,
                 ) && spawn_state.can_spawn(entity_type, &check_pos, world)
+                    && let Some(entity) =
+                        entry.create(world, Vector3::new(xx, f64::from(y_start), zz))
                 {
-                    let spawn_pos_f64 = Vector3::new(xx, f64::from(y_start), zz);
-                    let entity = from_type(entity_type, spawn_pos_f64, world, Uuid::new_v4());
                     entity
                         .get_entity()
                         .set_rotation(rng().random::<f32>() * 360.0, 0.0);
@@ -841,12 +1041,14 @@ pub fn spawn_category_for_position(
                     });
 
                     if is_valid_for_mob {
-                        group_data = finalize_spawn(
-                            &entity,
-                            world,
-                            crate::entity::mob::spawn::EntitySpawnReason::Natural,
-                            group_data,
-                        );
+                        if matches!(entry, SpawnEntry::Vanilla(..)) {
+                            group_data = finalize_spawn(
+                                &entity,
+                                world,
+                                EntitySpawnReason::Natural,
+                                group_data,
+                            );
+                        }
                         cluster_size += 1;
                         group_size += 1;
                         let max_group_size_reached = entity
@@ -927,19 +1129,7 @@ pub fn can_spawn_mob_at(
     pos: &BlockPos,
 ) -> bool {
     let biome = world.level.get_rough_biome(pos);
-    let spawners = match category.id {
-        id if id == MobCategory::MONSTER.id => biome.spawners.monster,
-        id if id == MobCategory::CREATURE.id => biome.spawners.creature,
-        id if id == MobCategory::AMBIENT.id => biome.spawners.ambient,
-        id if id == MobCategory::AXOLOTLS.id => biome.spawners.axolotls,
-        id if id == MobCategory::UNDERGROUND_WATER_CREATURE.id => {
-            biome.spawners.underground_water_creature
-        }
-        id if id == MobCategory::WATER_CREATURE.id => biome.spawners.water_creature,
-        id if id == MobCategory::WATER_AMBIENT.id => biome.spawners.water_ambient,
-        id if id == MobCategory::MISC.id => biome.spawners.misc,
-        _ => biome.spawners.misc,
-    };
+    let spawners = pool(biome, category);
     let target = spawner_type
         .strip_prefix("minecraft:")
         .unwrap_or(spawner_type);
@@ -955,6 +1145,19 @@ pub fn get_random_spawn_mob_at(
     category: &'static MobCategory,
     block_pos: &BlockPos,
 ) -> Option<&'static Spawner> {
+    match choose_spawn_entry(world, category, block_pos)? {
+        SpawnEntry::Vanilla(spawner, _) => Some(spawner),
+        SpawnEntry::Embedder(_) => None,
+    }
+}
+
+/// Vanilla `NaturalSpawner.getRandomSpawnMobAt`, including embedder entries.
+#[must_use]
+pub fn choose_spawn_entry(
+    world: &Arc<World>,
+    category: &'static MobCategory,
+    block_pos: &BlockPos,
+) -> Option<SpawnEntry> {
     let biome = world.level.get_rough_biome(block_pos);
     if category == &MobCategory::WATER_AMBIENT
         && biome.has_tag(&MINECRAFT_REDUCE_WATER_AMBIENT_SPAWNS)
@@ -962,20 +1165,7 @@ pub fn get_random_spawn_mob_at(
     {
         None
     } else {
-        match category.id {
-            id if id == MobCategory::MONSTER.id => biome.spawners.monster,
-            id if id == MobCategory::CREATURE.id => biome.spawners.creature,
-            id if id == MobCategory::AMBIENT.id => biome.spawners.ambient,
-            id if id == MobCategory::AXOLOTLS.id => biome.spawners.axolotls,
-            id if id == MobCategory::UNDERGROUND_WATER_CREATURE.id => {
-                biome.spawners.underground_water_creature
-            }
-            id if id == MobCategory::WATER_CREATURE.id => biome.spawners.water_creature,
-            id if id == MobCategory::WATER_AMBIENT.id => biome.spawners.water_ambient,
-            id if id == MobCategory::MISC.id => biome.spawners.misc,
-            _ => biome.spawners.misc,
-        }
-        .choose(&mut rng())
+        choose_weighted(pool(biome, category), embedder_entries(biome, category))
     }
 }
 
@@ -989,6 +1179,32 @@ pub fn is_valid_spawn_position_for_type(
     distance: f64,
     is_thundering: bool,
 ) -> bool {
+    pool(world.level.get_rough_biome(block_pos), category)
+        .iter()
+        .find(|spawner| spawner.r#type == spawner_type)
+        .is_some_and(|spawner| {
+            is_valid_spawn_position_for_entry(
+                world,
+                block_pos,
+                category,
+                SpawnEntry::Vanilla(spawner, entity_type),
+                distance,
+                is_thundering,
+            )
+        })
+}
+
+/// Vanilla `NaturalSpawner.isValidSpawnPostitionForType` for a vanilla or embedder entry.
+#[must_use]
+pub fn is_valid_spawn_position_for_entry(
+    world: &Arc<World>,
+    block_pos: &BlockPos,
+    category: &'static MobCategory,
+    entry: SpawnEntry,
+    distance: f64,
+    is_thundering: bool,
+) -> bool {
+    let entity_type = entry.entity_type();
     if category == &MobCategory::MISC || entity_type.category == &MobCategory::MISC {
         return false;
     }
@@ -999,19 +1215,23 @@ pub fn is_valid_spawn_position_for_type(
     {
         return false;
     }
-    if !entity_type.summonable || !can_spawn_mob_at(world, category, spawner_type, block_pos) {
+    let in_pool = match entry {
+        SpawnEntry::Vanilla(spawner, _) => {
+            entity_type.summonable && can_spawn_mob_at(world, category, spawner.r#type, block_pos)
+        }
+        SpawnEntry::Embedder(spawn) => {
+            embedder_entries(world.level.get_rough_biome(block_pos), category)
+                .iter()
+                .any(|other| other.id == spawn.id)
+        }
+    };
+    if !in_pool {
         return false;
     }
-    if !is_spawn_position_ok(world, block_pos, entity_type) {
+    if !is_spawn_position_ok_at(world, block_pos, entity_type, entry.location()) {
         return false;
     }
-    if !check_spawn_rules(
-        entity_type,
-        world,
-        block_pos,
-        is_thundering,
-        crate::entity::mob::spawn::EntitySpawnReason::Natural,
-    ) {
+    if !entry.check_rules(world, block_pos, is_thundering, EntitySpawnReason::Natural) {
         return false;
     }
     if !world.is_space_empty(entity_type.get_spawn_bounding_box(
@@ -1030,13 +1250,29 @@ pub fn is_spawn_position_ok(
     block_pos: &BlockPos,
     entity_type: &'static EntityType,
 ) -> bool {
+    is_spawn_position_ok_at(
+        world,
+        block_pos,
+        entity_type,
+        &entity_type.spawn_restriction.location,
+    )
+}
+
+/// `is_spawn_position_ok` with the placement location given separately from the type.
+#[must_use]
+pub fn is_spawn_position_ok_at(
+    world: &Arc<World>,
+    block_pos: &BlockPos,
+    entity_type: &'static EntityType,
+    location: &SpawnLocation,
+) -> bool {
     let within_bounds = world
         .worldborder
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .contains_block(block_pos.0.x, block_pos.0.z);
 
-    match entity_type.spawn_restriction.location {
+    match location {
         SpawnLocation::InLava => {
             within_bounds && world.get_fluid(block_pos).has_tag(&MINECRAFT_LAVA)
         }
@@ -1073,10 +1309,24 @@ pub fn is_spawn_position_ok_cache(
     block_pos: &BlockPos,
     entity_type: &'static EntityType,
 ) -> bool {
+    is_spawn_position_ok_cache_at(
+        cache,
+        block_pos,
+        entity_type,
+        &entity_type.spawn_restriction.location,
+    )
+}
+
+fn is_spawn_position_ok_cache_at(
+    cache: &dyn GenerationCache,
+    block_pos: &BlockPos,
+    entity_type: &'static EntityType,
+    location: &SpawnLocation,
+) -> bool {
     let pos_vec = block_pos.0;
     let state = GenerationCache::get_block_state(cache, &pos_vec).to_state();
 
-    match entity_type.spawn_restriction.location {
+    match location {
         SpawnLocation::InLava => {
             state.is_liquid() && Block::from_state_id(state.id).has_tag(&MINECRAFT_LAVA)
         }
