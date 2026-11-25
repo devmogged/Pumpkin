@@ -2,6 +2,8 @@ use pumpkin_nbt::compound::NbtCompound;
 use std::fs::{File, create_dir_all};
 use std::io;
 use std::path::PathBuf;
+use std::sync::{PoisonError, RwLock};
+use tempfile::NamedTempFile;
 use tracing::{debug, error};
 use uuid::Uuid;
 
@@ -14,6 +16,7 @@ pub struct PlayerDataStorage {
     data_path: PathBuf,
     /// Whether player data saving is enabled
     save_enabled: bool,
+    file_access: RwLock<()>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +43,7 @@ impl PlayerDataStorage {
         Self {
             data_path: path,
             save_enabled: enabled,
+            file_access: RwLock::new(()),
         }
     }
 
@@ -81,6 +85,10 @@ impl PlayerDataStorage {
             return Ok((false, NbtCompound::new()));
         }
 
+        let _guard = self
+            .file_access
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
         // If not in cache, load from disk
         let path = self.get_player_data_path(uuid);
         if !path.exists() {
@@ -108,10 +116,7 @@ impl PlayerDataStorage {
         }
     }
 
-    /// Saves player data to NBT file and updates cache.
-    ///
-    /// This function saves the player's data to a .dat file on disk and also
-    /// updates the in-memory cache with the latest data.
+    /// Replaces a player's NBT file with a complete compressed snapshot.
     ///
     /// # Arguments
     ///
@@ -129,29 +134,78 @@ impl PlayerDataStorage {
 
         let path = self.get_player_data_path(uuid);
 
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent()
-            && let Err(e) = create_dir_all(parent)
-        {
+        if let Err(e) = create_dir_all(&self.data_path) {
             error!("Failed to create player data directory for {uuid}: {e}");
             return Err(PlayerDataError::Io(e));
         }
 
-        // Create the file and write directly with GZip compression
-        match File::create(&path) {
-            Ok(file) => {
-                if let Err(e) = pumpkin_nbt::nbt_compress::write_gzip_compound_tag(data, file) {
-                    error!("Failed to write compressed player data for {uuid}: {e}");
-                    Err(PlayerDataError::Nbt(e.to_string()))
-                } else {
-                    debug!("Saved player data for {uuid} to disk");
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!("Failed to create player data file for {uuid}: {e}");
-                Err(PlayerDataError::Io(e))
-            }
+        // Shutdown, disconnect and periodic saves can overlap for the same player.
+        let mut pending = NamedTempFile::new_in(&self.data_path)?;
+        if let Err(e) =
+            pumpkin_nbt::nbt_compress::write_gzip_compound_tag(data, pending.as_file_mut())
+        {
+            error!("Failed to write compressed player data for {uuid}: {e}");
+            return Err(PlayerDataError::Nbt(e.to_string()));
         }
+        let pending = pending.into_temp_path();
+        // Windows may reject replacement while another handle to the destination is open.
+        let _guard = self
+            .file_access
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        pending.persist(path).map_err(|e| e.error)?;
+        debug!("Saved player data for {uuid} to disk");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pumpkin_nbt::tag::NbtTag;
+    use std::sync::Barrier;
+
+    #[test]
+    fn player_saves_replace_complete_snapshots() {
+        let dir = tempfile::tempdir().expect("player data directory");
+        let storage = PlayerDataStorage::new(dir.path(), true);
+        let uuid = Uuid::nil();
+        let mut snapshot = NbtCompound::new();
+        let mut seed = 42u32;
+        let payload: Box<[_]> = (0..128 * 1024)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                seed as i8
+            })
+            .collect();
+        snapshot.put("Inventory", NbtTag::ByteArray(payload));
+        storage
+            .save_player_data(&uuid, snapshot.clone())
+            .expect("initial player save");
+
+        let ready = Barrier::new(3);
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                scope.spawn(|| {
+                    ready.wait();
+                    for _ in 0..8 {
+                        storage
+                            .save_player_data(&uuid, snapshot.clone())
+                            .expect("concurrent player save");
+                    }
+                });
+            }
+            ready.wait();
+            for _ in 0..16 {
+                let (found, data) = storage.load_player_data(&uuid).expect("valid player save");
+                assert!(found);
+                assert_eq!(
+                    data.get_byte_array("Inventory"),
+                    snapshot.get_byte_array("Inventory")
+                );
+            }
+        });
     }
 }
