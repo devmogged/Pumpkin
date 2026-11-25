@@ -778,7 +778,7 @@ fn recipe_matches(
                             break 'outer;
                         };
                         let slot = inventory.get_stack(
-                            (y + y_offset) * inventory.get_height()
+                            (y + y_offset) * inventory.get_width()
                                 + (x_offset + input_width - 1 - x),
                         );
                         if current_key == ' ' {
@@ -1007,6 +1007,15 @@ pub fn match_crafting_recipe(
     inventory: &dyn RecipeInputInventory,
     provider: Option<&dyn RecipeProvider>,
 ) -> Option<RecipeResult> {
+    match_crafting_recipe_with(inventory, provider, |_, result| result)
+}
+
+/// Runs `on_match` with the definition and result of the first matching recipe.
+pub fn match_crafting_recipe_with<T>(
+    inventory: &dyn RecipeInputInventory,
+    provider: Option<&dyn RecipeProvider>,
+    on_match: impl FnOnce(GenericRecipe<'_>, RecipeResult) -> T,
+) -> Option<T> {
     let mut count: usize = 0;
     let inventory_width = inventory.get_width();
     let mut top_x = 9;
@@ -1041,7 +1050,7 @@ pub fn match_crafting_recipe(
             count,
             inventory,
         ) {
-            return Some(result);
+            return Some(on_match(GenericRecipe::Vanilla(recipe), result));
         }
     }
 
@@ -1059,7 +1068,7 @@ pub fn match_crafting_recipe(
                     inventory,
                 )
             {
-                return Some(result);
+                return Some(on_match(GenericRecipe::Dynamic(crafting), result));
             }
         }
     }
@@ -1490,6 +1499,25 @@ mod tests {
                 "grid {grid_size}x{grid_size}, top slot {top_slot}"
             );
         }
+    }
+
+    #[test]
+    fn mirrored_axe_matches_a_rectangular_grid() {
+        let inventory = CraftingInventory::new(2, 3);
+        for (slot, item) in [
+            (0, &Item::IRON_INGOT),
+            (1, &Item::IRON_INGOT),
+            (2, &Item::STICK),
+            (3, &Item::IRON_INGOT),
+            (4, &Item::STICK),
+        ] {
+            inventory.set_stack(slot, ItemStack::new(1, item));
+        }
+        let result = match_crafting_recipe(&inventory, None);
+        assert_eq!(
+            result.as_ref().map(|result| result.item_id.as_str()),
+            Some("minecraft:iron_axe")
+        );
     }
 
     #[test]
