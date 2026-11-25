@@ -2,6 +2,7 @@ use crate::block::blocks::chests::chest_container;
 use crate::block::blocks::composter::ComposterBlock;
 use crate::block::entities::BlockEntity;
 use crate::block::entities::decorated_pot::DecoratedPotBlockEntity;
+use crate::block::{BlockBehaviour, ItemInputArgs};
 use crate::entity::EntityBase;
 use crate::entity::item::ItemEntity;
 use crate::plugin::api::events::inventory::hopper_inventory_search::HopperInventorySearchEvent;
@@ -14,7 +15,7 @@ use pumpkin_data::block_properties::{
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::tag;
 use pumpkin_data::tag::Taggable;
-use pumpkin_data::{Block, BlockDirection, BlockId, BlockStateId};
+use pumpkin_data::{Block, BlockDirection, BlockId, BlockState, BlockStateId};
 use pumpkin_inventory::{Clearable, Inventory};
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
@@ -40,6 +41,71 @@ pub struct HopperBlockEntity {
     pub cooldown_time: AtomicI32,
     pub ticked_game_time: AtomicI64,
     pub metadata: super::ContainerMetadata,
+}
+
+pub(crate) enum PushTarget<'a> {
+    Container(Arc<dyn Inventory>),
+    Content {
+        world: &'a World,
+        position: BlockPos,
+        state: BlockStateId,
+        behaviour: &'a dyn BlockBehaviour,
+    },
+}
+
+impl PushTarget<'_> {
+    fn can_offer(&self, face: BlockDirection, stack: &ItemStack) -> bool {
+        match self {
+            Self::Container(_) => true,
+            Self::Content {
+                world,
+                position,
+                state,
+                behaviour,
+            } => {
+                behaviour.insert_item(ItemInputArgs {
+                    world,
+                    position: *position,
+                    state: *state,
+                    face,
+                    stack: &stack.copy_with_count(1),
+                    simulate: true,
+                }) == 1
+            }
+        }
+    }
+
+    pub(crate) fn insert_one(
+        &self,
+        source: &dyn Inventory,
+        face: BlockDirection,
+        stack: &ItemStack,
+    ) -> bool {
+        match self {
+            Self::Container(container) => HopperBlockEntity::add_item(
+                Some(source),
+                container.as_ref(),
+                stack.clone(),
+                Some(face),
+            )
+            .is_empty(),
+            Self::Content {
+                world,
+                position,
+                state,
+                behaviour,
+            } => {
+                behaviour.insert_item(ItemInputArgs {
+                    world,
+                    position: *position,
+                    state: *state,
+                    face,
+                    stack,
+                    simulate: false,
+                }) == 1
+            }
+        }
+    }
 }
 
 #[must_use]
@@ -263,6 +329,34 @@ impl HopperBlockEntity {
     #[must_use]
     pub fn get_block_container(world: &Arc<World>, pos: &BlockPos) -> Option<Arc<dyn Inventory>> {
         let (block, state) = world.get_block_and_state(pos);
+        Self::block_container(world, pos, block, state)
+    }
+
+    pub(crate) fn push_target<'a>(world: &'a Arc<World>, pos: &BlockPos) -> Option<PushTarget<'a>> {
+        let (block, state) = world.get_block_and_state(pos);
+        if block.id.as_u16() >= BlockId::COUNT
+            && let Some(behaviour) = world.block_registry.get_pumpkin_block(block.id)
+            && behaviour.has_item_input(block)
+        {
+            return Some(PushTarget::Content {
+                world,
+                position: *pos,
+                state: state.id,
+                behaviour: behaviour.as_ref(),
+            });
+        }
+        let center = pos.to_centered_f64();
+        Self::block_container(world, pos, block, state)
+            .or_else(|| Self::get_entity_container(world, center.x, center.y, center.z))
+            .map(PushTarget::Container)
+    }
+
+    fn block_container(
+        world: &Arc<World>,
+        pos: &BlockPos,
+        block: &Block,
+        state: &BlockState,
+    ) -> Option<Arc<dyn Inventory>> {
         // `WorldlyContainerHolder`: the composter has no block entity.
         if block == &Block::COMPOSTER {
             return Some(ComposterBlock::get_container(state.id, world, pos));
@@ -602,15 +696,17 @@ impl HopperBlockEntity {
         let direction = to_direction(facing);
         let opposite_dir = direction.opposite();
         let target_pos = self.position.offset(direction.to_offset());
-        let Some(container) = Self::get_container_at(world, &target_pos) else {
+        let Some(target) = Self::push_target(world, &target_pos) else {
             return false;
         };
-        if Self::is_full_container(container.as_ref(), opposite_dir) {
+        if let PushTarget::Container(container) = &target
+            && Self::is_full_container(container.as_ref(), opposite_dir)
+        {
             return false;
         }
         for slot in 0..Self::INVENTORY_SIZE {
             let item = self.get_stack(slot);
-            if item.is_empty() {
+            if item.is_empty() || !target.can_offer(opposite_dir, &item) {
                 continue;
             }
             if world.cancelled_by_plugin(|| {
@@ -627,14 +723,7 @@ impl HopperBlockEntity {
             let Some(one_item) = Self::take_one(self, slot, &item) else {
                 continue;
             };
-            if Self::add_item(
-                Some(self),
-                container.as_ref(),
-                one_item.clone(),
-                Some(opposite_dir),
-            )
-            .is_empty()
-            {
+            if target.insert_one(self, opposite_dir, &one_item) {
                 return true;
             }
             if let Some(leftover) = Self::put_back(self, slot, one_item) {

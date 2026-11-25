@@ -70,7 +70,26 @@ pub(crate) fn bounce_entity_after_fall(entity: &dyn EntityBase, bounce_multiplie
     base_entity.velocity.store(velocity);
 }
 
+/// An item offered to a content block by a hopper or dropper.
+pub struct ItemInputArgs<'a> {
+    pub world: &'a World,
+    pub position: BlockPos,
+    pub state: BlockStateId,
+    pub face: BlockDirection,
+    pub stack: &'a ItemStack,
+    pub simulate: bool,
+}
+
 pub trait BlockBehaviour: Send + Sync {
+    fn has_item_input(&self, _block: &Block) -> bool {
+        false
+    }
+
+    /// Returns the number of items accepted. Simulation leaves the target untouched.
+    fn insert_item(&self, _args: ItemInputArgs<'_>) -> u8 {
+        0
+    }
+
     fn is_valid_bonemeal_target(&self, _args: BonemealArgs<'_>) -> bool {
         false
     }

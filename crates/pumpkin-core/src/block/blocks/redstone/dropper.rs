@@ -162,21 +162,13 @@ impl BlockBehaviour for DropperBlock {
                 let direction = props.facing.to_block_direction();
                 let target_pos = args.position.offset(direction.to_offset());
 
-                if let Some(container) =
-                    HopperBlockEntity::get_container_at(args.world, &target_pos)
-                {
+                if let Some(target) = HopperBlockEntity::push_target(args.world, &target_pos) {
                     // Taken and restored under the slot lock, a hopper filling the dropper meanwhile keeps its items.
                     let Some(one_item) = HopperBlockEntity::take_one(dropper, slot_index, &item)
                     else {
                         return;
                     };
-                    if !HopperBlockEntity::add_item(
-                        Some(dropper),
-                        container.as_ref(),
-                        one_item.clone(),
-                        Some(direction.opposite()),
-                    )
-                    .is_empty()
+                    if !target.insert_one(dropper, direction.opposite(), &one_item)
                         && let Some(leftover) =
                             HopperBlockEntity::put_back(dropper, slot_index, one_item)
                     {
