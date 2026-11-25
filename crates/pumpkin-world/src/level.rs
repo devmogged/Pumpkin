@@ -20,7 +20,7 @@ use dashmap::{DashMap, Entry};
 use pumpkin_config::{chunk::ChunkConfig, lighting::LightingEngineConfig, world::LevelConfig};
 use pumpkin_data::biome::Biome;
 use pumpkin_data::dimension::Dimension;
-use pumpkin_data::{Block, BlockStateId, block_properties::has_random_ticks, fluid::Fluid};
+use pumpkin_data::{Block, BlockStateId, block_state::has_random_ticks, fluid::Fluid};
 use pumpkin_util::math::{position::BlockPos, vector2::Vector2};
 use pumpkin_util::world_seed::Seed;
 use rustc_hash::{FxBuildHasher, FxHashSet};
@@ -122,6 +122,7 @@ pub struct TickData {
     pub block_ticks: Vec<OrderedTick<&'static Block>>,
     pub fluid_ticks: Vec<OrderedTick<&'static Fluid>>,
     pub random_ticks: Vec<RandomTickSample>,
+    pub content_random_ticks: Vec<(BlockPos, BlockStateId)>,
 }
 
 #[derive(Clone, Copy)]
@@ -575,6 +576,7 @@ impl Level {
             block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
             random_ticks: Vec::with_capacity(active_chunks.len() * 3),
+            content_random_ticks: Vec::new(),
         };
 
         // 1. Process active chunks (random ticks, block entities)
@@ -609,13 +611,20 @@ impl Level {
                             let block_state_id = sections[i].get(x_offset, y_in_section, z_offset);
                             let tick_block = has_random_ticks(block_state_id);
                             let tick_fluid = has_random_ticking_fluid(block_state_id);
+                            let custom_block =
+                                tick_block && block_state_id.as_u16() >= BlockStateId::COUNT;
+                            let position = BlockPos::new(
+                                chunk_x_base + x_offset as i32,
+                                y_base + y_in_section as i32,
+                                chunk_z_base + z_offset as i32,
+                            );
+                            if custom_block {
+                                ticks.content_random_ticks.push((position, block_state_id));
+                            }
+                            let tick_block = tick_block && !custom_block;
                             if tick_block || tick_fluid {
                                 ticks.random_ticks.push(RandomTickSample {
-                                    position: BlockPos::new(
-                                        chunk_x_base + x_offset as i32,
-                                        y_base + y_in_section as i32,
-                                        chunk_z_base + z_offset as i32,
-                                    ),
+                                    position,
                                     tick_block,
                                     tick_fluid,
                                 });

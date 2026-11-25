@@ -40,6 +40,7 @@ pub struct ItemDefinition {
 pub struct StateDefinition {
     pub properties: BTreeMap<String, String>,
     pub physical: &'static BlockState,
+    pub random_ticks: bool,
     pub carrier: BlockStateId,
     pub carrier_replacement: Option<BlockStateId>,
     pub shape: Vec<BoundingBox>,
@@ -193,6 +194,7 @@ impl Registry {
                 }
                 let mut physical = state.physical.clone();
                 physical.id = BlockStateId::registered(raw);
+                physical.set_random_ticks(state.random_ticks);
                 if output.is_some() {
                     physical.state_flags |= HAS_ANALOG_OUTPUT_SIGNAL;
                 }

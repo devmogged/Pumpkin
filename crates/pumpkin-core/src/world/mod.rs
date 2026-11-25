@@ -2360,6 +2360,7 @@ impl World {
                         };
 
                     if let Some(block) = block
+                        && block.id.as_u16() < pumpkin_data::BlockId::COUNT
                         && let Some(pumpkin_block) =
                             world.block_registry.get_pumpkin_block(block.id)
                     {
@@ -2378,6 +2379,20 @@ impl World {
                     }
                 }
             });
+
+        for (position, sampled) in tick_data.content_random_ticks {
+            if self.get_block_state_id_if_loaded(&position) != Some(sampled) {
+                continue;
+            }
+            let block = sampled.to_block();
+            if let Some(behaviour) = self.block_registry.get_pumpkin_block(block.id) {
+                behaviour.random_tick(RandomTickArgs {
+                    world: self,
+                    block,
+                    position: &position,
+                });
+            }
+        }
 
         natural_spawner::spawn_pending_generation(self);
 

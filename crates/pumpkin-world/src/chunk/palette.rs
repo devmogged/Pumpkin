@@ -3,7 +3,8 @@ use std::{collections::HashMap, hash::Hash};
 use pumpkin_data::{
     BlockState, BlockStateId,
     biome::Biome,
-    block_properties::{has_random_ticks, is_air, is_liquid},
+    block_properties::{is_air, is_liquid},
+    block_state::has_random_ticks,
     fluid::Fluid,
 };
 use pumpkin_util::encompassing_bits;

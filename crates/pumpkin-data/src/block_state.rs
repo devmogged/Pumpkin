@@ -469,6 +469,28 @@ const IS_SOLID: u16 = 1 << 6;
 const IS_FULL_CUBE: u16 = 1 << 7;
 const IS_SOLID_BLOCK: u16 = 1 << 8;
 const HAS_RANDOM_TICKS: u16 = 1 << 9;
+
+impl BlockState {
+    #[cfg(feature = "item")]
+    pub(crate) fn set_random_ticks(&mut self, enabled: bool) {
+        if enabled {
+            self.state_flags |= HAS_RANDOM_TICKS;
+        } else {
+            self.state_flags &= !HAS_RANDOM_TICKS;
+        }
+    }
+}
+
+/// Includes runtime content states while preserving the generated vanilla lookup.
+#[inline]
+pub fn has_random_ticks(id: BlockStateId) -> bool {
+    #[cfg(feature = "item")]
+    if id.as_u16() >= BlockStateId::COUNT {
+        return crate::content::state(id.as_u16())
+            .is_some_and(|entry| entry.state.has_random_ticks());
+    }
+    crate::block_properties::has_random_ticks(id)
+}
 const IS_SOLID_RENDER: u16 = 1 << 10;
 const CAN_OCCLUDE: u16 = 1 << 11;
 pub(crate) const HAS_ANALOG_OUTPUT_SIGNAL: u16 = 1 << 12;

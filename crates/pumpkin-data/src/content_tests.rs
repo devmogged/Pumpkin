@@ -52,6 +52,7 @@ fn definition(name: &str) -> BlockDefinition {
         entity: None,
         item_carrier: &Item::PAPER,
         states: vec![StateDefinition {
+            random_ticks: false,
             properties: std::collections::BTreeMap::new(),
             physical: Block::STONE.default_state,
             carrier: Block::NOTE_BLOCK.default_state.id,
