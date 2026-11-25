@@ -12,7 +12,7 @@ use std::f64::consts::TAU;
 use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI8, AtomicI32, AtomicU8, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::entity::attributes::{Modifier, ModifierOperation};
@@ -56,6 +56,20 @@ use pumpkin_world::chunk::ChunkData;
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+/// A removed inventory stack that vanilla will drop if no embedder claims the batch.
+pub struct PlayerInventoryDrop {
+    pub slot: u32,
+    pub stack: ItemStack,
+}
+
+type PlayerDeathDropHook = fn(&Player, &World, Vector3<f64>, &[PlayerInventoryDrop]) -> bool;
+static DEATH_DROP_HOOK: OnceLock<PlayerDeathDropHook> = OnceLock::new();
+
+/// The hook sees the batch once, with inventory locks released. True suppresses its item entities.
+pub fn install_player_death_drop_hook(hook: PlayerDeathDropHook) -> bool {
+    DEATH_DROP_HOOK.set(hook).is_ok()
+}
 
 #[derive(Clone, Debug)]
 pub enum CustomScoreboard {
@@ -5746,46 +5760,30 @@ impl Player {
         );
     }
 
-    pub fn handle_killed(&self, death_msg: &TextComponent) {
+    pub fn handle_killed(
+        &self,
+        death_msg: &TextComponent,
+        world: &Arc<World>,
+        position: Vector3<f64>,
+    ) {
         self.release_shoulders();
         self.trigger_advancement(
             crate::entity::player::advancement::trigger::AdvancementTrigger::PlayerKilled,
         );
-        crate::entity::mob::neutral::tell_neutral_mobs_player_died(self, &self.world());
-        let block_pos = self.position().to_block_pos();
+        crate::entity::mob::neutral::tell_neutral_mobs_player_died(self, world);
+        let block_pos = BlockPos::floored_v(position);
         // Vanilla `ServerPlayer` records the containing (floored) block
         // position on death for the recovery compass.
         *self
             .last_death_location
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
-            ResourceLocation::from(self.world().dimension.minecraft_name),
-            BlockPos::floored_v(self.position()),
+            ResourceLocation::from(world.dimension.minecraft_name),
+            block_pos,
         ));
 
-        let keep_inventory = { self.world().level_info.load().game_rules.keep_inventory };
-
-        if !keep_inventory {
-            let mut main_inv = self
-                .inventory()
-                .main_inventory
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for item in main_inv.iter_mut() {
-                if !item.is_empty() {
-                    let stack = std::mem::replace(item, ItemStack::EMPTY.clone());
-                    self.increment_stat(
-                        statistics::StatisticCategory::Dropped,
-                        stack.item.id as i32,
-                        stack.item_count as i32,
-                    );
-                    self.increment_custom_stat(
-                        statistics::CustomStatistic::Drop,
-                        stack.item_count as i32,
-                    );
-                    self.world().drop_stack(&block_pos, stack);
-                }
-            }
+        if !world.level_info.load().game_rules.keep_inventory && !self.is_spectator() {
+            self.drop_inventory_on_death(world, position);
         }
 
         // Reset air supply & drowning ticks on death
@@ -5797,6 +5795,63 @@ impl Player {
         self.send_combat_death(death_msg);
         self.send_health();
         self.send_bedrock_respawn_state(RespawnState::SearchingForSpawn);
+    }
+
+    fn drop_inventory_on_death(&self, world: &Arc<World>, position: Vector3<f64>) {
+        let inventory = self.inventory();
+        let mut drops = Vec::new();
+        let mut collect = |slot: usize, stack: ItemStack| {
+            if !stack.is_empty() && !super::living::prevents_equipment_drop(&stack) {
+                drops.push(PlayerInventoryDrop {
+                    slot: u32::try_from(slot).expect("player slot fits u32"),
+                    stack,
+                });
+            }
+        };
+        {
+            let mut main = inventory
+                .main_inventory
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (slot, stack) in main.iter_mut().enumerate() {
+                if !stack.is_empty() {
+                    collect(slot, std::mem::replace(stack, ItemStack::EMPTY.clone()));
+                }
+            }
+        }
+        {
+            let mut equipment = inventory
+                .entity_equipment
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for slot in PlayerInventory::MAIN_SIZE..=PlayerInventory::OFF_HAND_SLOT {
+                if let Some(equipment_slot) = inventory.equipment_slots.get(&slot)
+                    && let Some(stack) = equipment.equipment.remove(equipment_slot)
+                {
+                    collect(slot, stack);
+                }
+            }
+        }
+
+        let claimed = !drops.is_empty()
+            && DEATH_DROP_HOOK
+                .get()
+                .is_some_and(|claim| claim(self, world, position, &drops));
+        let pos = BlockPos::floored_v(position);
+        for PlayerInventoryDrop { stack, .. } in drops {
+            self.increment_stat(
+                statistics::StatisticCategory::Dropped,
+                i32::from(stack.item.id),
+                i32::from(stack.item_count),
+            );
+            self.increment_custom_stat(
+                statistics::CustomStatistic::Drop,
+                i32::from(stack.item_count),
+            );
+            if !claimed {
+                world.drop_stack(&pos, stack);
+            }
+        }
     }
 
     pub fn set_gamemode(self: &Arc<Self>, gamemode: GameMode) -> bool {

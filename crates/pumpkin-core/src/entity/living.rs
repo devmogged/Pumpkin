@@ -2900,7 +2900,7 @@ impl LivingEntity {
             }
             self.entity.pose.store(EntityPose::Dying);
 
-            if should_drop_loot {
+            if should_drop_loot && self.entity.entity_type != &EntityType::PLAYER {
                 self.drop_equipment(looting_level);
             }
             if perished && let Some(mob) = dyn_self.get_mob() {
@@ -3000,6 +3000,7 @@ impl LivingEntity {
         let world = self.entity.world.load();
         let show_death_messages = { world.level_info.load().game_rules.show_death_messages };
         if self.entity.entity_type == &EntityType::PLAYER {
+            let position = self.entity.pos.load();
             let death_message = Self::get_death_message(dyn_self, damage_type, source, cause);
             let mut final_death_message = death_message;
             if let Some(player) = dyn_self.get_player() {
@@ -3019,7 +3020,7 @@ impl LivingEntity {
                     final_death_message = event.death_message;
                 }
 
-                player.handle_killed(&final_death_message);
+                player.handle_killed(&final_death_message, &world, position);
             }
 
             if show_death_messages && let Some(server) = world.server.upgrade() {
