@@ -47,6 +47,7 @@ use tokio_util::task::TaskTracker;
 
 pub type SyncChunk = Arc<ChunkData>;
 pub type SyncEntityChunk = Arc<ChunkEntityData>;
+pub(crate) type BeforeChunkUnload = dyn Fn(&ChunkData) + Send + Sync;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadedChunkChange {
@@ -80,6 +81,7 @@ pub struct Level {
     // from the loaded chunks map and sent to the underlying ChunkIO
     pub loaded_chunks: Arc<DashMap<Vector2<i32>, SyncChunk, FxBuildHasher>>,
     pub(crate) loaded_chunk_changes: Arc<SegQueue<LoadedChunkChange>>,
+    pub(crate) before_chunk_unload: Arc<OnceLock<Box<BeforeChunkUnload>>>,
     loaded_entity_chunks: Arc<DashMap<Vector2<i32>, SyncEntityChunk, FxBuildHasher>>,
     pub chunks_with_scheduled_ticks: Arc<dashmap::DashSet<Vector2<i32>>>,
     pub chunk_loading: Mutex<ChunkLoading>,
@@ -327,6 +329,7 @@ impl Level {
             schedule_tick_counts: AtomicU64::new(0),
             loaded_chunks: Arc::default(),
             loaded_chunk_changes: Arc::new(SegQueue::new()),
+            before_chunk_unload: Arc::new(OnceLock::new()),
             loaded_entity_chunks: Arc::default(),
             chunks_with_scheduled_ticks: Arc::new(dashmap::DashSet::new()),
             chunk_loading: Mutex::new(ChunkLoading::new(level_channel.clone())),
@@ -359,6 +362,11 @@ impl Level {
         );
 
         level_ref
+    }
+
+    /// Snapshots live block entities before the chunk scheduler unpublishes a level chunk.
+    pub fn before_chunk_unload(&self, callback: impl Fn(&ChunkData) + Send + Sync + 'static) {
+        self.before_chunk_unload.get_or_init(|| Box::new(callback));
     }
 
     pub fn set_world_gen(&self, generator: Arc<WorldGenerator>) {

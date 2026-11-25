@@ -26,7 +26,7 @@ pub(crate) mod test_support {
     }
 
     pub fn world_in_dimension(folder: &tempfile::TempDir, dimension: Dimension) -> Arc<World> {
-        Arc::new(World::load(
+        World::load(
             Level::from_root_folder(
                 &LevelConfig::default(),
                 folder.path().to_path_buf(),
@@ -37,6 +37,6 @@ pub(crate) mod test_support {
             dimension,
             default_registry(),
             Weak::new(),
-        ))
+        )
     }
 }

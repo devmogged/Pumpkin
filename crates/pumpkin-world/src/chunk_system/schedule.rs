@@ -66,6 +66,7 @@ pub struct GenerationSchedule {
 
     public_chunk_map: Arc<DashMap<Vector2<i32>, SyncChunk, FxBuildHasher>>,
     loaded_chunk_changes: Arc<crossbeam::queue::SegQueue<LoadedChunkChange>>,
+    before_chunk_unload: Arc<std::sync::OnceLock<Box<crate::level::BeforeChunkUnload>>>,
     chunks_with_scheduled_ticks: Arc<dashmap::DashSet<Vector2<i32>>>,
     chunk_map: HashMap<ChunkPos, ChunkHolder>,
     unload_chunks: HashSetType<ChunkPos>,
@@ -171,6 +172,7 @@ impl GenerationSchedule {
                     send_level: level_channel,
                     public_chunk_map: level_sched.loaded_chunks.clone(),
                     loaded_chunk_changes: level_sched.loaded_chunk_changes.clone(),
+                    before_chunk_unload: level_sched.before_chunk_unload.clone(),
                     chunks_with_scheduled_ticks: level_sched.chunks_with_scheduled_ticks.clone(),
                     unload_chunks: HashSetType::default(),
                     waiting_for_chunks: HashSetType::default(),
@@ -951,6 +953,11 @@ impl GenerationSchedule {
             holder.occupied_by = EdgeKey::null();
 
             if holder.public {
+                if let Some(Chunk::Level(chunk)) = &holder.chunk
+                    && let Some(snapshot) = self.before_chunk_unload.get()
+                {
+                    snapshot(chunk);
+                }
                 self.unpublish_chunk(pos);
                 holder.public = false;
             }

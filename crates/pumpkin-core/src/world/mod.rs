@@ -401,7 +401,7 @@ impl World {
         dimension: Dimension,
         block_registry: Arc<BlockRegistry>,
         server: Weak<Server>,
-    ) -> Self {
+    ) -> Arc<Self> {
         // TODO
         let generation_settings = match level.world_gen.load().as_ref() {
             pumpkin_world::generation::generator::WorldGenerator::Noise(generator) => {
@@ -436,7 +436,7 @@ impl World {
             let _ = level.rt_handle.set(server_arc.runtime.clone());
         }
 
-        Self {
+        let world = Arc::new(Self {
             uuid: Uuid::new_v4(),
             level,
             level_info,
@@ -483,7 +483,14 @@ impl World {
             custom_block_entity_data: DashMap::new(),
             encoded_chunk_cache: DashMap::new(),
             entity_tracker: entity_tracker::EntityTracker::new(),
-        }
+        });
+        let weak = Arc::downgrade(&world);
+        world.level.before_chunk_unload(move |chunk| {
+            if let Some(world) = weak.upgrade() {
+                world.snapshot_block_entities(chunk);
+            }
+        });
+        world
     }
 
     #[expect(
@@ -838,12 +845,15 @@ impl World {
         }
     }
 
-    /// Serializes the live block entities of a chunk back into that chunk's block
-    /// entity data. The live map is the source of truth while a chunk is loaded -
-    /// `get_block_entity` takes the saved NBT out of the chunk when it wakes an
-    /// entity up - so this has to run before the chunk is dropped, or everything
-    /// the entity did since it was loaded is lost.
     fn save_block_entities(&self, chunk_pos: Vector2<i32>) {
+        if let Some(chunk) = self.level.read_chunk_sync(&chunk_pos, Arc::clone) {
+            self.snapshot_block_entities(&chunk);
+        }
+    }
+
+    /// Copies live block entities into the pending NBT alongside the saved block states.
+    fn snapshot_block_entities(&self, chunk: &ChunkData) {
+        let chunk_pos = Vector2::new(chunk.x, chunk.z);
         let Some(block_entities) = self
             .block_entities
             .get(&chunk_pos)
@@ -862,7 +872,12 @@ impl World {
             {
                 nbt.put_compound("PumpkinCustomData", custom_data.clone());
             }
-            self.add_block_entity_nbt(block_entity.get_position(), &nbt);
+            chunk
+                .pending_block_entities
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(block_entity.get_position(), nbt);
+            chunk.mark_dirty(true);
         }
     }
 
