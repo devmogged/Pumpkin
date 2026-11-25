@@ -1086,6 +1086,65 @@ impl VillagerEntity {
         entity.play_sound(pumpkin_data::sound::Sound::EntityVillagerNo);
     }
 
+    /// Replaces the offers with a saved `Offers` compound's `Recipes`, as loading does. Recipes
+    /// with a missing or invalid stack are skipped.
+    pub fn set_offers_from_nbt(&self, offers_compound: &NbtCompound) {
+        let Some(recipes) = offers_compound.get_list("Recipes") else {
+            return;
+        };
+        let mut offers = self
+            .offers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        offers.clear();
+        for tag in recipes {
+            if let Some(recipe) = tag.extract_compound() {
+                let buy = recipe
+                    .get_compound("buy")
+                    .and_then(ItemStack::read_item_stack);
+                // TODO(buyB): duplicated in `villager/mod.rs` and `wandering_trader.rs`;
+                // unify into one trade-recipe codec shared by `Villager` and `WanderingTrader`.
+                // A `buyB` that is present but invalid rejects the recipe, like a failed vanilla codec decode.
+                let buy_b = recipe.get("buyB").map_or(Some(None), |cost_b| {
+                    cost_b
+                        .extract_compound()
+                        .and_then(ItemStack::read_item_stack)
+                        .map(Some)
+                });
+                let sell_item = recipe
+                    .get_compound("sell")
+                    .and_then(ItemStack::read_item_stack);
+
+                if let (Some(buy), Some(sell_item), Some(buy_b)) = (buy, sell_item, buy_b)
+                    && !buy.is_empty()
+                    && !sell_item.is_empty()
+                    && buy_b.as_ref().is_none_or(|stack| !stack.is_empty())
+                {
+                    let uses = recipe.get_int("uses").unwrap_or(0);
+                    let max_uses = recipe.get_int("maxUses").unwrap_or(12);
+                    let reward_exp = recipe.get_bool("rewardExp").unwrap_or(true);
+                    let xp = recipe.get_int("xp").unwrap_or(2);
+                    let price_multiplier = recipe.get_float("priceMultiplier").unwrap_or(0.05);
+                    let special_price = recipe.get_int("specialPrice").unwrap_or(0);
+                    let demand = recipe.get_int("demand").unwrap_or(0);
+
+                    offers.push(pumpkin_protocol::java::client::play::MerchantOffer {
+                        base_cost_a: buy.into(),
+                        output: sell_item.into(),
+                        cost_b: buy_b.map(Into::into),
+                        reward_exp,
+                        uses,
+                        max_uses,
+                        xp,
+                        special_price,
+                        price_multiplier,
+                        demand,
+                    });
+                }
+            }
+        }
+    }
+
     pub fn open_trading_screen(&self, player: &Arc<Player>) {
         // Open the merchant screen and then send the current offers packet
         if let Some(sync_id) = player.open_handled_screen(self, None) {
@@ -1669,60 +1728,8 @@ impl Mob for VillagerEntity {
                 .store(last_decay, Ordering::Relaxed);
         }
 
-        if let Some(offers_compound) = nbt.get_compound("Offers")
-            && let Some(recipes) = offers_compound.get_list("Recipes")
-        {
-            let mut offers = self
-                .offers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            offers.clear();
-            for tag in recipes {
-                if let Some(recipe) = tag.extract_compound() {
-                    let buy = recipe
-                        .get_compound("buy")
-                        .and_then(ItemStack::read_item_stack);
-                    // TODO(buyB): duplicated in `villager/mod.rs` and `wandering_trader.rs`;
-                    // unify into one trade-recipe codec shared by `Villager` and `WanderingTrader`.
-                    // A `buyB` that is present but invalid rejects the recipe, like a failed vanilla codec decode.
-                    let buy_b = recipe.get("buyB").map_or(Some(None), |cost_b| {
-                        cost_b
-                            .extract_compound()
-                            .and_then(ItemStack::read_item_stack)
-                            .map(Some)
-                    });
-                    let sell_item = recipe
-                        .get_compound("sell")
-                        .and_then(ItemStack::read_item_stack);
-
-                    if let (Some(buy), Some(sell_item), Some(buy_b)) = (buy, sell_item, buy_b)
-                        && !buy.is_empty()
-                        && !sell_item.is_empty()
-                        && buy_b.as_ref().is_none_or(|stack| !stack.is_empty())
-                    {
-                        let uses = recipe.get_int("uses").unwrap_or(0);
-                        let max_uses = recipe.get_int("maxUses").unwrap_or(12);
-                        let reward_exp = recipe.get_bool("rewardExp").unwrap_or(true);
-                        let xp = recipe.get_int("xp").unwrap_or(2);
-                        let price_multiplier = recipe.get_float("priceMultiplier").unwrap_or(0.05);
-                        let special_price = recipe.get_int("specialPrice").unwrap_or(0);
-                        let demand = recipe.get_int("demand").unwrap_or(0);
-
-                        offers.push(pumpkin_protocol::java::client::play::MerchantOffer {
-                            base_cost_a: buy.into(),
-                            output: sell_item.into(),
-                            cost_b: buy_b.map(Into::into),
-                            reward_exp,
-                            uses,
-                            max_uses,
-                            xp,
-                            special_price,
-                            price_multiplier,
-                            demand,
-                        });
-                    }
-                }
-            }
+        if let Some(offers_compound) = nbt.get_compound("Offers") {
+            self.set_offers_from_nbt(offers_compound);
         }
 
         // Inventory
