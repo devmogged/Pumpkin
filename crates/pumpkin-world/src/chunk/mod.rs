@@ -841,7 +841,7 @@ impl ChunkData {
             ChunkHeightmapType::MotionBlocking,
             ChunkHeightmapType::MotionBlockingNoLeaves,
         ] {
-            heightmap.update(hm_type, x, z, y, block_state, min_y, |y_at| {
+            heightmap.update(hm_type, x, y, z, block_state, min_y, |y_at| {
                 let id = self
                     .section
                     .get_block_absolute_y(relative_x, y_at, relative_z)
@@ -1114,5 +1114,28 @@ mod tests {
         chunk.remove_custom_data("my_plugin", "test_key");
         assert!(!chunk.has_custom_data("my_plugin", "test_key"));
         assert!(chunk.has_custom_data("my_plugin", "number_key"));
+    }
+}
+#[cfg(test)]
+mod heightmap_updates {
+    use super::*;
+
+    #[test]
+    fn placed_blocks_raise_and_lower_the_surface() {
+        let chunk = ChunkData::empty(0, 0);
+        let min_y = chunk.section.min_y;
+        let surface = || {
+            chunk
+                .heightmap
+                .lock()
+                .unwrap()
+                .get(ChunkHeightmapType::WorldSurface, 3, 5, min_y)
+        };
+        chunk.set_block_absolute_y_if(3, 62, 5, Block::STONE.default_state.id, |_| true);
+        assert_eq!(surface(), 62);
+        chunk.set_block_absolute_y_if(3, 200, 5, Block::STONE.default_state.id, |_| true);
+        assert_eq!(surface(), 200);
+        chunk.set_block_absolute_y_if(3, 200, 5, Block::AIR.default_state.id, |_| true);
+        assert_eq!(surface(), 62);
     }
 }
