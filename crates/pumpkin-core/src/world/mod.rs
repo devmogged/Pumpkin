@@ -806,7 +806,10 @@ impl World {
         for entity in entities {
             let base_entity = entity.get_entity();
             if !entity.saves_with_chunk()
-                || base_entity.is_removed()
+                || base_entity
+                    .removal_reason
+                    .load()
+                    .is_some_and(|reason| !reason.should_save())
                 || is_saved_as_passenger(entity.as_ref())
             {
                 continue;
@@ -1953,6 +1956,11 @@ impl World {
             }
         });
         self.order_tick_spawns();
+        // Native interaction callbacks may touch any entity or block. Run them in entity
+        // order on the world thread after the independent islands have joined.
+        for (entity, _) in &tickable {
+            crate::entity::interaction::tick_behavior(entity.as_ref());
+        }
         let entity_elapsed = t_entities.elapsed();
 
         // Like vanilla `sendChanges`: before the next tick's packets
@@ -5653,8 +5661,7 @@ impl World {
         }
 
         entity.init_data_tracker();
-        self.add_entity_silent(entity);
-        true
+        self.add_entity_silent(entity)
     }
 
     /// Fires [`CreatureSpawnEvent`], then spawns the entity; `false` if either event is cancelled.
@@ -5685,37 +5692,37 @@ impl World {
     }
 
     #[expect(clippy::needless_pass_by_value)]
-    pub fn add_entity_silent(&self, entity: Arc<dyn EntityBase>) {
+    pub fn add_entity_silent(&self, entity: Arc<dyn EntityBase>) -> bool {
         let base_entity = entity.get_entity();
-
-        // Guard against duplicate entities with the same UUID.
-        // This can happen when chunk entity data is loaded while the entity
-        // already exists in the world (e.g. another player is still tracking it).
-        let already_exists = self
-            .entities
-            .load()
-            .iter()
-            .any(|e| e.get_entity().entity_uuid == base_entity.entity_uuid);
-        if already_exists {
-            return;
-        }
 
         // The entity stays live-only: it is written to its chunk's saved data on
         // unload (see `save_entities_by_chunk`), never at spawn, so it can't be both live and
         // serialized at once (which would double it on the next reload).
+        let mut inserted = false;
+        self.entities.rcu(|entities| {
+            // Compare the UUID inside the write, including retries on a newer snapshot.
+            inserted = !entities
+                .iter()
+                .any(|existing| existing.get_entity().entity_uuid == base_entity.entity_uuid);
+            if !inserted {
+                return Arc::clone(entities);
+            }
+            let mut entities = (**entities).clone();
+            entities.push(entity.clone());
+            Arc::new(entities)
+        });
+        if !inserted {
+            return false;
+        }
         self.spawn_state.load().add_entity(self, entity.as_ref());
         self.entity_tracker.add_entity(&entity, self);
 
-        self.entities.rcu(|current_entities| {
-            let mut new_entities = (**current_entities).clone();
-            new_entities.push(entity.clone());
-            new_entities
-        });
-        self.record_tick_spawn(entity.get_entity().entity_id);
+        self.record_tick_spawn(base_entity.entity_id);
         self.add_pending_riders(&entity);
         if let Some(hook) = ENTITY_ADDED.get() {
             hook(self, &entity);
         }
+        true
     }
 
     pub fn remove_entity(&self, entity: &dyn EntityBase) {
@@ -5756,6 +5763,7 @@ impl World {
         if let Some(mob) = entity.get_mob() {
             mob.get_mob_entity().finish_removal(mob);
         }
+        crate::entity::interaction::finish_removal(entity, RemovalReason::Discarded);
     }
 
     pub async fn remove_entities_in_chunks(
@@ -5774,6 +5782,7 @@ impl World {
             new_entities.retain(|entity| {
                 let pos = saved_chunk_pos(entity.as_ref());
                 if chunks_set.contains(&pos) {
+                    crate::entity::interaction::begin_unload(entity.as_ref());
                     entities_to_remove.push(entity.clone());
                     false
                 } else {
@@ -5788,17 +5797,24 @@ impl World {
 
         for entity in entities_to_remove {
             let base = entity.get_entity();
-            if base
-                .removal_reason
-                .compare_exchange(None, Some(RemovalReason::UnloadedToChunk))
-                .is_ok()
-            {
+            let unloaded = base.removal_reason.load() == Some(RemovalReason::UnloadedToChunk)
+                || base
+                    .removal_reason
+                    .compare_exchange(None, Some(RemovalReason::UnloadedToChunk))
+                    .is_ok();
+            if unloaded {
                 base.removed.store(true, Ordering::Release);
             }
             self.entity_tracker.remove_entity(entity.as_ref(), self);
             self.spawn_state.load().remove_entity(self, entity.as_ref());
             if let Some(mob) = entity.get_mob() {
                 mob.get_mob_entity().finish_removal(mob);
+            }
+            if unloaded {
+                crate::entity::interaction::finish_removal(
+                    entity.as_ref(),
+                    RemovalReason::UnloadedToChunk,
+                );
             }
         }
 

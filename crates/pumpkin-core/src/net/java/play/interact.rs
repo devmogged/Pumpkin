@@ -164,7 +164,9 @@ impl JavaClient {
                                     );
                                 }
                             }
-                            player.inventory().set_stack_in_hand(hand, stack);
+                            if !stack.are_equal(&before) {
+                                player.inventory().set_stack_in_hand(hand, stack);
+                            }
                         }
                     }
                 }

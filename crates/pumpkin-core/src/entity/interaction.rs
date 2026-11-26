@@ -1,15 +1,18 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock, PoisonError, TryLockError,
     atomic::{AtomicBool, Ordering},
 };
 use uuid::Uuid;
 
 use pumpkin_data::{damage::DamageType, item_stack::ItemStack};
 use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
-use pumpkin_util::math::{boundingbox::EntityDimensions, vector3::Vector3};
+use pumpkin_util::{
+    Hand,
+    math::{boundingbox::EntityDimensions, vector3::Vector3},
+};
 
 use crate::{
-    entity::{Entity, EntityBase, living::LivingEntity, player::Player},
+    entity::{Entity, EntityBase, RemovalReason, living::LivingEntity, player::Player},
     server::Server,
 };
 
@@ -43,6 +46,18 @@ pub struct InteractionEntity {
     pub response: AtomicBool,
     pub attack: Mutex<Option<PlayerAction>>,
     pub interaction: Mutex<Option<PlayerAction>>,
+    behavior: OnceLock<Arc<dyn InteractionBehavior>>,
+    activity: Mutex<()>,
+    pending_removal: Mutex<Option<RemovalReason>>,
+}
+
+/// Optional server-side behavior for an interaction entity. The vanilla
+/// carrier handles its spawn packet, saved hitbox and reach checks.
+pub trait InteractionBehavior: Send + Sync {
+    fn loaded(&self, carrier: &InteractionEntity);
+    fn tick(&self, carrier: &InteractionEntity);
+    fn interact(&self, carrier: &InteractionEntity, player: &Player) -> bool;
+    fn removed(&self, carrier: &InteractionEntity, reason: RemovalReason);
 }
 
 impl InteractionEntity {
@@ -60,7 +75,50 @@ impl InteractionEntity {
             response: AtomicBool::new(false),
             attack: Mutex::new(None),
             interaction: Mutex::new(None),
+            behavior: OnceLock::new(),
+            activity: Mutex::new(()),
+            pending_removal: Mutex::new(None),
         })
+    }
+
+    pub fn attach(&self, behavior: Arc<dyn InteractionBehavior>) {
+        let activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.entity.is_removed() && self.behavior.set(behavior.clone()).is_ok() {
+            behavior.loaded(self);
+        }
+        drop(activity);
+        self.deliver_removal();
+    }
+
+    fn run<R>(&self, inactive: R, call: impl FnOnce(&dyn InteractionBehavior) -> R) -> R {
+        let activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
+        let result = match self.behavior.get() {
+            Some(behavior) if !self.entity.is_removed() => call(behavior.as_ref()),
+            _ => inactive,
+        };
+        drop(activity);
+        self.deliver_removal();
+        result
+    }
+
+    fn deliver_removal(&self) {
+        let activity = match self.activity.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            // A callback may discard its own carrier. Let that callback finish first.
+            Err(TryLockError::WouldBlock) => return,
+        };
+        let reason = self
+            .pending_removal
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        drop(activity);
+        if let Some(reason) = reason
+            && let Some(behavior) = self.behavior.get()
+        {
+            behavior.removed(self, reason);
+        }
     }
 
     pub fn get_width(&self) -> f32 {
@@ -292,6 +350,9 @@ impl EntityBase for InteractionEntity {
     }
 
     fn interact(&self, player: &Arc<Player>, _item_stack: &mut ItemStack) -> bool {
+        if self.behavior.get().is_some() {
+            return self.run(false, |behavior| behavior.interact(self, player));
+        }
         let timestamp = self.entity.world.load().get_world_age();
         *self
             .interaction
@@ -302,4 +363,47 @@ impl EntityBase for InteractionEntity {
         });
         true
     }
+
+    fn interact_with_hand(&self, player: &Arc<Player>, _: &mut ItemStack, _: Hand) -> Option<bool> {
+        self.behavior.get()?;
+        Some(self.run(false, |behavior| behavior.interact(self, player)))
+    }
+}
+
+pub fn tick_behavior(entity: &dyn EntityBase) {
+    if let Some(carrier) = as_interaction(entity)
+        && carrier.behavior.get().is_some()
+    {
+        carrier.run((), |behavior| behavior.tick(carrier));
+    }
+}
+
+pub fn begin_unload(entity: &dyn EntityBase) {
+    if let Some(carrier) = as_interaction(entity) {
+        let _activity = carrier
+            .activity
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let _ = carrier
+            .entity
+            .removal_reason
+            .compare_exchange(None, Some(RemovalReason::UnloadedToChunk));
+    }
+}
+
+pub fn finish_removal(entity: &dyn EntityBase, reason: RemovalReason) {
+    if let Some(carrier) = as_interaction(entity) {
+        *carrier
+            .pending_removal
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(reason);
+        carrier.deliver_removal();
+    }
+}
+
+fn as_interaction(entity: &dyn EntityBase) -> Option<&InteractionEntity> {
+    if entity.get_entity().entity_type.id != pumpkin_data::entity::EntityType::INTERACTION.id {
+        return None;
+    }
+    entity.cast_any().downcast_ref::<InteractionEntity>()
 }
