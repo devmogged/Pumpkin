@@ -6,7 +6,8 @@ use crate::{
     item::{ItemBehaviour, ItemMetadata},
 };
 use pumpkin_data::{
-    Block, BlockDirection, BlockState,
+    Block, BlockDirection, BlockState, Property,
+    block_properties::SlabType,
     data_component_impl::{
         BucketEntityDataImpl, CustomNameImpl, EquipmentSlot, SulfurCubeContentImpl,
     },
@@ -398,6 +399,19 @@ fn try_place_powder_snow(
     Some(target_pos)
 }
 
+fn can_waterlog(block: &Block, state: &BlockState) -> bool {
+    !state.is_waterlogged()
+        && block.properties(state.id).is_some_and(|properties| {
+            let properties = properties.to_props();
+            properties
+                .iter()
+                .any(|prop| matches!(prop, Property::Waterlogged(_)))
+                && !properties
+                    .iter()
+                    .any(|prop| matches!(prop, Property::SlabType(SlabType::Double)))
+        })
+}
+
 fn try_place_liquid(
     world: &Arc<World>,
     item: &Item,
@@ -414,8 +428,7 @@ fn try_place_liquid(
 
     let (block, state) = world.get_block_and_state(&pos);
     let is_water = item.id != Item::LAVA_BUCKET.id;
-    let can_waterlog_clicked =
-        is_water && !is_sneaking && block.is_waterloggable() && !block.is_waterlogged(state.id);
+    let can_waterlog_clicked = is_water && !is_sneaking && can_waterlog(block, state);
 
     let place_pos = if can_waterlog_clicked {
         pos
@@ -424,9 +437,7 @@ fn try_place_liquid(
     };
 
     let (target_block, target_state) = world.get_block_and_state(&place_pos);
-    let can_waterlog_target = is_water
-        && target_block.is_waterloggable()
-        && !target_block.is_waterlogged(target_state.id);
+    let can_waterlog_target = is_water && can_waterlog(target_block, target_state);
     let can_replace_target = target_state.is_air()
         || target_state.is_liquid()
         || can_be_replaced_by_fluid(target_block, target_state);
@@ -773,5 +784,25 @@ impl ItemBehaviour for MilkBucketItem {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pumpkin_data::block_properties::SlabProperties;
+
+    use super::*;
+
+    #[test]
+    fn a_bucket_can_waterlog_only_single_slabs() {
+        let block = &Block::STONE_SLAB;
+        for slab_type in [SlabType::Bottom, SlabType::Top, SlabType::Double] {
+            let properties = SlabProperties {
+                r#type: slab_type,
+                waterlogged: false,
+            };
+            let state = properties.to_state_id(block).to_state();
+            assert_eq!(can_waterlog(block, state), slab_type != SlabType::Double);
+        }
     }
 }
