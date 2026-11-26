@@ -19,7 +19,8 @@ use crate::{
     inventory::Inventory,
     player::player_inventory::PlayerInventory,
     screen_handler::{
-        InventoryPlayer, ScreenHandler, ScreenHandlerBehaviour, SlotClickEffect, SlotClickEffects,
+        InventoryPlayer, MenuAction, ScreenHandler, ScreenHandlerBehaviour, SlotClickEffect,
+        SlotClickEffects,
     },
     slot::{NormalSlot, Slot},
 };
@@ -205,6 +206,8 @@ pub struct NativeMenu {
     trial_inventory: Arc<SimpleInventory>,
     trial_player: Arc<PlayerInventory>,
     persist: Arc<PersistMenu>,
+    actions: Vec<(usize, MenuAction)>,
+    pending_action: Option<MenuAction>,
 }
 
 impl NativeMenu {
@@ -260,9 +263,24 @@ impl NativeMenu {
             trial_inventory,
             trial_player,
             persist,
+            actions: Vec::new(),
+            pending_action: None,
         };
         menu.refresh();
         Some(menu)
+    }
+
+    pub fn set_slot_action(&mut self, index: usize, action: MenuAction) -> bool {
+        if self
+            .access
+            .get(index)
+            .is_none_or(|slot| slot.take || slot.insert)
+            || self.actions.iter().any(|(slot, _)| *slot == index)
+        {
+            return false;
+        }
+        self.actions.push((index, action));
+        true
     }
 
     fn project_slots(&self, stacks: &[ItemStack]) {
@@ -383,6 +401,9 @@ impl ScreenHandler for NativeMenu {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+    fn take_slot_action(&mut self) -> Option<MenuAction> {
+        self.pending_action.take()
+    }
     fn get_behaviour(&self) -> &ScreenHandlerBehaviour {
         self.inner.get_behaviour()
     }
@@ -432,6 +453,23 @@ impl ScreenHandler for NativeMenu {
         player: &dyn InventoryPlayer,
     ) {
         if player.is_spectator() {
+            return;
+        }
+        if let Ok(slot) = usize::try_from(slot)
+            && let Some((_, callback)) = self.actions.iter().find(|(index, _)| *index == slot)
+        {
+            if matches!(action, SlotActionType::Pickup)
+                && button == 0
+                && self
+                    .inner
+                    .get_behaviour()
+                    .cursor_stack
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .is_empty()
+            {
+                self.pending_action = Some(Arc::clone(callback));
+            }
             return;
         }
         let mut stored = self

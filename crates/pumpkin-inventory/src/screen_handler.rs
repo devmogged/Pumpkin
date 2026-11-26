@@ -327,6 +327,8 @@ impl SlotClickEffects<'_> {
     }
 }
 
+pub type MenuAction = Arc<dyn Fn(&dyn InventoryPlayer) + Send + Sync>;
+
 /// The main trait for container screen handlers.
 ///
 /// Screen handlers manage the server-side state of container UIs like chests,
@@ -357,6 +359,11 @@ pub trait ScreenHandler: Send + Sync {
 
     /// Returns this screen handler as a mutable Any reference.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// Take an action scheduled by the click, to run after releasing the screen lock.
+    fn take_slot_action(&mut self) -> Option<MenuAction> {
+        None
+    }
 
     /// Gets the sync ID for this screen handler.
     fn sync_id(&self) -> u8 {

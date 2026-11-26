@@ -7523,6 +7523,9 @@ impl Player {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
+        if screen_handler.sync_id() != sync_id {
+            return;
+        }
         let not_in_sync = packet.revision.0
             != (screen_handler
                 .get_behaviour()
@@ -7548,6 +7551,18 @@ impl Player {
             screen_handler.update_to_client();
         } else {
             screen_handler.send_content_updates();
+        }
+        let action = screen_handler.take_slot_action();
+        drop(screen_handler);
+        if let Some(action) = action {
+            let current = self
+                .current_screen_handler
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if Arc::ptr_eq(&screen_handler_arc, &current) {
+                drop(current);
+                action(self.as_ref());
+            }
         }
     }
 
