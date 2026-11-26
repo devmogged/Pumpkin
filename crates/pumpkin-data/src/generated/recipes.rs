@@ -144,6 +144,7 @@ impl CookingRecipeKind {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct StonecutterRecipe {
+    pub recipe_id: &'static str,
     pub group: Option<&'static str>,
     pub ingredient: RecipeIngredientTypes,
     pub result: RecipeResultStruct,
@@ -21645,6 +21646,7 @@ pub static RECIPES_COOKING: &[CookingRecipeType] = &[
 ];
 pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
     StonecutterRecipe {
+        recipe_id: "minecraft:andesite_slab_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -21654,6 +21656,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:andesite_stairs_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -21663,6 +21666,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:andesite_wall_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -21672,6 +21676,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:black_concrete_slab_from_black_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:black_concrete"),
         result: RecipeResultStruct {
@@ -21681,6 +21686,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:black_concrete_stairs_from_black_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:black_concrete"),
         result: RecipeResultStruct {
@@ -21690,6 +21696,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:blackstone_slab_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -21699,6 +21706,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:blackstone_stairs_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -21708,6 +21716,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:blackstone_wall_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -21717,6 +21726,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:blue_concrete_slab_from_blue_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blue_concrete"),
         result: RecipeResultStruct {
@@ -21726,6 +21736,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:blue_concrete_stairs_from_blue_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blue_concrete"),
         result: RecipeResultStruct {
@@ -21735,6 +21746,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:brick_slab_from_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:bricks"),
         result: RecipeResultStruct {
@@ -21744,6 +21756,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:brick_stairs_from_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:bricks"),
         result: RecipeResultStruct {
@@ -21753,6 +21766,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:brick_wall_from_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:bricks"),
         result: RecipeResultStruct {
@@ -21762,6 +21776,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:brown_concrete_slab_from_brown_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:brown_concrete"),
         result: RecipeResultStruct {
@@ -21771,6 +21786,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:brown_concrete_stairs_from_brown_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:brown_concrete"),
         result: RecipeResultStruct {
@@ -21780,6 +21796,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_cinnabar_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -21789,6 +21806,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_copper_from_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:copper_block"),
         result: RecipeResultStruct {
@@ -21798,6 +21816,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_copper_from_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cut_copper"),
         result: RecipeResultStruct {
@@ -21807,6 +21826,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_deepslate_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -21816,6 +21836,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_deepslate_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -21825,6 +21846,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_nether_bricks_from_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:nether_bricks"),
         result: RecipeResultStruct {
@@ -21834,6 +21856,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_polished_blackstone_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -21843,6 +21866,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_polished_blackstone_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -21852,6 +21876,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_quartz_block_from_quartz_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:quartz_block"),
         result: RecipeResultStruct {
@@ -21861,6 +21886,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_red_sandstone_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -21870,6 +21896,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_resin_bricks_from_resin_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:resin_bricks"),
         result: RecipeResultStruct {
@@ -21879,6 +21906,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_sandstone_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -21888,6 +21916,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_stone_bricks_from_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone_bricks"),
         result: RecipeResultStruct {
@@ -21897,6 +21926,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_stone_bricks_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -21906,6 +21936,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_sulfur_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -21915,6 +21946,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_tuff_bricks_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -21924,6 +21956,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_tuff_bricks_from_tuff_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff_bricks"),
         result: RecipeResultStruct {
@@ -21933,6 +21966,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_tuff_bricks_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -21942,6 +21976,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:chiseled_tuff_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -21951,6 +21986,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_slab_from_cinnabar_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar_bricks"),
         result: RecipeResultStruct {
@@ -21960,6 +21996,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_slab_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -21969,6 +22006,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_slab_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -21978,6 +22016,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_stairs_from_cinnabar_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar_bricks"),
         result: RecipeResultStruct {
@@ -21987,6 +22026,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_stairs_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -21996,6 +22036,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_stairs_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -22005,6 +22046,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_wall_from_cinnabar_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar_bricks"),
         result: RecipeResultStruct {
@@ -22014,6 +22056,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_wall_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -22023,6 +22066,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_brick_wall_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -22032,6 +22076,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_bricks_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -22041,6 +22086,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_bricks_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -22050,6 +22096,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_slab_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -22059,6 +22106,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_stairs_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -22068,6 +22116,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cinnabar_wall_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -22077,6 +22126,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22086,6 +22136,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_slab_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22095,6 +22146,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_slab_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22104,6 +22156,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_stairs_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22113,6 +22166,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_stairs_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22122,6 +22176,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_wall_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22131,6 +22186,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobbled_deepslate_wall_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22140,6 +22196,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -22149,6 +22206,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_slab_from_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobblestone"),
         result: RecipeResultStruct {
@@ -22158,6 +22216,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_slab_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -22167,6 +22226,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_stairs_from_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobblestone"),
         result: RecipeResultStruct {
@@ -22176,6 +22236,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_stairs_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -22185,6 +22246,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_wall_from_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobblestone"),
         result: RecipeResultStruct {
@@ -22194,6 +22256,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cobblestone_wall_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -22203,6 +22266,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:copper_grate_from_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:copper_block"),
         result: RecipeResultStruct {
@@ -22212,6 +22276,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_copper_from_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:copper_block"),
         result: RecipeResultStruct {
@@ -22221,6 +22286,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_copper_slab_from_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:copper_block"),
         result: RecipeResultStruct {
@@ -22230,6 +22296,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_copper_slab_from_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cut_copper"),
         result: RecipeResultStruct {
@@ -22239,6 +22306,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_copper_stairs_from_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:copper_block"),
         result: RecipeResultStruct {
@@ -22248,6 +22316,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_copper_stairs_from_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cut_copper"),
         result: RecipeResultStruct {
@@ -22257,6 +22326,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_red_sandstone_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -22266,6 +22336,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_red_sandstone_slab_from_cut_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cut_red_sandstone"),
         result: RecipeResultStruct {
@@ -22275,6 +22346,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_red_sandstone_slab_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -22284,6 +22356,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_sandstone_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -22293,6 +22366,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_sandstone_slab_from_cut_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cut_sandstone"),
         result: RecipeResultStruct {
@@ -22302,6 +22376,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cut_sandstone_slab_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -22311,6 +22386,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cyan_concrete_slab_from_cyan_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cyan_concrete"),
         result: RecipeResultStruct {
@@ -22320,6 +22396,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:cyan_concrete_stairs_from_cyan_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cyan_concrete"),
         result: RecipeResultStruct {
@@ -22329,6 +22406,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:dark_prismarine_slab_from_dark_prismarine_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:dark_prismarine"),
         result: RecipeResultStruct {
@@ -22338,6 +22416,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:dark_prismarine_stairs_from_dark_prismarine_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:dark_prismarine"),
         result: RecipeResultStruct {
@@ -22347,6 +22426,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_slab_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22356,6 +22436,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_slab_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22365,6 +22446,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_slab_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22374,6 +22456,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_slab_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22383,6 +22466,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_stairs_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22392,6 +22476,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_stairs_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22401,6 +22486,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_stairs_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22410,6 +22496,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_stairs_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22419,6 +22506,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_wall_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22428,6 +22516,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_wall_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22437,6 +22526,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_wall_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22446,6 +22536,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_brick_wall_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22455,6 +22546,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_bricks_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22464,6 +22556,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_bricks_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22473,6 +22566,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_bricks_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22482,6 +22576,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_slab_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22491,6 +22586,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_slab_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22500,6 +22596,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_slab_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22509,6 +22606,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_slab_from_deepslate_tiles_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_tiles"),
         result: RecipeResultStruct {
@@ -22518,6 +22616,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_slab_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22527,6 +22626,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_stairs_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22536,6 +22636,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_stairs_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22545,6 +22646,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_stairs_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22554,6 +22656,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_stairs_from_deepslate_tiles_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_tiles"),
         result: RecipeResultStruct {
@@ -22563,6 +22666,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_stairs_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22572,6 +22676,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_wall_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22581,6 +22686,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_wall_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22590,6 +22696,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_wall_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22599,6 +22706,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_wall_from_deepslate_tiles_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_tiles"),
         result: RecipeResultStruct {
@@ -22608,6 +22716,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tile_wall_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22617,6 +22726,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tiles_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -22626,6 +22736,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tiles_from_deepslate_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate_bricks"),
         result: RecipeResultStruct {
@@ -22635,6 +22746,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tiles_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -22644,6 +22756,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:deepslate_tiles_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -22653,6 +22766,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:diorite_slab_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -22662,6 +22776,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:diorite_stairs_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -22671,6 +22786,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:diorite_wall_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -22680,6 +22796,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_slab_from_end_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone_bricks"),
         result: RecipeResultStruct {
@@ -22689,6 +22806,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_slab_from_end_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone"),
         result: RecipeResultStruct {
@@ -22698,6 +22816,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_stairs_from_end_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone_bricks"),
         result: RecipeResultStruct {
@@ -22707,6 +22826,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_stairs_from_end_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone"),
         result: RecipeResultStruct {
@@ -22716,6 +22836,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_wall_from_end_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone_bricks"),
         result: RecipeResultStruct {
@@ -22725,6 +22846,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_brick_wall_from_end_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone"),
         result: RecipeResultStruct {
@@ -22734,6 +22856,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:end_stone_bricks_from_end_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:end_stone"),
         result: RecipeResultStruct {
@@ -22743,6 +22866,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_chiseled_copper_from_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_copper"),
         result: RecipeResultStruct {
@@ -22752,6 +22876,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_chiseled_copper_from_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -22761,6 +22886,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_copper_grate_from_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_copper"),
         result: RecipeResultStruct {
@@ -22770,6 +22896,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_cut_copper_from_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_copper"),
         result: RecipeResultStruct {
@@ -22779,6 +22906,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_cut_copper_slab_from_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_copper"),
         result: RecipeResultStruct {
@@ -22788,6 +22916,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_cut_copper_slab_from_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -22797,6 +22926,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_cut_copper_stairs_from_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_copper"),
         result: RecipeResultStruct {
@@ -22806,6 +22936,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:exposed_cut_copper_stairs_from_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -22815,6 +22946,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:granite_slab_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -22824,6 +22956,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:granite_stairs_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -22833,6 +22966,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:granite_wall_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -22842,6 +22976,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:gray_concrete_slab_from_gray_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:gray_concrete"),
         result: RecipeResultStruct {
@@ -22851,6 +22986,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:gray_concrete_stairs_from_gray_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:gray_concrete"),
         result: RecipeResultStruct {
@@ -22860,6 +22996,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:green_concrete_slab_from_green_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:green_concrete"),
         result: RecipeResultStruct {
@@ -22869,6 +23006,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:green_concrete_stairs_from_green_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:green_concrete"),
         result: RecipeResultStruct {
@@ -22878,6 +23016,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:light_blue_concrete_slab_from_light_blue_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:light_blue_concrete"),
         result: RecipeResultStruct {
@@ -22887,6 +23026,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:light_blue_concrete_stairs_from_light_blue_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:light_blue_concrete"),
         result: RecipeResultStruct {
@@ -22896,6 +23036,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:light_gray_concrete_slab_from_light_gray_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:light_gray_concrete"),
         result: RecipeResultStruct {
@@ -22905,6 +23046,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:light_gray_concrete_stairs_from_light_gray_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:light_gray_concrete"),
         result: RecipeResultStruct {
@@ -22914,6 +23056,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:lime_concrete_slab_from_lime_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:lime_concrete"),
         result: RecipeResultStruct {
@@ -22923,6 +23066,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:lime_concrete_stairs_from_lime_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:lime_concrete"),
         result: RecipeResultStruct {
@@ -22932,6 +23076,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:magenta_concrete_slab_from_magenta_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:magenta_concrete"),
         result: RecipeResultStruct {
@@ -22941,6 +23086,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:magenta_concrete_stairs_from_magenta_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:magenta_concrete"),
         result: RecipeResultStruct {
@@ -22950,6 +23096,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_cobblestone_slab_from_mossy_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_cobblestone"),
         result: RecipeResultStruct {
@@ -22959,6 +23106,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_cobblestone_stairs_from_mossy_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_cobblestone"),
         result: RecipeResultStruct {
@@ -22968,6 +23116,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_cobblestone_wall_from_mossy_cobblestone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_cobblestone"),
         result: RecipeResultStruct {
@@ -22977,6 +23126,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_stone_brick_slab_from_mossy_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_stone_bricks"),
         result: RecipeResultStruct {
@@ -22986,6 +23136,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_stone_brick_stairs_from_mossy_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_stone_bricks"),
         result: RecipeResultStruct {
@@ -22995,6 +23146,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mossy_stone_brick_wall_from_mossy_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mossy_stone_bricks"),
         result: RecipeResultStruct {
@@ -23004,6 +23156,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mud_brick_slab_from_mud_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mud_bricks"),
         result: RecipeResultStruct {
@@ -23013,6 +23166,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mud_brick_stairs_from_mud_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mud_bricks"),
         result: RecipeResultStruct {
@@ -23022,6 +23176,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:mud_brick_wall_from_mud_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:mud_bricks"),
         result: RecipeResultStruct {
@@ -23031,6 +23186,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:nether_brick_slab_from_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:nether_bricks"),
         result: RecipeResultStruct {
@@ -23040,6 +23196,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:nether_brick_stairs_from_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:nether_bricks"),
         result: RecipeResultStruct {
@@ -23049,6 +23206,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:nether_brick_wall_from_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:nether_bricks"),
         result: RecipeResultStruct {
@@ -23058,6 +23216,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:orange_concrete_slab_from_orange_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:orange_concrete"),
         result: RecipeResultStruct {
@@ -23067,6 +23226,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:orange_concrete_stairs_from_orange_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:orange_concrete"),
         result: RecipeResultStruct {
@@ -23076,6 +23236,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_chiseled_copper_from_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_copper"),
         result: RecipeResultStruct {
@@ -23085,6 +23246,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_chiseled_copper_from_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -23094,6 +23256,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_copper_grate_from_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_copper"),
         result: RecipeResultStruct {
@@ -23103,6 +23266,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_cut_copper_from_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_copper"),
         result: RecipeResultStruct {
@@ -23112,6 +23276,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_cut_copper_slab_from_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_copper"),
         result: RecipeResultStruct {
@@ -23121,6 +23286,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_cut_copper_slab_from_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -23130,6 +23296,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_cut_copper_stairs_from_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_copper"),
         result: RecipeResultStruct {
@@ -23139,6 +23306,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:oxidized_cut_copper_stairs_from_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -23148,6 +23316,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:pink_concrete_slab_from_pink_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:pink_concrete"),
         result: RecipeResultStruct {
@@ -23157,6 +23326,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:pink_concrete_stairs_from_pink_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:pink_concrete"),
         result: RecipeResultStruct {
@@ -23166,6 +23336,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_andesite_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -23175,6 +23346,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_andesite_slab_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -23184,6 +23356,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_andesite_slab_from_polished_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_andesite"),
         result: RecipeResultStruct {
@@ -23193,6 +23366,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_andesite_stairs_from_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:andesite"),
         result: RecipeResultStruct {
@@ -23202,6 +23376,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_andesite_stairs_from_polished_andesite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_andesite"),
         result: RecipeResultStruct {
@@ -23211,6 +23386,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_basalt_from_basalt_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:basalt"),
         result: RecipeResultStruct {
@@ -23220,6 +23396,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_slab_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23229,6 +23406,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_slab_from_polished_blackstone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone_bricks"),
         result: RecipeResultStruct {
@@ -23238,6 +23416,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_slab_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23247,6 +23426,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_stairs_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23256,6 +23436,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_stairs_from_polished_blackstone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone_bricks"),
         result: RecipeResultStruct {
@@ -23265,6 +23446,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_stairs_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23274,6 +23456,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_wall_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23283,6 +23466,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_wall_from_polished_blackstone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone_bricks"),
         result: RecipeResultStruct {
@@ -23292,6 +23476,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_brick_wall_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23301,6 +23486,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_bricks_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23310,6 +23496,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_bricks_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23319,6 +23506,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23328,6 +23516,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_slab_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23337,6 +23526,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_slab_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23346,6 +23536,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_stairs_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23355,6 +23546,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_stairs_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23364,6 +23556,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_wall_from_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:blackstone"),
         result: RecipeResultStruct {
@@ -23373,6 +23566,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_blackstone_wall_from_polished_blackstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_blackstone"),
         result: RecipeResultStruct {
@@ -23382,6 +23576,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -23391,6 +23586,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_slab_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -23400,6 +23596,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_slab_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -23409,6 +23606,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_stairs_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -23418,6 +23616,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_stairs_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -23427,6 +23626,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_wall_from_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cinnabar"),
         result: RecipeResultStruct {
@@ -23436,6 +23636,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_cinnabar_wall_from_polished_cinnabar_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_cinnabar"),
         result: RecipeResultStruct {
@@ -23445,6 +23646,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -23454,6 +23656,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -23463,6 +23666,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_slab_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -23472,6 +23676,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_slab_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -23481,6 +23686,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_slab_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -23490,6 +23696,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_stairs_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -23499,6 +23706,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_stairs_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -23508,6 +23716,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_stairs_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -23517,6 +23726,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_wall_from_cobbled_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:cobbled_deepslate"),
         result: RecipeResultStruct {
@@ -23526,6 +23736,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_wall_from_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:deepslate"),
         result: RecipeResultStruct {
@@ -23535,6 +23746,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_deepslate_wall_from_polished_deepslate_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_deepslate"),
         result: RecipeResultStruct {
@@ -23544,6 +23756,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_diorite_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -23553,6 +23766,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_diorite_slab_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -23562,6 +23776,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_diorite_slab_from_polished_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_diorite"),
         result: RecipeResultStruct {
@@ -23571,6 +23786,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_diorite_stairs_from_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:diorite"),
         result: RecipeResultStruct {
@@ -23580,6 +23796,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_diorite_stairs_from_polished_diorite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_diorite"),
         result: RecipeResultStruct {
@@ -23589,6 +23806,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_granite_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -23598,6 +23816,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_granite_slab_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -23607,6 +23826,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_granite_slab_from_polished_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_granite"),
         result: RecipeResultStruct {
@@ -23616,6 +23836,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_granite_stairs_from_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:granite"),
         result: RecipeResultStruct {
@@ -23625,6 +23846,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_granite_stairs_from_polished_granite_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_granite"),
         result: RecipeResultStruct {
@@ -23634,6 +23856,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -23643,6 +23866,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_slab_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -23652,6 +23876,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_slab_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -23661,6 +23886,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_stairs_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -23670,6 +23896,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_stairs_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -23679,6 +23906,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_wall_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -23688,6 +23916,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_sulfur_wall_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -23697,6 +23926,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -23706,6 +23936,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_slab_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -23715,6 +23946,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_slab_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -23724,6 +23956,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_stairs_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -23733,6 +23966,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_stairs_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -23742,6 +23976,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_wall_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -23751,6 +23986,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:polished_tuff_wall_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -23760,6 +23996,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:prismarine_brick_slab_from_prismarine_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:prismarine_bricks"),
         result: RecipeResultStruct {
@@ -23769,6 +24006,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:prismarine_brick_stairs_from_prismarine_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:prismarine_bricks"),
         result: RecipeResultStruct {
@@ -23778,6 +24016,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:prismarine_slab_from_prismarine_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:prismarine"),
         result: RecipeResultStruct {
@@ -23787,6 +24026,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:prismarine_stairs_from_prismarine_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:prismarine"),
         result: RecipeResultStruct {
@@ -23796,6 +24036,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:prismarine_wall_from_prismarine_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:prismarine"),
         result: RecipeResultStruct {
@@ -23805,6 +24046,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:purple_concrete_slab_from_purple_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:purple_concrete"),
         result: RecipeResultStruct {
@@ -23814,6 +24056,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:purple_concrete_stairs_from_purple_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:purple_concrete"),
         result: RecipeResultStruct {
@@ -23823,6 +24066,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:purpur_pillar_from_purpur_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:purpur_block"),
         result: RecipeResultStruct {
@@ -23832,6 +24076,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:purpur_slab_from_purpur_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:purpur_block"),
         result: RecipeResultStruct {
@@ -23841,6 +24086,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:purpur_stairs_from_purpur_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:purpur_block"),
         result: RecipeResultStruct {
@@ -23850,6 +24096,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:quartz_bricks_from_quartz_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:quartz_block"),
         result: RecipeResultStruct {
@@ -23859,6 +24106,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:quartz_pillar_from_quartz_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:quartz_block"),
         result: RecipeResultStruct {
@@ -23868,6 +24116,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:quartz_slab_from_quartz_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:quartz_block"),
         result: RecipeResultStruct {
@@ -23877,6 +24126,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:quartz_stairs_from_quartz_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:quartz_block"),
         result: RecipeResultStruct {
@@ -23886,6 +24136,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_concrete_slab_from_red_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_concrete"),
         result: RecipeResultStruct {
@@ -23895,6 +24146,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_concrete_stairs_from_red_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_concrete"),
         result: RecipeResultStruct {
@@ -23904,6 +24156,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_nether_brick_slab_from_red_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_nether_bricks"),
         result: RecipeResultStruct {
@@ -23913,6 +24166,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_nether_brick_stairs_from_red_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_nether_bricks"),
         result: RecipeResultStruct {
@@ -23922,6 +24176,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_nether_brick_wall_from_red_nether_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_nether_bricks"),
         result: RecipeResultStruct {
@@ -23931,6 +24186,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_sandstone_slab_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -23940,6 +24196,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_sandstone_stairs_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -23949,6 +24206,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:red_sandstone_wall_from_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:red_sandstone"),
         result: RecipeResultStruct {
@@ -23958,6 +24216,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:resin_brick_slab_from_resin_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:resin_bricks"),
         result: RecipeResultStruct {
@@ -23967,6 +24226,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:resin_brick_stairs_from_resin_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:resin_bricks"),
         result: RecipeResultStruct {
@@ -23976,6 +24236,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:resin_brick_wall_from_resin_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:resin_bricks"),
         result: RecipeResultStruct {
@@ -23985,6 +24246,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sandstone_slab_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -23994,6 +24256,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sandstone_stairs_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -24003,6 +24266,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sandstone_wall_from_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sandstone"),
         result: RecipeResultStruct {
@@ -24012,6 +24276,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_quartz_slab_from_smooth_quartz_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_quartz"),
         result: RecipeResultStruct {
@@ -24021,6 +24286,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_quartz_stairs_from_smooth_quartz_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_quartz"),
         result: RecipeResultStruct {
@@ -24030,6 +24296,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_red_sandstone_slab_from_smooth_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_red_sandstone"),
         result: RecipeResultStruct {
@@ -24039,6 +24306,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_red_sandstone_stairs_from_smooth_red_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_red_sandstone"),
         result: RecipeResultStruct {
@@ -24048,6 +24316,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_sandstone_slab_from_smooth_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_sandstone"),
         result: RecipeResultStruct {
@@ -24057,6 +24326,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_sandstone_stairs_from_smooth_sandstone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_sandstone"),
         result: RecipeResultStruct {
@@ -24066,6 +24336,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:smooth_stone_slab_from_smooth_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:smooth_stone"),
         result: RecipeResultStruct {
@@ -24075,6 +24346,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_slab_from_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone_bricks"),
         result: RecipeResultStruct {
@@ -24084,6 +24356,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_slab_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24093,6 +24366,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_stairs_from_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone_bricks"),
         result: RecipeResultStruct {
@@ -24102,6 +24376,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_stairs_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24111,6 +24386,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_wall_from_stone_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone_bricks"),
         result: RecipeResultStruct {
@@ -24120,6 +24396,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_brick_wall_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24129,6 +24406,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_bricks_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24138,6 +24416,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_slab_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24147,6 +24426,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:stone_stairs_from_stone_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:stone"),
         result: RecipeResultStruct {
@@ -24156,6 +24436,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_slab_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -24165,6 +24446,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_slab_from_sulfur_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur_bricks"),
         result: RecipeResultStruct {
@@ -24174,6 +24456,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_slab_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24183,6 +24466,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_stairs_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -24192,6 +24476,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_stairs_from_sulfur_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur_bricks"),
         result: RecipeResultStruct {
@@ -24201,6 +24486,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_stairs_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24210,6 +24496,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_wall_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -24219,6 +24506,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_wall_from_sulfur_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur_bricks"),
         result: RecipeResultStruct {
@@ -24228,6 +24516,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_brick_wall_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24237,6 +24526,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_bricks_from_polished_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_sulfur"),
         result: RecipeResultStruct {
@@ -24246,6 +24536,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_bricks_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24255,6 +24546,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_slab_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24264,6 +24556,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_stairs_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24273,6 +24566,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:sulfur_wall_from_sulfur_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:sulfur"),
         result: RecipeResultStruct {
@@ -24282,6 +24576,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_slab_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -24291,6 +24586,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_slab_from_tuff_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff_bricks"),
         result: RecipeResultStruct {
@@ -24300,6 +24596,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_slab_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24309,6 +24606,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_stairs_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -24318,6 +24616,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_stairs_from_tuff_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff_bricks"),
         result: RecipeResultStruct {
@@ -24327,6 +24626,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_stairs_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24336,6 +24636,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_wall_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -24345,6 +24646,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_wall_from_tuff_bricks_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff_bricks"),
         result: RecipeResultStruct {
@@ -24354,6 +24656,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_brick_wall_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24363,6 +24666,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_bricks_from_polished_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:polished_tuff"),
         result: RecipeResultStruct {
@@ -24372,6 +24676,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_bricks_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24381,6 +24686,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_slab_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24390,6 +24696,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_stairs_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24399,6 +24706,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:tuff_wall_from_tuff_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:tuff"),
         result: RecipeResultStruct {
@@ -24408,6 +24716,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_chiseled_copper_from_waxed_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_copper_block"),
         result: RecipeResultStruct {
@@ -24417,6 +24726,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_chiseled_copper_from_waxed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_cut_copper"),
         result: RecipeResultStruct {
@@ -24426,6 +24736,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_copper_grate_from_waxed_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_copper_block"),
         result: RecipeResultStruct {
@@ -24435,6 +24746,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_cut_copper_from_waxed_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_copper_block"),
         result: RecipeResultStruct {
@@ -24444,6 +24756,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_cut_copper_slab_from_waxed_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_copper_block"),
         result: RecipeResultStruct {
@@ -24453,6 +24766,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_cut_copper_slab_from_waxed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_cut_copper"),
         result: RecipeResultStruct {
@@ -24462,6 +24776,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_cut_copper_stairs_from_waxed_copper_block_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_copper_block"),
         result: RecipeResultStruct {
@@ -24471,6 +24786,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_cut_copper_stairs_from_waxed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_cut_copper"),
         result: RecipeResultStruct {
@@ -24480,6 +24796,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_chiseled_copper_from_waxed_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_copper"),
         result: RecipeResultStruct {
@@ -24489,6 +24806,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_chiseled_copper_from_waxed_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -24498,6 +24816,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_copper_grate_from_waxed_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_copper"),
         result: RecipeResultStruct {
@@ -24507,6 +24826,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_cut_copper_from_waxed_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_copper"),
         result: RecipeResultStruct {
@@ -24516,6 +24836,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_cut_copper_slab_from_waxed_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_copper"),
         result: RecipeResultStruct {
@@ -24525,6 +24846,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_cut_copper_slab_from_waxed_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -24534,6 +24856,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_cut_copper_stairs_from_waxed_exposed_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_copper"),
         result: RecipeResultStruct {
@@ -24543,6 +24866,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_exposed_cut_copper_stairs_from_waxed_exposed_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_exposed_cut_copper"),
         result: RecipeResultStruct {
@@ -24552,6 +24876,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_chiseled_copper_from_waxed_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_copper"),
         result: RecipeResultStruct {
@@ -24561,6 +24886,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_chiseled_copper_from_waxed_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -24570,6 +24896,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_copper_grate_from_waxed_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_copper"),
         result: RecipeResultStruct {
@@ -24579,6 +24906,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_cut_copper_from_waxed_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_copper"),
         result: RecipeResultStruct {
@@ -24588,6 +24916,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_cut_copper_slab_from_waxed_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_copper"),
         result: RecipeResultStruct {
@@ -24597,6 +24926,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_cut_copper_slab_from_waxed_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -24606,6 +24936,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_cut_copper_stairs_from_waxed_oxidized_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_copper"),
         result: RecipeResultStruct {
@@ -24615,6 +24946,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_oxidized_cut_copper_stairs_from_waxed_oxidized_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_oxidized_cut_copper"),
         result: RecipeResultStruct {
@@ -24624,6 +24956,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_chiseled_copper_from_waxed_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_copper"),
         result: RecipeResultStruct {
@@ -24633,6 +24966,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_chiseled_copper_from_waxed_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24642,6 +24976,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_copper_grate_from_waxed_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_copper"),
         result: RecipeResultStruct {
@@ -24651,6 +24986,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_cut_copper_from_waxed_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_copper"),
         result: RecipeResultStruct {
@@ -24660,6 +24996,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_cut_copper_slab_from_waxed_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_copper"),
         result: RecipeResultStruct {
@@ -24669,6 +25006,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_cut_copper_slab_from_waxed_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24678,6 +25016,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_cut_copper_stairs_from_waxed_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_copper"),
         result: RecipeResultStruct {
@@ -24687,6 +25026,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:waxed_weathered_cut_copper_stairs_from_waxed_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:waxed_weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24696,6 +25036,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_chiseled_copper_from_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_copper"),
         result: RecipeResultStruct {
@@ -24705,6 +25046,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_chiseled_copper_from_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24714,6 +25056,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_copper_grate_from_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_copper"),
         result: RecipeResultStruct {
@@ -24723,6 +25066,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_cut_copper_from_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_copper"),
         result: RecipeResultStruct {
@@ -24732,6 +25076,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_cut_copper_slab_from_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_copper"),
         result: RecipeResultStruct {
@@ -24741,6 +25086,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_cut_copper_slab_from_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24750,6 +25096,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_cut_copper_stairs_from_weathered_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_copper"),
         result: RecipeResultStruct {
@@ -24759,6 +25106,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:weathered_cut_copper_stairs_from_weathered_cut_copper_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:weathered_cut_copper"),
         result: RecipeResultStruct {
@@ -24768,6 +25116,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:white_concrete_slab_from_white_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:white_concrete"),
         result: RecipeResultStruct {
@@ -24777,6 +25126,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:white_concrete_stairs_from_white_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:white_concrete"),
         result: RecipeResultStruct {
@@ -24786,6 +25136,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:yellow_concrete_slab_from_yellow_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:yellow_concrete"),
         result: RecipeResultStruct {
@@ -24795,6 +25146,7 @@ pub static RECIPES_STONECUTTING: &[StonecutterRecipe] = &[
         },
     },
     StonecutterRecipe {
+        recipe_id: "minecraft:yellow_concrete_stairs_from_yellow_concrete_stonecutting",
         group: None,
         ingredient: RecipeIngredientTypes::Simple("minecraft:yellow_concrete"),
         result: RecipeResultStruct {

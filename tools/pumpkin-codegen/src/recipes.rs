@@ -247,8 +247,8 @@ pub struct StonecuttingRecipeStruct {
     result: RecipeResultStruct,
 }
 
-impl ToTokens for StonecuttingRecipeStruct {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl StonecuttingRecipeStruct {
+    fn to_tokens_with_id(&self, id: &str) -> TokenStream {
         let group = if let Some(group) = &self.group {
             quote! { Some(#group) }
         } else {
@@ -257,13 +257,14 @@ impl ToTokens for StonecuttingRecipeStruct {
         let ingredient = self.ingredient.to_token_stream();
         let result = self.result.to_token_stream();
 
-        tokens.extend(quote! {
+        quote! {
             StonecutterRecipe {
+                recipe_id: #id,
                 group: #group,
                 ingredient: #ingredient,
                 result: #result,
             }
-        });
+        }
     }
 }
 
@@ -820,7 +821,7 @@ pub fn build() -> TokenStream {
                 cooking_recipes.push(smoking_token);
             }
             RecipeTypes::Stonecutting(recipe) => {
-                stonecutting_recipes.push(recipe.to_token_stream());
+                stonecutting_recipes.push(recipe.to_tokens_with_id(&recipe_id));
             }
             RecipeTypes::CraftingDye(r) => {
                 let target = r.target.to_token_stream();
@@ -1110,6 +1111,7 @@ pub fn build() -> TokenStream {
 
         #[derive(Clone, Debug, Serialize)]
         pub struct StonecutterRecipe {
+            pub recipe_id: &'static str,
             pub group: Option<&'static str>,
             pub ingredient: RecipeIngredientTypes,
             pub result: RecipeResultStruct,
