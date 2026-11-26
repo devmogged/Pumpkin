@@ -217,6 +217,7 @@ pub fn build() -> TokenStream {
         }
 
         pub struct StructurePlacement {
+            pub locate_offset: [i32; 3],
             pub frequency_reduction_method: Option<FrequencyReductionMethod>,
             pub frequency: Option<f32>,
             pub salt: u32,

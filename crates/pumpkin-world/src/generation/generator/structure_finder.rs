@@ -5,7 +5,7 @@ use pumpkin_data::structures::{
 use pumpkin_util::math::{floor_div, position::BlockPos};
 
 use crate::generation::structure::placement::{
-    GlobalStructureCache, StrongholdLayout, get_structure_chunk_in_region,
+    GlobalStructureCache, RingLayout, get_structure_chunk_in_region,
 };
 
 use super::WorldGenerator;
@@ -17,6 +17,13 @@ use crate::ProtoChunk;
 pub struct FoundStructure {
     pub pos: BlockPos,
     pub distance_sq: f64,
+}
+
+/// The exact placement-defined map location (vanilla StructurePlacement.getLocatePos).
+#[must_use]
+pub fn locate_pos(placement: &StructurePlacement, chunk_x: i32, chunk_z: i32) -> BlockPos {
+    let [x, y, z] = placement.locate_offset;
+    BlockPos::new((chunk_x << 4) + x, y, (chunk_z << 4) + z)
 }
 
 /// Finds the block position of the nearest structure whose placement is listed
@@ -50,7 +57,7 @@ pub fn find_nearest_structure(
     // ── Pass 1: Concentric-rings (strongholds) ──────────────────────────────
     for p in placements {
         if let StructurePlacementType::ConcentricRings(rings) = &p.placement_type {
-            match find_nearest_concentric(origin, rings, global_cache) {
+            match find_nearest_concentric(origin, p, rings, world_seed, global_cache) {
                 ConcentricSearch::Pending => return StructureSearch::Pending,
                 ConcentricSearch::Done(Some(found))
                     if nearest
@@ -64,11 +71,11 @@ pub fn find_nearest_structure(
         }
     }
 
-    let random_spread: Vec<(&RandomSpreadStructurePlacement, u32)> = placements
+    let random_spread: Vec<(&StructurePlacement, &RandomSpreadStructurePlacement)> = placements
         .iter()
         .filter_map(|p| {
             if let StructurePlacementType::RandomSpread(r) = &p.placement_type {
-                Some((r, p.salt))
+                Some((*p, r))
             } else {
                 None
             }
@@ -80,7 +87,7 @@ pub fn find_nearest_structure(
         let chunk_origin_z = origin.0.z >> 4;
 
         'radius: for radius in 0..=max_search_radius {
-            for (placement, salt) in &random_spread {
+            for (placement, spread) in &random_spread {
                 if let Some(found) = find_nearest_random_spread_at_radius(
                     origin,
                     chunk_origin_x,
@@ -88,7 +95,7 @@ pub fn find_nearest_structure(
                     radius,
                     world_seed,
                     placement,
-                    *salt,
+                    spread,
                 ) {
                     if nearest
                         .as_ref()
@@ -139,31 +146,18 @@ pub fn find_nearest_structure_start(
 /// Like vanilla `ChunkGenerator.findNearestMapStructure`, each placement reports the first hit
 /// in its ring order, and the nearest of those wins.
 #[must_use]
-#[expect(clippy::too_many_lines)]
 pub fn find_nearest_structure_start_in_sets(
     origin: BlockPos,
     searches: &[(&StructureSet, &[pumpkin_data::structures::StructureKeys])],
     max_search_radius: i32,
     generator: &WorldGenerator,
 ) -> Option<(BlockPos, pumpkin_data::structures::StructureKeys)> {
-    use crate::generation::{
-        noise::router::multi_noise_sampler::MultiNoiseSampler,
-        structure::{
-            height_sampler::NoiseHeightSampler,
-            lazily_generate_structure,
-            placement::should_generate_structure,
-            structures::{StructureGeneratorContext, create_chunk_random},
-        },
-    };
-    use pumpkin_data::structures::Structure;
-
     let WorldGenerator::Noise(noise_generator) = generator else {
         return None;
     };
     let chunk_origin_x = origin.0.x >> 4;
     let chunk_origin_z = origin.0.z >> 4;
     let world_seed = noise_generator.random_config.seed as i64;
-    let global_cache = &noise_generator.global_structure_cache;
 
     for radius in 0..=max_search_radius {
         let mut nearest: Option<(FoundStructure, pumpkin_data::structures::StructureKeys)> = None;
@@ -187,73 +181,11 @@ pub fn find_nearest_structure_start_in_sets(
                         region_origin_z + region_z_offset,
                         structure_set.placement.salt,
                     );
-                    if !should_generate_structure(
-                        &structure_set.placement,
-                        &noise_generator.structure_calculator,
-                        chunk_x,
-                        chunk_z,
-                        global_cache,
-                    ) {
-                        continue;
-                    }
-
-                    // The chunk holds the first structure of the set's weighted order that can
-                    // start there, as in `set_structure_starts`; it only counts when wanted.
-                    let order = if structure_set.structures.len() == 1 {
-                        structure_set.structures.to_vec()
-                    } else {
-                        ProtoChunk::weighted_structure_order(
-                            structure_set.structures,
-                            world_seed as u64,
-                            chunk_x,
-                            chunk_z,
-                        )
-                    };
-                    for key in order.iter().map(|entry| entry.structure) {
-                        let start = global_cache.get_or_compute_structure_start(
-                            key,
-                            chunk_x,
-                            chunk_z,
-                            || {
-                                let settings = noise_generator.settings;
-                                let mut height_sampler = NoiseHeightSampler::new(noise_generator);
-                                let mut biome_sampler = MultiNoiseSampler::generate(
-                                    &noise_generator.base_router.multi_noise,
-                                );
-                                let context = StructureGeneratorContext {
-                                    seed: world_seed,
-                                    chunk_x,
-                                    chunk_z,
-                                    random: create_chunk_random(world_seed, chunk_x, chunk_z),
-                                    sea_level: settings.sea_level,
-                                    min_y: (settings.shape.min_y as i32)
-                                        .max(noise_generator.dimension.min_y),
-                                    height: settings
-                                        .shape
-                                        .height
-                                        .min(noise_generator.dimension.height as u16),
-                                    height_sampler: Some(&mut height_sampler),
-                                    structure_key: Some(key),
-                                };
-                                lazily_generate_structure(
-                                    &key,
-                                    Structure::get(&key),
-                                    context,
-                                    &noise_generator.biome_supplier,
-                                    &mut biome_sampler,
-                                )
-                            },
-                        );
-                        if start.is_none() {
-                            continue;
-                        }
-                        if !target_structures.contains(&key) {
-                            break;
-                        }
-                        // Vanilla getLocatePos: chunkPos.getMinBlockX(), 0, chunkPos.getMinBlockZ()
-                        let locate_x = chunk_x << 4;
-                        let locate_z = chunk_z << 4;
-                        let position = BlockPos::new(locate_x, 0, locate_z);
+                    if let Some(key) =
+                        structure_start_at(noise_generator, structure_set, chunk_x, chunk_z)
+                        && target_structures.contains(&key)
+                    {
+                        let position = locate_pos(&structure_set.placement, chunk_x, chunk_z);
                         let dx = f64::from(position.0.x - origin.0.x);
                         let dz = f64::from(position.0.z - origin.0.z);
                         let found = FoundStructure {
@@ -278,17 +210,85 @@ pub fn find_nearest_structure_start_in_sets(
     None
 }
 
+/// Resolve the first valid start in a placement's weighted order without loading a chunk.
+/// Callers must only use an enabled set. Concentric ring positions must be ready.
+#[must_use]
+pub fn structure_start_at(
+    generator: &super::VanillaGenerator,
+    set: &StructureSet,
+    chunk_x: i32,
+    chunk_z: i32,
+) -> Option<pumpkin_data::structures::StructureKeys> {
+    use crate::generation::{
+        noise::router::multi_noise_sampler::MultiNoiseSampler,
+        structure::{
+            height_sampler::NoiseHeightSampler,
+            lazily_generate_structure,
+            placement::should_generate_structure,
+            structures::{StructureGeneratorContext, create_chunk_random},
+        },
+    };
+    use pumpkin_data::structures::Structure;
+
+    let cache = &generator.global_structure_cache;
+    if !should_generate_structure(
+        &set.placement,
+        &generator.structure_calculator,
+        chunk_x,
+        chunk_z,
+        cache,
+    ) {
+        return None;
+    }
+    let seed = generator.random_config.seed;
+    let order = if set.structures.len() == 1 {
+        set.structures.to_vec()
+    } else {
+        ProtoChunk::weighted_structure_order(set.structures, seed, chunk_x, chunk_z)
+    };
+    for key in order.iter().map(|entry| entry.structure) {
+        let start = cache.get_or_compute_structure_start(key, chunk_x, chunk_z, || {
+            let settings = generator.settings;
+            let mut height_sampler = NoiseHeightSampler::new(generator);
+            let mut biome_sampler = MultiNoiseSampler::generate(&generator.base_router.multi_noise);
+            let context = StructureGeneratorContext {
+                seed: seed as i64,
+                chunk_x,
+                chunk_z,
+                random: create_chunk_random(seed as i64, chunk_x, chunk_z),
+                sea_level: settings.sea_level,
+                min_y: (settings.shape.min_y as i32).max(generator.dimension.min_y),
+                height: settings.shape.height.min(generator.dimension.height as u16),
+                height_sampler: Some(&mut height_sampler),
+                structure_key: Some(key),
+            };
+            lazily_generate_structure(
+                &key,
+                Structure::get(&key),
+                context,
+                &generator.biome_supplier,
+                &mut biome_sampler,
+            )
+        });
+        if start.is_some() {
+            return Some(key);
+        }
+    }
+    None
+}
+
 fn find_nearest_concentric(
     origin: BlockPos,
-    // Kept for potential future bounds / distance validation.
-    _rings: &ConcentricRingsStructurePlacement,
+    placement: &StructurePlacement,
+    rings: &ConcentricRingsStructurePlacement,
+    world_seed: i64,
     global_cache: &GlobalStructureCache,
 ) -> ConcentricSearch {
     // No block, callers run in server tasks and the tick, which shutdown waits on
-    let strongholds = match global_cache.try_get_stronghold_chunks() {
-        StrongholdLayout::Ready(strongholds) => strongholds,
-        StrongholdLayout::Pending => return ConcentricSearch::Pending,
-        StrongholdLayout::Failed => return ConcentricSearch::Done(None),
+    let strongholds = match global_cache.try_get_ring_chunks(world_seed, rings) {
+        RingLayout::Ready(strongholds) => strongholds,
+        RingLayout::Pending => return ConcentricSearch::Pending,
+        RingLayout::Failed => return ConcentricSearch::Done(None),
     };
 
     let ox = origin.0.x as f64;
@@ -297,13 +297,11 @@ fn find_nearest_concentric(
     strongholds
         .iter()
         .map(|(cx, cz)| {
-            // Vanilla getLocatePos: chunkPos.getMinBlockX(), 0, chunkPos.getMinBlockZ()
-            let bx = cx << 4;
-            let bz = cz << 4;
-            let dx = bx as f64 - ox;
-            let dz = bz as f64 - oz;
+            let pos = locate_pos(placement, *cx, *cz);
+            let dx = pos.0.x as f64 - ox;
+            let dz = pos.0.z as f64 - oz;
             FoundStructure {
-                pos: BlockPos::new(bx, 0, bz),
+                pos,
                 distance_sq: dx * dx + dz * dz,
             }
         })
@@ -325,10 +323,10 @@ fn find_nearest_random_spread_at_radius(
     chunk_origin_z: i32,
     radius: i32,
     world_seed: i64,
-    placement: &RandomSpreadStructurePlacement,
-    salt: u32,
+    placement: &StructurePlacement,
+    spread: &RandomSpreadStructurePlacement,
 ) -> Option<FoundStructure> {
-    let spacing = placement.spacing;
+    let spacing = spread.spacing;
     let ox = origin.0.x as f64;
     let oz = origin.0.z as f64;
 
@@ -344,18 +342,16 @@ fn find_nearest_random_spread_at_radius(
             let rz = floor_div(chunk_origin_z, spacing) + rz_off;
 
             let (struct_cx, struct_cz) =
-                get_structure_chunk_in_region(placement, world_seed, rx, rz, salt);
+                get_structure_chunk_in_region(spread, world_seed, rx, rz, placement.salt);
 
-            // Vanilla getLocatePos: chunkPos.getMinBlockX(), 0, chunkPos.getMinBlockZ()
-            let bx = struct_cx << 4;
-            let bz = struct_cz << 4;
-            let dx = bx as f64 - ox;
-            let dz = bz as f64 - oz;
+            let pos = locate_pos(placement, struct_cx, struct_cz);
+            let dx = pos.0.x as f64 - ox;
+            let dz = pos.0.z as f64 - oz;
             let dist_sq = dx * dx + dz * dz;
 
             if best.as_ref().is_none_or(|b| dist_sq < b.distance_sq) {
                 best = Some(FoundStructure {
-                    pos: BlockPos::new(bx, 0, bz),
+                    pos,
                     distance_sq: dist_sq,
                 });
             }

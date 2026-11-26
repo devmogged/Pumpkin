@@ -212,16 +212,25 @@ impl ItemRegistry {
 
         // Custom content items only take over block use; their copied components keep the
         // fallbacks below and in the other dispatchers.
-        let pumpkin_item = self
-            .get_pumpkin_item(stack.item.id)
-            .or(content_behaviour.filter(|_| stack.item.id >= Item::VANILLA_COUNT));
+        let pumpkin_item = self.get_pumpkin_item(stack.item.id);
         let result = if !should_try_block_placement(&intercepted) {
             intercepted
         } else if let Some(pumpkin_item) = pumpkin_item {
             pumpkin_item.use_on_block(stack, player, location, face, cursor_pos, block, server)
-        } else if let Some(bt) = stack
-            .get_data_component::<pumpkin_data::data_component_impl::BlockTransformerImpl>()
-            .map(|b| b.transformer.clone())
+        } else if let Some(behaviour) =
+            content_behaviour.filter(|_| stack.item.id >= Item::VANILLA_COUNT)
+        {
+            behaviour.use_on_block(stack, player, location, face, cursor_pos, block, server)
+        } else {
+            BlockActionResult::Pass
+        };
+        // Unhandled content items still inherit their component-based vanilla behavior.
+        // Explicit registered handlers and intercepted actions must not execute twice.
+        let result = if pumpkin_item.is_none()
+            && should_try_block_placement(&result)
+            && let Some(bt) = stack
+                .get_data_component::<pumpkin_data::data_component_impl::BlockTransformerImpl>()
+                .map(|b| b.transformer.clone())
         {
             match bt.strip_prefix("minecraft:").unwrap_or(&bt) {
                 "axe" => crate::item::items::axe::AxeItem
@@ -230,10 +239,10 @@ impl ItemRegistry {
                     .use_on_block(stack, player, location, face, cursor_pos, block, server),
                 "shovel" => crate::item::items::shovel::ShovelItem
                     .use_on_block(stack, player, location, face, cursor_pos, block, server),
-                _ => BlockActionResult::Pass,
+                _ => result,
             }
         } else {
-            BlockActionResult::Pass
+            result
         };
 
         if matches!(

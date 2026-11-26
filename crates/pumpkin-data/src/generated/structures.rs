@@ -264,6 +264,7 @@ pub struct ExclusionZone {
     pub chunk_count: i32,
 }
 pub struct StructurePlacement {
+    pub locate_offset: [i32; 3],
     pub frequency_reduction_method: Option<FrequencyReductionMethod>,
     pub frequency: Option<f32>,
     pub salt: u32,
@@ -2186,6 +2187,7 @@ impl Structure {
 impl StructureSet {
     pub const ABANDONED_CAMP: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 91231127u32,
@@ -2273,6 +2275,7 @@ impl StructureSet {
     };
     pub const ANCIENT_CITIES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 20083232u32,
@@ -2290,6 +2293,7 @@ impl StructureSet {
     };
     pub const BURIED_TREASURES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [9i32, 0i32, 9i32],
             frequency_reduction_method: Some(FrequencyReductionMethod::LegacyType2),
             frequency: Some(0.01f32),
             salt: 0u32,
@@ -2307,6 +2311,7 @@ impl StructureSet {
     };
     pub const DESERT_PYRAMIDS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357617u32,
@@ -2324,6 +2329,7 @@ impl StructureSet {
     };
     pub const END_CITIES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 10387313u32,
@@ -2341,6 +2347,7 @@ impl StructureSet {
     };
     pub const IGLOOS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357618u32,
@@ -2358,6 +2365,7 @@ impl StructureSet {
     };
     pub const JUNGLE_TEMPLES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357619u32,
@@ -2375,6 +2383,7 @@ impl StructureSet {
     };
     pub const MINESHAFTS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: Some(FrequencyReductionMethod::LegacyType3),
             frequency: Some(0.004f32),
             salt: 0u32,
@@ -2398,6 +2407,7 @@ impl StructureSet {
     };
     pub const NETHER_COMPLEXES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 30084232u32,
@@ -2421,6 +2431,7 @@ impl StructureSet {
     };
     pub const NETHER_FOSSILS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357921u32,
@@ -2438,6 +2449,7 @@ impl StructureSet {
     };
     pub const OCEAN_MONUMENTS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 10387313u32,
@@ -2455,6 +2467,7 @@ impl StructureSet {
     };
     pub const OCEAN_RUINS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357621u32,
@@ -2478,6 +2491,7 @@ impl StructureSet {
     };
     pub const PILLAGER_OUTPOSTS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: Some(FrequencyReductionMethod::LegacyType1),
             frequency: Some(0.2f32),
             salt: 165745296u32,
@@ -2498,6 +2512,7 @@ impl StructureSet {
     };
     pub const RUINED_PORTALS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 34222645u32,
@@ -2541,6 +2556,7 @@ impl StructureSet {
     };
     pub const SHIPWRECKS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 165745295u32,
@@ -2564,6 +2580,7 @@ impl StructureSet {
     };
     pub const STRONGHOLDS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 0u32,
@@ -2584,6 +2601,7 @@ impl StructureSet {
     };
     pub const SWAMP_HUTS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 14357620u32,
@@ -2601,6 +2619,7 @@ impl StructureSet {
     };
     pub const TRAIL_RUINS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 83469867u32,
@@ -2618,6 +2637,7 @@ impl StructureSet {
     };
     pub const TRIAL_CHAMBERS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 94251327u32,
@@ -2635,6 +2655,7 @@ impl StructureSet {
     };
     pub const VILLAGES: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 10387312u32,
@@ -2670,6 +2691,7 @@ impl StructureSet {
     };
     pub const WOODLAND_MANSIONS: Self = StructureSet {
         placement: StructurePlacement {
+            locate_offset: [0i32, 0i32, 0i32],
             frequency_reduction_method: None,
             frequency: None,
             salt: 10387319u32,

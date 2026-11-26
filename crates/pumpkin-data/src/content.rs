@@ -46,6 +46,26 @@ pub struct StateDefinition {
     pub shape: Vec<BoundingBox>,
 }
 
+/// Explicit physics independent of the vanilla state used as a template.
+#[derive(Clone, Copy, Debug)]
+pub struct BlockPhysics {
+    pub hardness: f32,
+    pub blast_resistance: f32,
+    pub tool_required: bool,
+    pub sound_type: u8,
+}
+
+impl BlockPhysics {
+    #[must_use]
+    pub fn valid(self) -> bool {
+        self.hardness.is_finite()
+            && (self.hardness == -1.0 || self.hardness >= 0.0)
+            && self.blast_resistance.is_finite()
+            && self.blast_resistance >= 0.0
+            && usize::from(self.sound_type) < crate::block_properties::SOUND_TYPES.len()
+    }
+}
+
 pub struct StateEntry {
     pub state: &'static BlockState,
     pub comparator_output: Option<u8>,
@@ -120,6 +140,23 @@ impl Registry {
         item_definitions: &[ItemDefinition],
         comparator_output: impl Fn(&str, usize) -> Option<u8>,
     ) -> io::Result<Self> {
+        Self::open_with_properties(
+            path,
+            definitions,
+            item_definitions,
+            comparator_output,
+            |_| None,
+        )
+    }
+
+    /// Freeze custom block physics and state comparator outputs together.
+    pub fn open_with_properties(
+        path: &Path,
+        definitions: &[BlockDefinition],
+        item_definitions: &[ItemDefinition],
+        comparator_output: impl Fn(&str, usize) -> Option<u8>,
+        physics: impl Fn(&str) -> Option<BlockPhysics>,
+    ) -> io::Result<Self> {
         let bytes = match fs::read(path) {
             Ok(bytes) => Some(bytes),
             Err(err) if err.kind() == io::ErrorKind::NotFound => None,
@@ -135,6 +172,10 @@ impl Registry {
         let mut item_ids = IdAllocator::new(&mut ids.items, Item::VANILLA_COUNT)?;
 
         for def in definitions {
+            let override_physics = physics(&def.name);
+            if override_physics.is_some_and(|p| !p.valid()) {
+                return Err(invalid("invalid custom block physics"));
+            }
             if !custom_name(&def.name)
                 || registry.names.contains_key(def.name.as_str())
                 || def.states.is_empty()
@@ -193,6 +234,11 @@ impl Registry {
                     return Err(invalid("duplicate custom block state"));
                 }
                 let mut physical = state.physical.clone();
+                if let Some(p) = override_physics {
+                    physical.hardness = p.hardness;
+                    physical.sound_type = p.sound_type;
+                    physical.set_tool_required(p.tool_required);
+                }
                 physical.id = BlockStateId::registered(raw);
                 physical.set_random_ticks(state.random_ticks);
                 if output.is_some() {
@@ -217,6 +263,14 @@ impl Registry {
                 item_id,
                 default_state,
                 states,
+                hardness: override_physics
+                    .map_or(def.states[0].physical.id.to_block().hardness, |p| {
+                        p.hardness
+                    }),
+                blast_resistance: override_physics
+                    .map_or(def.states[0].physical.id.to_block().blast_resistance, |p| {
+                        p.blast_resistance
+                    }),
                 flammable: None,
                 experience: None,
                 // Vanilla's default block loot table id, so a mod's `data/` can supply drops.

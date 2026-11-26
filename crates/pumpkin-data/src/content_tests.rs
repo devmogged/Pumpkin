@@ -1,6 +1,48 @@
 use super::{Block, BlockDefinition, Item, ItemDefinition, Registry, StateDefinition};
 
 #[test]
+fn custom_physics_overrides_template_without_mutating_vanilla()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("registry.dat");
+    let properties = super::BlockPhysics {
+        hardness: 50.0,
+        blast_resistance: 50.0,
+        tool_required: true,
+        sound_type: Block::NETHERITE_BLOCK.default_state.sound_type,
+    };
+    let registry = Registry::open_with_properties(
+        &file,
+        &[definition("test:alloy")],
+        &[],
+        |_, _| None,
+        |_| Some(properties),
+    )?;
+    let block = registry.block("test:alloy").ok_or("missing alloy")?;
+    assert_eq!(block.hardness, 50.0);
+    assert_eq!(block.blast_resistance, 50.0);
+    assert_eq!(block.default_state.hardness, 50.0);
+    assert!(block.default_state.tool_required());
+    assert_eq!(block.default_state.sound_type, properties.sound_type);
+    assert_eq!(Block::NETHERITE_BLOCK.blast_resistance, 1200.0);
+    let invalid = super::BlockPhysics {
+        hardness: f32::NAN,
+        ..properties
+    };
+    assert!(
+        Registry::open_with_properties(
+            &file,
+            &[definition("test:alloy")],
+            &[],
+            |_, _| None,
+            |_| Some(invalid),
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::error::Error>> {
     let world = tempfile::tempdir()?;
     let file = world.path().join("moddedmc/registry.dat");
