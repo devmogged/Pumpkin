@@ -21,8 +21,16 @@ pub struct BlockDefinition {
     pub display_name: String,
     pub entity: Option<String>,
     pub item_carrier: &'static Item,
+    pub material: Option<BlockMaterial>,
     /// The first state is the default.
     pub states: Vec<StateDefinition>,
+}
+
+/// Material values independent of a content block's physical state templates.
+pub struct BlockMaterial {
+    pub template: &'static Block,
+    pub hardness: Option<f32>,
+    pub map_color: Option<u8>,
 }
 
 /// An item with no block, frozen with the block definitions.
@@ -193,6 +201,12 @@ impl Registry {
                     return Err(invalid("duplicate custom block state"));
                 }
                 let mut physical = state.physical.clone();
+                if let Some(material) = &def.material {
+                    physical.copy_material(material.template.default_state);
+                    if let Some(hardness) = material.hardness {
+                        physical.hardness = hardness;
+                    }
+                }
                 physical.id = BlockStateId::registered(raw);
                 physical.set_random_ticks(state.random_ticks);
                 if output.is_some() {
@@ -211,6 +225,10 @@ impl Registry {
             let Some(default_state) = states.first() else {
                 return Err(invalid("missing default block state"));
             };
+            let block_template = def.material.as_ref().map_or_else(
+                || def.states[0].physical.id.to_block(),
+                |material| material.template,
+            );
             let block = Box::leak(Box::new(Block {
                 id: BlockId::registered(block_id),
                 name,
@@ -223,7 +241,16 @@ impl Registry {
                 loot_table: def.name.split_once(':').map(|(namespace, path)| {
                     &*Box::leak(format!("{namespace}:blocks/{path}").into_boxed_str())
                 }),
-                ..def.states[0].physical.id.to_block().clone()
+                hardness: def
+                    .material
+                    .as_ref()
+                    .map_or(block_template.hardness, |_| default_state.hardness),
+                map_color: def
+                    .material
+                    .as_ref()
+                    .and_then(|material| material.map_color)
+                    .unwrap_or(block_template.map_color),
+                ..block_template.clone()
             }));
             let item = Box::leak(Box::new(Item {
                 id: item_id,

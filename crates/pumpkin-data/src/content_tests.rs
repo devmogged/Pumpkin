@@ -1,4 +1,6 @@
-use super::{Block, BlockDefinition, Item, ItemDefinition, Registry, StateDefinition};
+use super::{
+    Block, BlockDefinition, BlockMaterial, Item, ItemDefinition, Registry, StateDefinition,
+};
 
 #[test]
 fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,6 +53,7 @@ fn definition(name: &str) -> BlockDefinition {
         display_name: name.into(),
         entity: None,
         item_carrier: &Item::PAPER,
+        material: None,
         states: vec![StateDefinition {
             random_ticks: false,
             properties: std::collections::BTreeMap::new(),
@@ -60,6 +63,32 @@ fn definition(name: &str) -> BlockDefinition {
             shape: Vec::new(),
         }],
     }
+}
+
+#[test]
+fn a_slab_can_copy_a_different_blocks_material() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::map_color::MapColor;
+
+    let world = tempfile::tempdir()?;
+    let mut slab = definition("test:calcite_slab");
+    slab.states[0].physical = Block::STONE_SLAB.default_state;
+    slab.material = Some(BlockMaterial {
+        template: &Block::CALCITE,
+        hardness: Some(1.25),
+        map_color: Some(MapColor::TERRACOTTA_YELLOW.id),
+    });
+    let registry = Registry::open(&world.path().join("registry.dat"), &[slab], &[])?;
+    let block = registry.block("test:calcite_slab").ok_or("missing slab")?;
+    let state = block.default_state;
+    assert_eq!(
+        state.collision_shapes,
+        Block::STONE_SLAB.default_state.collision_shapes
+    );
+    assert_eq!(state.get_sound_type().name, "CALCITE");
+    assert_eq!(state.hardness, 1.25);
+    assert_eq!(block.blast_resistance, 0.75);
+    assert_eq!(block.map_color, MapColor::TERRACOTTA_YELLOW.id);
+    Ok(())
 }
 
 #[test]
