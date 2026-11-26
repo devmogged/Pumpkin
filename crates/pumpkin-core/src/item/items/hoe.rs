@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use crate::block::registry::BlockActionResult;
 use crate::entity::player::Player;
 use crate::item::{ItemBehaviour, ItemMetadata};
 use crate::server::Server;
+use crate::world::World;
 use pumpkin_data::BlockDirection;
 use pumpkin_data::block_transformer::DropStrategy;
 use pumpkin_data::data_component_impl::BlockTransformerImpl;
@@ -33,61 +36,67 @@ impl ItemBehaviour for HoeItem {
         block: &Block,
         _server: &Server,
     ) -> BlockActionResult {
-        let Some(transformer) = item
-            .get_data_component::<BlockTransformerImpl>()
-            .and_then(BlockTransformerImpl::get_transformer)
-        else {
+        let world = player.world();
+        let Some(damage) = apply_block_transformer(&world, item, location, face, block) else {
             return BlockActionResult::Pass;
         };
-
-        let world = player.world();
-        let get_block = |dx: i8, dy: i8, dz: i8| {
-            let check_pos = BlockPos(location.0 + Vector3::new(dx as i32, dy as i32, dz as i32));
-            world.get_block(&check_pos)
-        };
-
-        if let Some(result) =
-            transformer.transform(block, world.get_block_state_id(&location), face, &get_block)
-        {
-            if let Some(sound) = result.entry.sound {
-                world.play_sound(sound, SoundCategory::Blocks, &location.to_f64());
-            }
-            if let Some(particle) = result.entry.particle {
-                world.sync_world_event(particle, location, 0);
-            }
-
-            world.set_block_state(&location, result.new_state_id, BlockFlags::NOTIFY_ALL);
-            world.emit_game_event(GameEvent::BlockChange.name(), location.to_f64());
-
-            if let Some(loot_key) = result.entry.loot
-                && let Some(loot_table) = world.get_loot_table(loot_key)
-            {
-                let seed = rand::random::<i64>();
-                let drops = loot_table.generate_loot_with_context(
-                    seed,
-                    &crate::world::loot::LootContextParameters {
-                        world: Some(&world),
-                        ..Default::default()
-                    },
-                );
-                for drop_stack in drops {
-                    if result.entry.drop_strategy == Some(DropStrategy::ClickedFace) {
-                        world.drop_stack_from_face(&location, face, drop_stack);
-                    } else {
-                        world.drop_stack(&location, drop_stack);
-                    }
-                }
-            }
-
-            if player.gamemode.load() != GameMode::Creative {
-                let _ = item.damage_item(i32::from(result.entry.item_damage_per_use));
-            }
-            return BlockActionResult::Success;
+        if player.gamemode.load() != GameMode::Creative {
+            let _ = item.damage_item(i32::from(damage));
         }
-        BlockActionResult::Pass
+        BlockActionResult::Success
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+}
+
+/// Applies an item's block transformer and returns its durability cost.
+pub fn apply_block_transformer(
+    world: &Arc<World>,
+    item: &ItemStack,
+    location: BlockPos,
+    face: BlockDirection,
+    block: &Block,
+) -> Option<u16> {
+    let transformer = item
+        .get_data_component::<BlockTransformerImpl>()
+        .and_then(BlockTransformerImpl::get_transformer)?;
+    let get_block = |dx: i8, dy: i8, dz: i8| {
+        let check_pos =
+            BlockPos(location.0 + Vector3::new(i32::from(dx), i32::from(dy), i32::from(dz)));
+        world.get_block(&check_pos)
+    };
+    let result =
+        transformer.transform(block, world.get_block_state_id(&location), face, &get_block)?;
+    if let Some(sound) = result.entry.sound {
+        world.play_sound(sound, SoundCategory::Blocks, &location.to_f64());
+    }
+    if let Some(particle) = result.entry.particle {
+        world.sync_world_event(particle, location, 0);
+    }
+
+    world.set_block_state(&location, result.new_state_id, BlockFlags::NOTIFY_ALL);
+    world.emit_game_event(GameEvent::BlockChange.name(), location.to_f64());
+
+    if let Some(loot_key) = result.entry.loot
+        && let Some(loot_table) = world.get_loot_table(loot_key)
+    {
+        let seed = rand::random::<i64>();
+        let drops = loot_table.generate_loot_with_context(
+            seed,
+            &crate::world::loot::LootContextParameters {
+                world: Some(world),
+                ..Default::default()
+            },
+        );
+        for drop_stack in drops {
+            if result.entry.drop_strategy == Some(DropStrategy::ClickedFace) {
+                world.drop_stack_from_face(&location, face, drop_stack);
+            } else {
+                world.drop_stack(&location, drop_stack);
+            }
+        }
+    }
+    Some(result.entry.item_damage_per_use)
 }
