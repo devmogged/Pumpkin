@@ -282,7 +282,11 @@ impl Registry {
                 default_state,
                 states,
                 hardness: override_physics.map_or_else(
-                    || def.material.as_ref().map_or(block_template.hardness, |_| default_state.hardness),
+                    || {
+                        def.material
+                            .as_ref()
+                            .map_or(block_template.hardness, |_| default_state.hardness)
+                    },
                     |p| p.hardness,
                 ),
                 blast_resistance: override_physics

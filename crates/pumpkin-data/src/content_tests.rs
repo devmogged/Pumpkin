@@ -134,6 +134,45 @@ fn a_slab_can_copy_a_different_blocks_material() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn explicit_physics_preserve_material_and_collision() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::map_color::MapColor;
+
+    let world = tempfile::tempdir()?;
+    let mut slab = definition("test:alloy_slab");
+    slab.states[0].physical = Block::STONE_SLAB.default_state;
+    slab.material = Some(BlockMaterial {
+        template: &Block::CALCITE,
+        hardness: Some(1.25),
+        map_color: Some(MapColor::TERRACOTTA_YELLOW.id),
+    });
+    let properties = super::BlockPhysics {
+        hardness: 50.0,
+        blast_resistance: 50.0,
+        tool_required: true,
+        sound_type: Block::NETHERITE_BLOCK.default_state.sound_type,
+    };
+    let registry = Registry::open_with_properties(
+        &world.path().join("registry.dat"),
+        &[slab],
+        &[],
+        |_, _| None,
+        |_| Some(properties),
+    )?;
+    let block = registry.block("test:alloy_slab").ok_or("missing slab")?;
+    assert_eq!(
+        block.default_state.collision_shapes,
+        Block::STONE_SLAB.default_state.collision_shapes
+    );
+    assert_eq!(block.default_state.sound_type, properties.sound_type);
+    assert_eq!(block.default_state.hardness, 50.0);
+    assert!(block.default_state.tool_required());
+    assert_eq!(block.hardness, 50.0);
+    assert_eq!(block.blast_resistance, 50.0);
+    assert_eq!(block.map_color, MapColor::TERRACOTTA_YELLOW.id);
+    Ok(())
+}
+
+#[test]
 fn recipe_ids_match_mod_and_vanilla_items() -> Result<(), Box<dyn std::error::Error>> {
     let world = tempfile::tempdir()?;
     let registry = Registry::open(
