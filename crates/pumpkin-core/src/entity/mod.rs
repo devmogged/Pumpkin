@@ -1317,6 +1317,15 @@ pub trait EntityBase: Send + Sync + std::any::Any {
         true
     }
 
+    /// Override the chunk that owns this entity's load and unload lifecycle.
+    fn chunk_lifecycle_anchor(&self) -> Option<Vector2<i32>> {
+        None
+    }
+
+    fn counts_toward_mob_cap(&self) -> bool {
+        true
+    }
+
     fn should_drop_loot(&self) -> bool {
         self.get_living_entity()
             .is_none_or(LivingEntity::should_drop_loot)

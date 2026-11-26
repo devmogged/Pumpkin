@@ -8766,10 +8766,12 @@ fn is_saved_as_passenger(entity: &dyn EntityBase) -> bool {
 }
 
 fn saved_chunk_pos(entity: &dyn EntityBase) -> Vector2<i32> {
-    saving_vehicle(entity).map_or_else(
-        || entity.get_entity().chunk_pos.load(),
-        |vehicle| saved_chunk_pos(vehicle.as_ref()),
-    )
+    entity.chunk_lifecycle_anchor().unwrap_or_else(|| {
+        saving_vehicle(entity).map_or_else(
+            || entity.get_entity().chunk_pos.load(),
+            |vehicle| saved_chunk_pos(vehicle.as_ref()),
+        )
+    })
 }
 
 /// A live chunk's records were already spawned, so `fresh` replaces them. Otherwise the

@@ -585,6 +585,14 @@ impl fmt::Debug for SpawnState {
     }
 }
 
+fn counts_toward_spawn_limit(entity: &dyn EntityBase) -> bool {
+    entity.counts_toward_mob_cap()
+        && entity.get_mob().is_none_or(|mob| {
+            !mob.get_mob_entity().persistence_required.load(Relaxed)
+                && !mob.requires_custom_persistence()
+        })
+}
+
 impl SpawnState {
     #[must_use]
     pub fn empty() -> Self {
@@ -601,10 +609,7 @@ impl SpawnState {
     }
 
     pub fn add_entity(&self, world: &World, entity: &dyn EntityBase) {
-        if let Some(mob) = entity.get_mob()
-            && (mob.get_mob_entity().persistence_required.load(Relaxed)
-                || mob.requires_custom_persistence())
-        {
+        if !counts_toward_spawn_limit(entity) {
             return;
         }
         let base_entity = entity.get_entity();
@@ -628,10 +633,7 @@ impl SpawnState {
     }
 
     pub fn remove_entity(&self, world: &World, entity: &dyn EntityBase) {
-        if let Some(mob) = entity.get_mob()
-            && (mob.get_mob_entity().persistence_required.load(Relaxed)
-                || mob.requires_custom_persistence())
-        {
+        if !counts_toward_spawn_limit(entity) {
             return;
         }
         let base_entity = entity.get_entity();
@@ -663,10 +665,7 @@ impl SpawnState {
         let local_mob_cap = LocalMobCapCalculator::for_world(world);
         let counter = MobCounts::default();
         for entity in entities.load().iter() {
-            if let Some(mob) = entity.get_mob()
-                && (mob.get_mob_entity().persistence_required.load(Relaxed)
-                    || mob.requires_custom_persistence())
-            {
+            if !counts_toward_spawn_limit(entity.as_ref()) {
                 continue;
             }
             let base_entity = entity.get_entity();
