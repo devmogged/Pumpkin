@@ -926,7 +926,9 @@ mod content_tests {
                 display_name: "Machine".into(),
                 entity: None,
                 item_carrier: &Item::PAPER,
+                material: None,
                 states: vec![StateDefinition {
+                    random_ticks: false,
                     properties: std::collections::BTreeMap::new(),
                     physical: Block::STONE.default_state,
                     carrier: carrier.id,

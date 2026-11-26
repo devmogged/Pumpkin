@@ -91,6 +91,14 @@ impl PartialEq for BlockState {
 impl Eq for BlockState {}
 
 impl BlockState {
+    pub(crate) const fn copy_material(&mut self, template: &Self) {
+        self.instrument = template.instrument;
+        self.hardness = template.hardness;
+        self.sound_type = template.sound_type;
+        self.state_flags =
+            (self.state_flags & !TOOL_REQUIRED) | (template.state_flags & TOOL_REQUIRED);
+    }
+
     /// Vanilla `BlockState.hasBlockEntity`.
     #[must_use]
     pub const fn has_block_entity(&self) -> bool {
