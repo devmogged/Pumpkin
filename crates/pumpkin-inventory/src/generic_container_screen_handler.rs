@@ -128,7 +128,7 @@ impl GenericContainerScreenHandler {
     /// - `rows` - Number of rows in the container
     /// - `columns` - Number of columns in the container
     /// - `is_spectator` - Whether the opener is a spectator
-    fn new(
+    pub(crate) fn new(
         screen_type: WindowType,
         sync_id: u8,
         player_inventory: &Arc<PlayerInventory>,

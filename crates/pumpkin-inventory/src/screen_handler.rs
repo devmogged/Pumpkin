@@ -278,6 +278,55 @@ pub fn offer_or_drop_stack(player: &dyn InventoryPlayer, stack: ItemStack) {
     player.get_inventory().offer_or_drop_stack(stack, player);
 }
 
+/// A side effect of a click that can be deferred until its inventory change commits.
+pub enum SlotClickEffect {
+    Drop(ItemStack, bool),
+    Equipment(EquipmentSlot, ItemStack),
+}
+
+impl SlotClickEffect {
+    pub fn apply(self, player: &dyn InventoryPlayer) {
+        match self {
+            Self::Drop(stack, retain_ownership) => player.drop_item(stack, retain_ownership),
+            Self::Equipment(slot, stack) => player.enqueue_equipment_change(&slot, &stack),
+        }
+    }
+}
+
+/// Gives the vanilla click handler either the live inventory or a trial inventory.
+pub enum SlotClickEffects<'a> {
+    Immediate,
+    Staged {
+        inventory: &'a Arc<PlayerInventory>,
+        effects: &'a mut Vec<SlotClickEffect>,
+    },
+}
+
+impl SlotClickEffects<'_> {
+    fn inventory(&self, player: &dyn InventoryPlayer) -> Arc<PlayerInventory> {
+        match self {
+            Self::Immediate => player.get_inventory(),
+            Self::Staged { inventory, .. } => Arc::clone(inventory),
+        }
+    }
+
+    fn drop_item(&mut self, player: &dyn InventoryPlayer, stack: ItemStack, retain: bool) {
+        match self {
+            Self::Immediate => player.drop_item(stack, retain),
+            Self::Staged { effects, .. } => effects.push(SlotClickEffect::Drop(stack, retain)),
+        }
+    }
+
+    fn equipment(&mut self, player: &dyn InventoryPlayer, slot: &EquipmentSlot, stack: &ItemStack) {
+        match self {
+            Self::Immediate => player.enqueue_equipment_change(slot, stack),
+            Self::Staged { effects, .. } => {
+                effects.push(SlotClickEffect::Equipment(slot.clone(), stack.clone()));
+            }
+        }
+    }
+}
+
 /// The main trait for container screen handlers.
 ///
 /// Screen handlers manage the server-side state of container UIs like chests,
@@ -721,6 +770,7 @@ pub trait ScreenHandler: Send + Sync {
                 if self.get_behaviour().can_put_in_slot(current_index as usize)
                     && !slot_stack.is_empty()
                     && slot_stack.are_items_and_components_equal(stack)
+                    && slot.can_insert(stack)
                 {
                     let combined_count = slot_stack.item_count + stack.item_count;
                     let max_slot_count = slot.get_max_item_count_for_stack(&slot_stack);
@@ -841,13 +891,30 @@ pub trait ScreenHandler: Send + Sync {
     /// Internal slot click handling implementation.
     ///
     /// Handles all click types: pickup, quick move, swap, throw, drag, clone.
-    #[expect(clippy::too_many_lines)]
     fn internal_on_slot_click(
         &mut self,
         slot_index: i32,
         button: i32,
         action_type: SlotActionType,
         player: &dyn InventoryPlayer,
+    ) {
+        self.on_slot_click_with_effects(
+            slot_index,
+            button,
+            action_type,
+            player,
+            &mut SlotClickEffects::Immediate,
+        );
+    }
+
+    #[expect(clippy::too_many_lines)]
+    fn on_slot_click_with_effects(
+        &mut self,
+        slot_index: i32,
+        button: i32,
+        action_type: SlotActionType,
+        player: &dyn InventoryPlayer,
+        effects: &mut SlotClickEffects<'_>,
     ) {
         if action_type == SlotActionType::PickupAll && button == 0 {
             let behavior = self.get_behaviour_mut();
@@ -910,7 +977,13 @@ pub trait ScreenHandler: Send + Sync {
                 if behaviour.drag_slots.len() == 1 {
                     let slot = behaviour.drag_slots[0] as i32;
                     behaviour.drag_slots.clear();
-                    self.internal_on_slot_click(slot, drag_button, SlotActionType::Pickup, player);
+                    self.on_slot_click_with_effects(
+                        slot,
+                        drag_button,
+                        SlotActionType::Pickup,
+                        player,
+                        effects,
+                    );
 
                     return;
                 }
@@ -998,13 +1071,13 @@ pub trait ScreenHandler: Send + Sync {
                                 break;
                             }
                             slot.on_take_item(player, &drop_stack);
-                            player.drop_item(drop_stack, true);
+                            effects.drop_item(player, drop_stack, true);
                         }
                     } else {
                         let drop_stack = slot.safe_take(1, u8::MAX, player);
                         if !drop_stack.is_empty() {
                             slot.on_take_item(player, &drop_stack);
-                            player.drop_item(drop_stack, true);
+                            effects.drop_item(player, drop_stack, true);
                         }
                     }
                     if self.window_type().is_none() {
@@ -1013,9 +1086,10 @@ pub trait ScreenHandler: Send + Sync {
                             let eq_slot = prev_stack
                                 .get_data_component::<EquippableImpl>()
                                 .map_or(&EquipmentSlot::MAIN_HAND, |e| e.slot);
-                            player.enqueue_equipment_change(eq_slot, ItemStack::EMPTY);
+                            effects.equipment(player, eq_slot, ItemStack::EMPTY);
                         } else if slot_index == OFF_HAND_SCREEN_SLOT {
-                            player.enqueue_equipment_change(
+                            effects.equipment(
+                                player,
                                 &EquipmentSlot::OFF_HAND,
                                 if remaining.is_empty() {
                                     ItemStack::EMPTY
@@ -1060,10 +1134,10 @@ pub trait ScreenHandler: Send + Sync {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if !cursor_stack.is_empty() {
                     if click_type == MouseClick::Left {
-                        player.drop_item(cursor_stack.clone(), true);
+                        effects.drop_item(player, cursor_stack.clone(), true);
                         *cursor_stack = ItemStack::EMPTY.clone();
                     } else {
-                        player.drop_item(cursor_stack.split(1), true);
+                        effects.drop_item(player, cursor_stack.split(1), true);
                     }
                 }
             } else if action_type == SlotActionType::QuickMove {
@@ -1195,7 +1269,7 @@ pub trait ScreenHandler: Send + Sync {
                         slot.mark_dirty();
                         return;
                     } else if click_type == MouseClick::Right && cursor_stack.is_empty() {
-                        if can_grab && slot.allow_modification(player) {
+                        if can_grab && slot.can_take_items(player) && slot.allow_modification(player) {
                             let mut inner_slot_stack = slot.get_stack();
                             if let Some(bundle) = inner_slot_stack.get_data_component_mut::<pumpkin_data::data_component_impl::BundleContentsImpl>()
                                 && let Some(extracted) = bundle.try_extract()
@@ -1246,7 +1320,7 @@ pub trait ScreenHandler: Send + Sync {
                             && slot.can_insert(&cursor_stack)
                         {
                             let equipped = cursor_stack.copy_with_count(1);
-                            player.enqueue_equipment_change(equipment_slot, &equipped);
+                            effects.equipment(player, equipment_slot, &equipped);
                         } else if self.window_type().is_none() && slot_index == OFF_HAND_SCREEN_SLOT
                         {
                             let transfer_count = if click_type == MouseClick::Left {
@@ -1255,7 +1329,7 @@ pub trait ScreenHandler: Send + Sync {
                                 1
                             };
                             let equipped = cursor_stack.copy_with_count(transfer_count);
-                            player.enqueue_equipment_change(&EquipmentSlot::OFF_HAND, &equipped);
+                            effects.equipment(player, &EquipmentSlot::OFF_HAND, &equipped);
                         }
 
                         let transfer_count = if click_type == MouseClick::Left {
@@ -1266,8 +1340,9 @@ pub trait ScreenHandler: Send + Sync {
                         *cursor_stack =
                             slot.insert_stack_count(cursor_stack.clone(), transfer_count);
                     }
-                } else if slot.can_take_items(player) {
-                    if cursor_stack.is_empty() && can_grab {
+                } else {
+                    let can_take = slot.can_take_items(player);
+                    if cursor_stack.is_empty() && can_grab && can_take {
                         let take_count = if click_type == MouseClick::Left {
                             slot_stack.item_count
                         } else {
@@ -1285,13 +1360,14 @@ pub trait ScreenHandler: Send + Sync {
                                     .map_or(&EquipmentSlot::MAIN_HAND, |equippable| {
                                         equippable.slot
                                     });
-                                player.enqueue_equipment_change(equipment_slot, ItemStack::EMPTY);
+                                effects.equipment(player, equipment_slot, ItemStack::EMPTY);
                             } else if self.window_type().is_none()
                                 && slot_index == OFF_HAND_SCREEN_SLOT
                             {
                                 // A right click leaves half the stack in the offhand
                                 let remaining = slot.get_cloned_stack();
-                                player.enqueue_equipment_change(
+                                effects.equipment(
+                                    player,
                                     &EquipmentSlot::OFF_HAND,
                                     if remaining.is_empty() {
                                         ItemStack::EMPTY
@@ -1301,21 +1377,21 @@ pub trait ScreenHandler: Send + Sync {
                                 );
                             }
                         }
-                    } else if can_put && slot.can_insert(&cursor_stack) {
+                    } else if can_put && !cursor_stack.is_empty() && slot.can_insert(&cursor_stack)
+                    {
                         let matching_stack =
                             ItemStack::are_items_and_components_equal(&slot_stack, &cursor_stack);
-                        if !matching_stack && !can_grab {
+                        if !matching_stack && (!can_grab || !can_take) {
                             return;
                         }
                         if self.window_type().is_none()
                             && equipment_slot.slot_type() == EquipmentType::HumanoidArmor
                             && (5..9).contains(&slot_index)
                         {
-                            player.enqueue_equipment_change(equipment_slot, &cursor_stack);
+                            effects.equipment(player, equipment_slot, &cursor_stack);
                         } else if self.window_type().is_none() && slot_index == OFF_HAND_SCREEN_SLOT
                         {
-                            player
-                                .enqueue_equipment_change(&EquipmentSlot::OFF_HAND, &cursor_stack);
+                            effects.equipment(player, &EquipmentSlot::OFF_HAND, &cursor_stack);
                         }
 
                         if matching_stack {
@@ -1334,6 +1410,7 @@ pub trait ScreenHandler: Send + Sync {
                             slot.set_stack(old_cursor_stack);
                         }
                     } else if can_grab
+                        && can_take
                         && ItemStack::are_items_and_components_equal(&slot_stack, &cursor_stack)
                     {
                         let taken = slot.try_take_stack_range(
@@ -1358,7 +1435,7 @@ pub trait ScreenHandler: Send + Sync {
             if slot_index < 0 {
                 return;
             }
-            let player_inventory = player.get_inventory();
+            let player_inventory = effects.inventory(player);
             let mut button_stack = player_inventory.get_stack(button as usize);
             let source_slot = self.get_behaviour().slots[slot_index as usize].clone();
             let source_stack = source_slot.get_cloned_stack();
@@ -1398,7 +1475,7 @@ pub trait ScreenHandler: Send + Sync {
                         let mut displaced_stack = source_stack;
                         player_inventory.insert_stack_anywhere(&mut displaced_stack);
                         if !displaced_stack.is_empty() {
-                            player.drop_item(displaced_stack, true);
+                            effects.drop_item(player, displaced_stack, true);
                         }
                     } else {
                         player_inventory.set_stack(button as usize, source_stack.clone());
