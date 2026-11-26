@@ -7481,6 +7481,120 @@ impl World {
             .unwrap_or(false)
     }
 
+    /// Atomically replace a loaded custom block and its entity only when the
+    /// exact state, process-local incarnation and saved custom fields match.
+    /// A destination with a block entity must provide its complete saved NBT;
+    /// a destination without one must not. No drops are produced by this CAS.
+    /// The caller handles any durable item transfer independently, and must
+    /// not mistake this in-memory chunk transaction for a cross-file journal.
+    pub fn compare_replace_content_entity(
+        self: &Arc<Self>,
+        pos: &BlockPos,
+        expected_state: BlockStateId,
+        incarnation: u64,
+        expected: &NbtCompound,
+        destination: BlockStateId,
+        replacement: Option<&NbtCompound>,
+    ) -> bool {
+        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
+        use crate::block::entities::content::ContentBlockEntity;
+
+        if incarnation == 0 || expected_state == destination || !self.is_in_build_limit(*pos) {
+            return false;
+        }
+        // Construct and validate before holding a world or section lock. This
+        // includes checking the destination entity kind and exact coordinates;
+        // silently reinterpreting a custom entity as a vanilla one is unsafe.
+        let prototype = create_block_entity_for_state(destination, *pos);
+        let next = match (prototype, replacement) {
+            (None, None) => None,
+            (Some(prototype), Some(saved))
+                if saved.get_string("id") == Some(prototype.resource_location())
+                    && saved.get_int("x") == Some(pos.0.x)
+                    && saved.get_int("y") == Some(pos.0.y)
+                    && saved.get_int("z") == Some(pos.0.z) =>
+            {
+                let Some(next) = block_entity_from_nbt(saved) else {
+                    return false;
+                };
+                Some(next)
+            }
+            _ => return false,
+        };
+        if let Some(next) = &next
+            && let Some(weak) = self.weak_self()
+        {
+            next.set_world(weak);
+        }
+        let (chunk_pos, relative) = pos.chunk_and_chunk_relative_position();
+        let committed = self
+            .level
+            .read_chunk_sync(&chunk_pos, |chunk| {
+                let mut pending = chunk
+                    .pending_block_entities
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let Some(mut entities) = self.block_entities.get_mut(&chunk_pos) else {
+                    return false;
+                };
+                let Some(content) = entities
+                    .get(pos)
+                    .and_then(|entity| entity.as_any().downcast_ref::<ContentBlockEntity>())
+                else {
+                    return false;
+                };
+                if content.incarnation() != incarnation {
+                    return false;
+                }
+                // The state condition is executed under the section write lock,
+                // and checks the entity data in the same order as regular CAS:
+                // pending -> entity map -> section -> entity data.
+                let changed = chunk
+                    .set_block_absolute_y_if(
+                        relative.x as usize,
+                        relative.y,
+                        relative.z as usize,
+                        destination,
+                        |current| current == expected_state && content.data_matches(expected),
+                    )
+                    .is_some();
+                if !changed {
+                    return false;
+                }
+                entities.remove(pos);
+                if let Some(next) = &next {
+                    entities.insert(*pos, next.clone());
+                }
+                if let Some(saved) = replacement {
+                    pending.insert(*pos, saved.clone());
+                } else {
+                    pending.remove(pos);
+                }
+                self.custom_block_entity_data.remove(pos);
+                chunk.mark_dirty(true);
+                true
+            })
+            .unwrap_or(false);
+        if !committed {
+            return false;
+        }
+        // Callbacks, client packets and menu closures must not execute under
+        // pending, entity-map, section or inventory locks.
+        self.close_container_screens_at(pos);
+        self.on_block_state_set(
+            pos,
+            expected_state,
+            destination,
+            BlockFlags::NOTIFY_LISTENERS
+                | BlockFlags::NOTIFY_NEIGHBORS
+                | BlockFlags::SKIP_DROPS
+                | BlockFlags::SKIP_BLOCK_ADDED_CALLBACK
+                | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK,
+            true,
+        );
+        true
+    }
+
     /// Like [`Self::get_block_entity_nbt`], for a caller already inside `read_chunk_sync`
     /// of the chunk holding `block_pos`. Reading that chunk again could deadlock.
     pub fn get_block_entity_nbt_in_chunk(

@@ -120,6 +120,24 @@ impl ContentBlockEntity {
         *data = replacement_fields;
         Some(replacement.clone())
     }
+
+    /// Compare a complete saved snapshot without changing this entity. Callers
+    /// must additionally guard the live Arc and block state, as data equality
+    /// alone cannot detect replacement at the same position (ABA).
+    pub fn data_matches(&self, expected: &NbtCompound) -> bool {
+        if expected.get_string("id") != Some(self.id)
+            || expected.get_int("x") != Some(self.position.0.x)
+            || expected.get_int("y") != Some(self.position.0.y)
+            || expected.get_int("z") != Some(self.position.0.z)
+        {
+            return false;
+        }
+        let mut expected_fields = expected.clone();
+        for key in ["id", "x", "y", "z"] {
+            expected_fields.child_tags.remove(key);
+        }
+        *self.data.lock().unwrap_or_else(PoisonError::into_inner) == expected_fields
+    }
 }
 
 #[cfg(test)]
@@ -148,6 +166,9 @@ mod tests {
         let mut saved = NbtCompound::new();
         entity.write_internal(&mut saved);
         assert_eq!(saved, second);
+        assert!(entity.data_matches(&second));
+        assert!(!entity.data_matches(&first));
+        assert!(!entity.data_matches(&wrong_position));
     }
 }
 
