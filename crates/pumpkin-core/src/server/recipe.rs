@@ -1,4 +1,10 @@
-use std::{borrow::Cow, sync::RwLock};
+use std::{
+    borrow::Cow,
+    sync::{
+        RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use pumpkin_data::{
     item::Item,
@@ -58,6 +64,7 @@ pub fn cooking_recipe(
 
 pub struct RecipeManager {
     dynamic_recipes: RwLock<Vec<DynamicRecipe>>,
+    revision: AtomicU64,
 }
 
 impl Default for RecipeManager {
@@ -71,6 +78,7 @@ impl RecipeManager {
     pub const fn new() -> Self {
         Self {
             dynamic_recipes: RwLock::new(Vec::new()),
+            revision: AtomicU64::new(1),
         }
     }
 
@@ -116,6 +124,7 @@ impl RecipeManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         recipes.push(recipe);
+        self.revision.fetch_add(1, Ordering::Release);
     }
 
     pub fn add_recipes(&self, new_recipes: impl IntoIterator<Item = DynamicRecipe>) {
@@ -124,6 +133,7 @@ impl RecipeManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         recipes.extend(new_recipes);
+        self.revision.fetch_add(1, Ordering::Release);
     }
 
     pub fn set_recipes(&self, new_recipes: Vec<DynamicRecipe>) {
@@ -132,6 +142,7 @@ impl RecipeManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *recipes = new_recipes;
+        self.revision.fetch_add(1, Ordering::Release);
     }
 
     pub fn clear(&self) {
@@ -140,6 +151,7 @@ impl RecipeManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         recipes.clear();
+        self.revision.fetch_add(1, Ordering::Release);
     }
 
     pub fn get_dynamic_recipes_internal(&self) -> Vec<DynamicRecipe> {
@@ -156,5 +168,9 @@ impl RecipeProvider for RecipeManager {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    fn recipe_revision(&self) -> Option<u64> {
+        Some(self.revision.load(Ordering::Acquire))
     }
 }

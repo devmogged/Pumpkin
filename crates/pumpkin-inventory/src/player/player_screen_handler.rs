@@ -20,7 +20,7 @@
 
 use super::player_inventory::PlayerInventory;
 use crate::crafting::crafting_inventory::CraftingInventory;
-use crate::crafting::crafting_screen_handler::CraftingScreenHandler;
+use crate::crafting::crafting_screen_handler::{CraftingScreenHandler, ResultSlot, recipe_result_cycling_enabled};
 use crate::crafting::recipes::{RecipeFinderScreenHandler, RecipeInputInventory};
 use crate::inventory::Inventory;
 use crate::screen_handler::{InventoryPlayer, ScreenHandler, ScreenHandlerBehaviour};
@@ -28,6 +28,7 @@ use crate::slot::{ArmorSlot, NormalSlot, Slot};
 use pumpkin_data::data_component_impl::{EquipmentSlot, EquipmentType, EquippableImpl};
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::screen::WindowType;
+use pumpkin_protocol::java::server::play::SlotActionType;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -40,6 +41,7 @@ pub struct PlayerScreenHandler {
     behaviour: ScreenHandlerBehaviour,
     /// The 2x2 crafting grid inventory.
     crafting_inventory: Arc<dyn RecipeInputInventory>,
+    result_slot: Option<Arc<ResultSlot>>,
 }
 
 impl RecipeFinderScreenHandler for PlayerScreenHandler {}
@@ -87,9 +89,11 @@ impl PlayerScreenHandler {
         let mut player_screen_handler = Self {
             behaviour: ScreenHandlerBehaviour::new(sync_id, window_type),
             crafting_inventory: crafting_inventory.clone(),
+            result_slot: None,
         };
 
-        player_screen_handler.add_recipe_slots(crafting_inventory, provider);
+        let result = player_screen_handler.add_recipe_slots(crafting_inventory, provider);
+        player_screen_handler.result_slot = Some(result);
 
         // Add armor slots (head, chest, legs, feet)
         for i in 0..4 {
@@ -111,6 +115,19 @@ impl PlayerScreenHandler {
 
         player_screen_handler
     }
+
+    #[must_use]
+    pub fn crafting_grid(&self) -> Vec<ItemStack> {
+        self.result_slot
+            .as_ref()
+            .map_or_else(Vec::new, |slot| slot.grid_snapshot())
+    }
+
+    pub fn select_crafting_recipe(&self, ordinal: usize) -> bool {
+        self.result_slot
+            .as_ref()
+            .is_some_and(|slot| slot.select_recipe(ordinal))
+    }
 }
 
 impl ScreenHandler for PlayerScreenHandler {
@@ -128,6 +145,31 @@ impl ScreenHandler for PlayerScreenHandler {
 
     fn get_behaviour_mut(&mut self) -> &mut ScreenHandlerBehaviour {
         &mut self.behaviour
+    }
+    fn on_slot_click(
+        &mut self,
+        slot_index: i32,
+        button: i32,
+        action_type: SlotActionType,
+        player: &dyn InventoryPlayer,
+    ) {
+        let cursor_empty = self
+            .behaviour
+            .cursor_stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty();
+        if recipe_result_cycling_enabled()
+            && cursor_empty
+            && slot_index == 0
+            && button == 1
+            && action_type == SlotActionType::Pickup
+            && self.result_slot.as_ref().is_some_and(|slot| slot.cycle_recipe())
+        {
+            self.sync_state();
+            return;
+        }
+        self.internal_on_slot_click(slot_index, button, action_type, player);
     }
 
     fn on_closed(&mut self, player: &dyn InventoryPlayer) {

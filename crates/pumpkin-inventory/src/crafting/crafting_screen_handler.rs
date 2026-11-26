@@ -17,7 +17,7 @@
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_impl::DataComponentImpl;
 use std::any::Any;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::recipe_provider::{GenericRecipe, RecipeProvider};
@@ -47,6 +47,19 @@ use pumpkin_data::statistic::StatisticCategory;
 use pumpkin_data::tag;
 use pumpkin_data::tag::Taggable;
 use pumpkin_protocol::codec::recipe::{DynamicRecipe, OwnedCraftingRecipe};
+use pumpkin_protocol::java::server::play::SlotActionType;
+
+// Opt-in from the native Polymorph mod during startup. Without the mod, a
+// right-click on a crafting output retains vanilla Pickup semantics.
+static RECIPE_RESULT_CYCLING: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_recipe_result_cycling() {
+    RECIPE_RESULT_CYCLING.store(true, Ordering::Release);
+}
+
+pub(crate) fn recipe_result_cycling_enabled() -> bool {
+    RECIPE_RESULT_CYCLING.load(Ordering::Acquire)
+}
 
 /// The result slot in a crafting screen.
 pub struct ResultSlot {
@@ -58,6 +71,42 @@ pub struct ResultSlot {
     pub result: Arc<Mutex<ItemStack>>,
     /// Provider for dynamic recipes.
     pub recipe_provider: Option<Arc<dyn RecipeProvider>>,
+    /// A menu-local choice is valid only for the exact grid that was presented
+    /// when the player selected it. Never persist an ordinal across grid edits.
+    selection: Mutex<Option<CraftingChoice>>,
+    /// Zero means either no reliable recipe revision or a cache that must be
+    /// regenerated. The server's recipe catalog starts with revision one.
+    cached_recipe_revision: AtomicU64,
+}
+
+struct CraftingChoice {
+    ordinal: usize,
+    grid: Vec<ItemStack>,
+    recipe_id: Option<String>,
+    output: ItemStack,
+    remainders: Vec<Option<ItemStack>>,
+}
+
+fn equal_crafting_grid(expected: &[ItemStack], actual: &[ItemStack]) -> bool {
+    expected.len() == actual.len()
+        && expected.iter().zip(actual).all(|(left, right)| {
+            // Crafting reduces ingredient counts. Keep the chosen result for
+            // repeated shift-click crafts while the same nonempty ingredients
+            // and components still occupy the same slots; an actual item or
+            // component replacement, including removal, invalidates it.
+            left.is_empty() == right.is_empty()
+                && (left.is_empty() || left.are_items_and_components_equal(right))
+        })
+}
+
+fn equal_optional_stack(expected: &Option<ItemStack>, actual: &Option<ItemStack>) -> bool {
+    match (expected, actual) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.item_count == right.item_count && left.are_items_and_components_equal(right)
+        }
+        _ => false,
+    }
 }
 
 pub struct RecipeResult {
@@ -1011,13 +1060,62 @@ pub fn match_crafting_recipe(
 }
 
 /// Runs `on_match` with the definition and result of the first matching recipe.
+/// Unlike a separate matcher, this wrapper shares the exact recipe ordering and
+/// ingredient/remaining-item semantics with conflict enumeration.
 pub fn match_crafting_recipe_with<T>(
     inventory: &dyn RecipeInputInventory,
     provider: Option<&dyn RecipeProvider>,
     on_match: impl FnOnce(GenericRecipe<'_>, RecipeResult) -> T,
 ) -> Option<T> {
+    let mut callback = Some(on_match);
+    let mut result = None;
+    for_each_matching_crafting_recipe(inventory, provider, |recipe, matched| {
+        result = Some(callback.take().expect("first recipe callback once")(
+            recipe, matched,
+        ));
+        false
+    });
+    result
+}
+
+/// Stable *engine-generated* identity of a matching recipe. Vanilla's
+/// generated crafting table lacks the source recipe identifier, so the
+/// index in its immutable compiled definition table is explicitly named as
+/// a surrogate, never misrepresented as Mojang's recipe resource location.
+/// Dynamic datapack definitions retain their real recipe IDs when provided.
+#[must_use]
+pub fn crafting_recipe_identity(definition: GenericRecipe<'_>) -> Option<String> {
+    match definition {
+        GenericRecipe::Vanilla(recipe) => RECIPES_CRAFTING
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, recipe))
+            .map(|index| format!("moddedmc:generated_crafting/{index}")),
+        GenericRecipe::Dynamic(
+            OwnedCraftingRecipe::Shaped { recipe_id, .. }
+            | OwnedCraftingRecipe::Shapeless { recipe_id, .. },
+        ) => recipe_id.clone(),
+    }
+}
+
+/// Enumerates every matching recipe in the same order as ordinary crafting.
+/// Returns the number visited; returning `false` from the callback stops early.
+///
+/// For conflicting recipes the caller can build deterministic alternatives
+/// without independently reimplementing recipe matching. The recipe reference
+/// and its assembled result only live for the synchronous callback. Production
+/// callers should enforce a small limit to avoid unbounded output on malicious
+/// datapacks; this primitive deliberately does not deduplicate different recipe
+/// definitions which happen to produce the same stack.
+pub fn for_each_matching_crafting_recipe(
+    inventory: &dyn RecipeInputInventory,
+    provider: Option<&dyn RecipeProvider>,
+    mut on_match: impl FnMut(GenericRecipe<'_>, RecipeResult) -> bool,
+) -> usize {
     let mut count: usize = 0;
     let inventory_width = inventory.get_width();
+    if inventory_width == 0 || inventory.size() == 0 || inventory.size() % inventory_width != 0 {
+        return 0;
+    }
     let mut top_x = 9;
     let mut top_y = 9;
     let mut bottom_x = 0;
@@ -1035,10 +1133,11 @@ pub fn match_crafting_recipe_with<T>(
         }
     }
     if count == 0 {
-        return None;
+        return 0;
     }
     let input_width = bottom_x + 1 - top_x;
     let input_height = bottom_y + 1 - top_y;
+    let mut visited = 0;
 
     for recipe in RECIPES_CRAFTING {
         if let Some(result) = recipe_matches(
@@ -1050,7 +1149,10 @@ pub fn match_crafting_recipe_with<T>(
             count,
             inventory,
         ) {
-            return Some(on_match(GenericRecipe::Vanilla(recipe), result));
+            visited += 1;
+            if !on_match(GenericRecipe::Vanilla(recipe), result) {
+                return visited;
+            }
         }
     }
 
@@ -1068,12 +1170,15 @@ pub fn match_crafting_recipe_with<T>(
                     inventory,
                 )
             {
-                return Some(on_match(GenericRecipe::Dynamic(crafting), result));
+                visited += 1;
+                if !on_match(GenericRecipe::Dynamic(crafting), result) {
+                    return visited;
+                }
             }
         }
     }
 
-    None
+    visited
 }
 
 impl ResultSlot {
@@ -1086,22 +1191,211 @@ impl ResultSlot {
             id: AtomicU8::new(0),
             result: Arc::new(Mutex::new(ItemStack::EMPTY.clone())),
             recipe_provider: provider,
+            selection: Mutex::new(None),
+            cached_recipe_revision: AtomicU64::new(0),
         }
     }
 
+    fn recipe_revision(&self) -> Option<u64> {
+        self.recipe_provider
+            .as_deref()
+            .and_then(RecipeProvider::recipe_revision)
+    }
+
+    /// A result is not a durable entitlement to an item: recheck mutable
+    /// recipe sources before a slot read or take, even without a grid update.
+    fn current_result(&self) -> ItemStack {
+        if let Some(provider) = self.recipe_provider.as_deref() {
+            let revision = provider.recipe_revision();
+            if revision.is_none()
+                || revision == Some(0)
+                || revision != Some(self.cached_recipe_revision.load(Ordering::Acquire))
+            {
+                return self.refill_output();
+            }
+        }
+        self.result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(crate) fn grid_snapshot(&self) -> Vec<ItemStack> {
+        (0..self.inventory.size())
+            .map(|index| self.inventory.get_stack(index))
+            .collect()
+    }
+
+    fn recipe_at(&self, ordinal: usize) -> Option<(Option<String>, RecipeResult)> {
+        let mut current = 0;
+        let mut selected = None;
+        for_each_matching_crafting_recipe(
+            &*self.inventory,
+            self.recipe_provider.as_deref(),
+            |definition, recipe| {
+                if current == ordinal {
+                    let id = crafting_recipe_identity(definition);
+                    selected = Some((id, recipe));
+                    return false;
+                }
+                current += 1;
+                current <= 64
+            },
+        );
+        selected
+    }
+
+    /// Select a real, currently matching recipe for this menu and pin it to
+    /// the current ingredient snapshot. Output must be replaced by the exact
+    /// selected recipe; a different player's menu is never affected.
+    pub fn select_recipe(&self, ordinal: usize) -> bool {
+        if ordinal >= 64 {
+            return false;
+        }
+        let revision_before = self.recipe_revision();
+        let grid = self.grid_snapshot();
+        let Some((recipe_id, recipe)) = self.recipe_at(ordinal) else {
+            return false;
+        };
+        let revision_after = self.recipe_revision();
+        if revision_before != revision_after {
+            return false;
+        }
+        let output = recipe.to_item_stack();
+        let remainders = grid
+            .iter()
+            .enumerate()
+            .map(|(slot, item)| recipe.remaining_item_for_slot(slot, item))
+            .collect();
+        *self
+            .selection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CraftingChoice {
+            ordinal,
+            grid,
+            recipe_id,
+            output: output.clone(),
+            remainders,
+        });
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = output;
+        self.cached_recipe_revision
+            .store(revision_after.unwrap_or(0), Ordering::Release);
+        true
+    }
+
+    /// Advance the visible result to the next genuinely matching definition,
+    /// without consuming any item. A second right-click may wrap around to the
+    /// engine's vanilla-first default; never enumerate unbounded datapacks.
+    pub fn cycle_recipe(&self) -> bool {
+        let _ = self.current_result();
+        let mut count = 0usize;
+        for_each_matching_crafting_recipe(
+            &*self.inventory,
+            self.recipe_provider.as_deref(),
+            |_, _| {
+                count += 1;
+                count < 64
+            },
+        );
+        if count <= 1 {
+            return false;
+        }
+        let grid = self.grid_snapshot();
+        let current = self
+            .selection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|choice| equal_crafting_grid(&choice.grid, &grid))
+            .map_or(0, |choice| choice.ordinal);
+        self.select_recipe((current + 1) % count)
+    }
+
     fn match_recipe(&self) -> Option<RecipeResult> {
-        match_crafting_recipe(&*self.inventory, self.recipe_provider.as_deref())
+        let grid = self.grid_snapshot();
+        let selected = {
+            let mut choice = self
+                .selection
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if choice
+                .as_ref()
+                .is_some_and(|choice| !equal_crafting_grid(&choice.grid, &grid))
+            {
+                *choice = None;
+            }
+            choice.as_ref().map(|choice| {
+                (
+                    choice.ordinal,
+                    choice.recipe_id.clone(),
+                    choice.output.clone(),
+                    choice.remainders.clone(),
+                )
+            })
+        };
+        match selected {
+            Some((ordinal, recipe_id, pinned_output, pinned_remainders)) => self
+                .recipe_at(ordinal)
+                .and_then(|(current_id, result)| {
+                    let output = result.to_item_stack();
+                    let remainders = grid
+                        .iter()
+                        .enumerate()
+                        .map(|(slot, item)| result.remaining_item_for_slot(slot, item))
+                        .collect::<Vec<_>>();
+                    (recipe_id == current_id
+                        && pinned_output.item_count == output.item_count
+                        && pinned_output.are_items_and_components_equal(&output)
+                        && pinned_remainders.len() == remainders.len()
+                        && pinned_remainders
+                            .iter()
+                            .zip(&remainders)
+                            .all(|(a, b)| equal_optional_stack(a, b)))
+                    .then_some(result)
+                })
+                .or_else(|| {
+                    // A datapack reload may remove or reorder matches while the
+                    // grid remains unchanged. Revert to default, never silently
+                    // continue with an unrelated recipe or mismatched remainders.
+                    *self
+                        .selection
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                    match_crafting_recipe(&*self.inventory, self.recipe_provider.as_deref())
+                }),
+            None => match_crafting_recipe(&*self.inventory, self.recipe_provider.as_deref()),
+        }
     }
 
     fn refill_output(&self) -> ItemStack {
+        let revision_before = self.recipe_revision();
         let result = self.match_recipe().map_or_else(
             || ItemStack::EMPTY.clone(),
             |matched| matched.to_item_stack(),
         );
+        let revision_after = self.recipe_revision();
+        // If recipes changed while matching, refuse the output and force a
+        // fresh resolution. Never cache a result from a mixed catalog epoch.
+        let result = if revision_before == revision_after {
+            result
+        } else {
+            ItemStack::EMPTY.clone()
+        };
         *self
             .result
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = result.clone();
+        self.cached_recipe_revision.store(
+            if revision_before == revision_after {
+                revision_after.unwrap_or(0)
+            } else {
+                0
+            },
+            Ordering::Release,
+        );
         result
     }
 }
@@ -1161,23 +1455,13 @@ impl Slot for ResultSlot {
         false
     }
     fn get_stack(&self) -> ItemStack {
-        self.result
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        self.current_result()
     }
     fn get_cloned_stack(&self) -> ItemStack {
-        self.result
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        self.current_result()
     }
     fn has_stack(&self) -> bool {
-        !self
-            .result
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_empty()
+        !self.current_result().is_empty()
     }
     fn set_stack(&self, _stack: ItemStack) {
         self.refill_output();
@@ -1199,14 +1483,7 @@ impl Slot for ResultSlot {
         count
     }
     fn take_stack(&self, _amount: u8) -> ItemStack {
-        if self.has_stack() {
-            self.result
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone()
-        } else {
-            ItemStack::EMPTY.clone()
-        }
+        self.current_result()
     }
 }
 
@@ -1231,7 +1508,7 @@ pub trait CraftingScreenHandler<I: RecipeInputInventory>:
         &mut self,
         crafing_inventory: Arc<dyn RecipeInputInventory>,
         provider: Option<Arc<dyn RecipeProvider>>,
-    ) {
+    ) -> Arc<ResultSlot> {
         let result_slot = Arc::new(ResultSlot::new(crafing_inventory.clone(), provider));
         self.add_slot(result_slot.clone());
         let width = crafing_inventory.get_width();
@@ -1242,13 +1519,15 @@ pub trait CraftingScreenHandler<I: RecipeInputInventory>:
                 self.add_slot(Arc::new(input_slot));
             }
         }
-        self.add_listener(result_slot);
+        self.add_listener(result_slot.clone());
+        result_slot
     }
 }
 
 pub struct CraftingTableScreenHandler {
     behaviour: ScreenHandlerBehaviour,
     crafting_inventory: Arc<dyn RecipeInputInventory>,
+    result_slot: Option<Arc<ResultSlot>>,
 }
 
 impl CraftingTableScreenHandler {
@@ -1262,11 +1541,27 @@ impl CraftingTableScreenHandler {
         let mut crafting_table_handler = Self {
             behaviour: ScreenHandlerBehaviour::new(sync_id, Some(WindowType::Crafting)),
             crafting_inventory: crafting_inventory.clone(),
+            result_slot: None,
         };
-        crafting_table_handler.add_recipe_slots(crafting_inventory, provider);
+        let result = crafting_table_handler.add_recipe_slots(crafting_inventory, provider);
+        crafting_table_handler.result_slot = Some(result);
         let player_inventory: Arc<dyn Inventory> = player_inventory.clone();
         crafting_table_handler.add_player_slots(&player_inventory);
         crafting_table_handler
+    }
+
+    /// The grid visible in this specific player's crafting table.
+    #[must_use]
+    pub fn crafting_grid(&self) -> Vec<ItemStack> {
+        self.result_slot
+            .as_ref()
+            .map_or_else(Vec::new, |slot| slot.grid_snapshot())
+    }
+
+    pub fn select_crafting_recipe(&self, ordinal: usize) -> bool {
+        self.result_slot
+            .as_ref()
+            .is_some_and(|slot| slot.select_recipe(ordinal))
     }
 }
 
@@ -1284,6 +1579,33 @@ impl ScreenHandler for CraftingTableScreenHandler {
     }
     fn get_behaviour_mut(&mut self) -> &mut ScreenHandlerBehaviour {
         &mut self.behaviour
+    }
+    fn on_slot_click(
+        &mut self,
+        slot_index: i32,
+        button: i32,
+        action_type: SlotActionType,
+        player: &dyn InventoryPlayer,
+    ) {
+        let cursor_empty = self
+            .behaviour
+            .cursor_stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty();
+        if recipe_result_cycling_enabled()
+            && cursor_empty
+            && slot_index == 0
+            && button == 1
+            && action_type == SlotActionType::Pickup
+            && self.result_slot.as_ref().is_some_and(|slot| slot.cycle_recipe())
+        {
+            // The stock client may have predicted a result Pickup. A full
+            // authoritative revision resets the cursor while updating result.
+            self.sync_state();
+            return;
+        }
+        self.internal_on_slot_click(slot_index, button, action_type, player);
     }
     fn on_closed(&mut self, player: &dyn InventoryPlayer) {
         self.default_on_closed(player);
@@ -1488,6 +1810,224 @@ mod tests {
             ItemStack::new(1, &Item::BREEZE_ROD),
         );
         match_crafting_recipe(&inventory, None).map(|result| result.item_id)
+    }
+
+    #[test]
+    fn crafting_conflicts_enumerate_ordered_choices_without_changing_first_match() {
+        use pumpkin_data::recipes::RecipeCategoryTypes;
+        use pumpkin_protocol::codec::recipe::{OwnedRecipeIngredient, OwnedRecipeResult};
+
+        struct Conflicts;
+        impl RecipeProvider for Conflicts {
+            fn get_dynamic_recipes(&self) -> Vec<DynamicRecipe> {
+                ["minecraft:diamond", "minecraft:emerald"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, id)| {
+                        DynamicRecipe::Crafting(OwnedCraftingRecipe::Shapeless {
+                            recipe_id: Some(format!("test:conflict_{index}")),
+                            category: RecipeCategoryTypes::Misc,
+                            group: None,
+                            ingredients: vec![OwnedRecipeIngredient::Simple(
+                                "minecraft:stone".into(),
+                            )],
+                            result: OwnedRecipeResult {
+                                item_id: id.into(),
+                                count: 1,
+                            },
+                        })
+                    })
+                    .collect()
+            }
+        }
+
+        let inventory = CraftingInventory::new(2, 2);
+        inventory.set_stack(0, ItemStack::new(3, &Item::STONE));
+        let mut matches = Vec::new();
+        let count =
+            for_each_matching_crafting_recipe(&inventory, Some(&Conflicts), |recipe, result| {
+                if let GenericRecipe::Dynamic(OwnedCraftingRecipe::Shapeless {
+                    recipe_id, ..
+                }) = recipe
+                {
+                    matches.push((recipe_id.clone(), result.item_id));
+                }
+                true
+            });
+        assert!(count >= 2);
+        assert_eq!(
+            matches,
+            vec![
+                (
+                    Some("test:conflict_0".to_owned()),
+                    "minecraft:diamond".to_owned()
+                ),
+                (
+                    Some("test:conflict_1".to_owned()),
+                    "minecraft:emerald".to_owned()
+                ),
+            ],
+        );
+        // Vanilla recipes precede datapack/provider recipes; stone also
+        // matches vanilla stone_button. Enumerating alternatives must not
+        // silently override that established first-match behavior.
+        assert_eq!(
+            match_crafting_recipe(&inventory, Some(&Conflicts)).map(|result| result.item_id),
+            Some("minecraft:stone_button".to_owned()),
+        );
+        let mut bounded = 0;
+        assert_eq!(
+            for_each_matching_crafting_recipe(&inventory, Some(&Conflicts), |_, _| {
+                bounded += 1;
+                false
+            }),
+            1,
+        );
+        assert_eq!(bounded, 1);
+    }
+
+    #[test]
+    fn selected_conflict_survives_shift_crafts_and_cannot_duplicate_ingredients() {
+        use pumpkin_data::recipes::RecipeCategoryTypes;
+        use pumpkin_protocol::codec::recipe::{OwnedRecipeIngredient, OwnedRecipeResult};
+
+        struct Conflicts;
+        impl RecipeProvider for Conflicts {
+            fn get_dynamic_recipes(&self) -> Vec<DynamicRecipe> {
+                ["minecraft:diamond", "minecraft:emerald"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(ordinal, id)| {
+                        DynamicRecipe::Crafting(OwnedCraftingRecipe::Shapeless {
+                            recipe_id: Some(format!("test:choice_{ordinal}")),
+                            category: RecipeCategoryTypes::Misc,
+                            group: None,
+                            ingredients: vec![OwnedRecipeIngredient::Simple(
+                                "minecraft:stone".into(),
+                            )],
+                            result: OwnedRecipeResult {
+                                item_id: id.into(),
+                                count: 1,
+                            },
+                        })
+                    })
+                    .collect()
+            }
+        }
+        let inventory = Arc::new(PlayerInventory::new(
+            Arc::new(Mutex::new(EntityEquipment::new())),
+            Arc::new(rustc_hash::FxHashMap::default()),
+        ));
+        let player = TestPlayer::new(inventory.clone());
+        let mut menu = CraftingTableScreenHandler::new(1, &inventory, Some(Arc::new(Conflicts)));
+        set_slot(&menu, 1, ItemStack::new(3, &Item::STONE));
+        refresh_result(&menu);
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::STONE_BUTTON.id);
+        assert!(!menu.select_crafting_recipe(3));
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::STONE_BUTTON.id);
+        assert!(menu.result_slot.as_ref().unwrap().cycle_recipe());
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::DIAMOND.id);
+        assert!(menu.result_slot.as_ref().unwrap().cycle_recipe());
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::EMERALD.id);
+
+        for remaining in [2, 1, 0] {
+            let taken = menu.quick_move(&player, 0);
+            assert_eq!(taken.item.id, Item::EMERALD.id);
+            assert_eq!(taken.item_count, 1);
+            assert_eq!(grid_stack(&menu, 1).item_count, remaining);
+            if remaining != 0 {
+                assert_eq!(grid_stack(&menu, 0).item.id, Item::EMERALD.id);
+            }
+        }
+        assert!(grid_stack(&menu, 0).is_empty());
+        assert_eq!(
+            (0..inventory.size())
+                .filter(|slot| inventory.get_stack(*slot).item.id == Item::EMERALD.id)
+                .map(|slot| u32::from(inventory.get_stack(slot).item_count))
+                .sum::<u32>(),
+            3
+        );
+        assert!(player.drops.lock().unwrap().is_empty());
+
+        // A genuinely different ingredient invalidates the previously chosen
+        // recipe and the generated result, even when the old menu remains open.
+        set_slot(&menu, 1, ItemStack::new(1, &Item::OAK_LOG));
+        refresh_result(&menu);
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::OAK_PLANKS.id);
+    }
+
+    #[test]
+    fn generated_vanilla_recipe_id_is_stable_and_explicitly_synthetic() {
+        assert!(RECIPES_CRAFTING.len() > 1);
+        assert_eq!(
+            crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[0])).as_deref(),
+            Some("moddedmc:generated_crafting/0")
+        );
+        assert_eq!(
+            crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[1])).as_deref(),
+            Some("moddedmc:generated_crafting/1")
+        );
+    }
+
+    #[test]
+    fn selected_result_is_revalidated_before_take_after_datapack_reload() {
+        use pumpkin_data::recipes::RecipeCategoryTypes;
+        use pumpkin_protocol::codec::recipe::{OwnedRecipeIngredient, OwnedRecipeResult};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct ReloadableRecipes(AtomicBool);
+        impl RecipeProvider for ReloadableRecipes {
+            fn get_dynamic_recipes(&self) -> Vec<DynamicRecipe> {
+                if self.0.load(Ordering::Acquire) {
+                    return Vec::new();
+                }
+                ["minecraft:diamond", "minecraft:emerald"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(ordinal, id)| {
+                        DynamicRecipe::Crafting(OwnedCraftingRecipe::Shapeless {
+                            recipe_id: Some(format!("test:reload_{ordinal}")),
+                            category: RecipeCategoryTypes::Misc,
+                            group: None,
+                            ingredients: vec![OwnedRecipeIngredient::Simple(
+                                "minecraft:stone".into(),
+                            )],
+                            result: OwnedRecipeResult {
+                                item_id: id.into(),
+                                count: 1,
+                            },
+                        })
+                    })
+                    .collect()
+            }
+        }
+
+        let inventory = Arc::new(PlayerInventory::new(
+            Arc::new(Mutex::new(EntityEquipment::new())),
+            Arc::new(rustc_hash::FxHashMap::default()),
+        ));
+        let player = TestPlayer::new(inventory.clone());
+        let source = Arc::new(ReloadableRecipes(AtomicBool::new(false)));
+        let mut menu = CraftingTableScreenHandler::new(1, &inventory, Some(source.clone()));
+        set_slot(&menu, 1, ItemStack::new(1, &Item::STONE));
+        refresh_result(&menu);
+        assert!(menu.select_crafting_recipe(2));
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::EMERALD.id);
+
+        // No ingredient packet/change is necessary when a datapack reload
+        // removes the selected definition. Never grant the stale emerald on
+        // the very next click: the immutable vanilla result is stone_button.
+        source.0.store(true, Ordering::Release);
+        assert_eq!(grid_stack(&menu, 0).item.id, Item::STONE_BUTTON.id);
+        let taken = menu.quick_move(&player, 0);
+        assert_eq!(taken.item.id, Item::STONE_BUTTON.id);
+        assert_eq!(grid_stack(&menu, 1).item_count, 0);
+        assert_eq!(
+            (0..inventory.size())
+                .filter(|index| inventory.get_stack(*index).item.id == Item::EMERALD.id)
+                .count(),
+            0,
+        );
     }
 
     #[test]
