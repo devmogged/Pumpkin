@@ -7,7 +7,7 @@ use pumpkin_util::math::vector3::Vector3;
 use pumpkin_util::random::xoroshiro128::Xoroshiro;
 use pumpkin_util::random::{RandomImpl, get_seed};
 use std::any::Any;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock, Weak};
 use std::{
     array::from_fn,
     sync::{
@@ -30,6 +30,10 @@ pub struct BarrelBlockEntity {
 
     // Viewer
     viewers: ViewerCountTracker,
+    // Closing a vanilla barrel must update its OPEN blockstate before an
+    // immediate save/stop, not wait for a subsequent block-entity tick.
+    viewer_world: Mutex<Weak<World>>,
+    viewer_update: Mutex<()>,
     pub metadata: super::ContainerMetadata,
 }
 
@@ -52,6 +56,8 @@ impl BlockEntity for BarrelBlockEntity {
             dirty: AtomicBool::new(false),
             comparator_dirty: AtomicBool::new(false),
             viewers: ViewerCountTracker::new(),
+            viewer_world: Mutex::new(Weak::new()),
+            viewer_update: Mutex::new(()),
             metadata: super::ContainerMetadata::from_nbt(nbt),
         };
 
@@ -102,8 +108,25 @@ impl BlockEntity for BarrelBlockEntity {
     }
 
     fn tick(&self, world: &Arc<World>) {
+        // Serialize viewer transitions with immediate inventory closes. A
+        // tick must never finish its OPEN callback after a CLOSE callback.
+        let _update = self
+            .viewer_update
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *self
+            .viewer_world
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::downgrade(world);
         self.viewers
             .update_viewer_count::<Self>(self, world, &self.position);
+    }
+
+    fn set_world(&self, world: Weak<World>) {
+        *self
+            .viewer_world
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = world;
     }
 
     fn get_inventory(self: Arc<Self>) -> Option<Arc<dyn Inventory>> {
@@ -174,6 +197,8 @@ impl BarrelBlockEntity {
             dirty: AtomicBool::new(false),
             comparator_dirty: AtomicBool::new(false),
             viewers: ViewerCountTracker::new(),
+            viewer_world: Mutex::new(Weak::new()),
+            viewer_update: Mutex::new(()),
             metadata: super::ContainerMetadata::default(),
         }
     }
@@ -181,9 +206,7 @@ impl BarrelBlockEntity {
     fn set_open(&self, world: &Arc<World>, open: bool) {
         let state = world.get_block_state(&self.position);
         let mut properties = BarrelLikeProperties::from_state_id(state.id);
-
         properties.open = open;
-
         world.set_block_state(
             &self.position,
             properties.to_state_id(&Block::BARREL),
@@ -275,7 +298,26 @@ impl Inventory for BarrelBlockEntity {
     }
 
     fn on_close(&self) {
+        let _update = self
+            .viewer_update
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.viewers.close_container();
+        let world = self
+            .viewer_world
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .upgrade();
+        if let Some(world) = world {
+            self.viewers
+                .update_viewer_count::<Self>(self, &world, &self.position);
+            // The last viewer can close before the next tick or after tick
+            // publication. Reconcile the actual blockstate, not merely the
+            // cached transition counter, before returning to the packet loop.
+            if self.viewers.get_viewer_count() == 0 {
+                self.set_open(&world, false);
+            }
+        }
     }
 
     fn mark_dirty(&self) {
