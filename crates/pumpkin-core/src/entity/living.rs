@@ -74,6 +74,7 @@ use std::sync::RwLock;
 struct LastHurtByMob {
     uuid: Uuid,
     entity_id: i32,
+    game_time: i64,
 }
 
 /// Represents a living entity within the game world.
@@ -123,6 +124,7 @@ pub struct LivingEntity {
 
     last_hurt_by_mob: AtomicCell<Option<LastHurtByMob>>,
     last_hurt_by_mob_timestamp: AtomicI32,
+    last_hurt_mob: AtomicCell<Option<(i32, i64)>>,
     last_damage_type: std::sync::Mutex<Option<DamageType>>,
     /// Entity id of the last damage source's causing entity, 0 when it had none.
     last_damage_attacker: AtomicI32,
@@ -509,6 +511,7 @@ impl LivingEntity {
             climbing_pos: AtomicCell::new(None),
             last_hurt_by_mob: AtomicCell::new(None),
             last_hurt_by_mob_timestamp: AtomicI32::new(0),
+            last_hurt_mob: AtomicCell::new(None),
             last_damage_type: std::sync::Mutex::new(None),
             last_damage_attacker: AtomicI32::new(0),
             last_damage_stamp: std::sync::atomic::AtomicI64::new(0),
@@ -564,14 +567,57 @@ impl LivingEntity {
         self.last_hurt_by_mob_timestamp.load(Relaxed)
     }
 
+    /// Last living target damaged by this entity, with the world's game time of the hit.
+    pub fn get_last_hurt_mob(&self) -> Option<(i32, i64)> {
+        self.last_hurt_mob.load()
+    }
+
+    /// Remembered living attacker, with the world's game time of the hit.
+    pub fn get_last_hurt_by_mob_game_time(&self) -> Option<(i32, i64)> {
+        let reference = self.last_hurt_by_mob.load()?;
+        let id = if reference.entity_id == 0 {
+            find_by_uuid(&self.entity.world.load(), reference.uuid)?
+                .get_entity()
+                .entity_id
+        } else {
+            reference.entity_id
+        };
+        Some((id, reference.game_time))
+    }
+
+    fn game_time(&self) -> i64 {
+        let world = self.entity.world.load();
+        world
+            .server
+            .upgrade()
+            .and_then(|server| {
+                server
+                    .worlds
+                    .load()
+                    .iter()
+                    .find(|world| {
+                        world.dimension.minecraft_name
+                            == pumpkin_data::dimension::Dimension::OVERWORLD.minecraft_name
+                    })
+                    .map(|world| world.get_world_age())
+            })
+            .unwrap_or_else(|| world.get_world_age())
+    }
+
     pub fn set_last_hurt_by_mob(&self, attacker: Option<&dyn EntityBase>) {
-        self.last_hurt_by_mob.store(attacker.map(|attacker| {
-            let entity = attacker.get_entity();
-            LastHurtByMob {
-                uuid: entity.entity_uuid,
-                entity_id: entity.entity_id,
-            }
-        }));
+        self.set_last_hurt_by_mob_at(attacker.map(|attacker| (attacker, self.game_time())));
+    }
+
+    fn set_last_hurt_by_mob_at(&self, attacker: Option<(&dyn EntityBase, i64)>) {
+        self.last_hurt_by_mob
+            .store(attacker.map(|(attacker, game_time)| {
+                let entity = attacker.get_entity();
+                LastHurtByMob {
+                    uuid: entity.entity_uuid,
+                    entity_id: entity.entity_id,
+                    game_time,
+                }
+            }));
         self.last_hurt_by_mob_timestamp
             .store(self.entity.tick_count.load(Relaxed), Relaxed);
     }
@@ -586,6 +632,23 @@ impl LivingEntity {
                 .is_some_and(|attacker| !attacker.get_living_entity().is_some_and(Self::is_alive))
         {
             self.set_last_hurt_by_mob(None);
+        }
+    }
+
+    fn tick_last_hurt_mob(&self) {
+        let Some((id, timestamp)) = self.get_last_hurt_mob() else {
+            return;
+        };
+        if !self
+            .entity
+            .world
+            .load()
+            .get_entity_by_id(id)
+            .is_some_and(|target| target.get_living_entity().is_some_and(Self::is_alive))
+        {
+            let _ = self
+                .last_hurt_mob
+                .compare_exchange(Some((id, timestamp)), None);
         }
     }
 
@@ -3764,6 +3827,7 @@ impl LivingEntity {
         }
         if let Some(reference) = self.last_hurt_by_mob.load() {
             nbt.put_uuid("last_hurt_by_mob", reference.uuid);
+            nbt.put_long("last_hurt_by_mob_game_time", reference.game_time);
             nbt.put_int(
                 "ticks_since_last_hurt_by_mob",
                 self.entity.tick_count.load(Relaxed) - self.get_last_hurt_by_mob_timestamp(),
@@ -3868,10 +3932,20 @@ impl LivingEntity {
             nbt.get_int("last_hurt_by_player_memory_time").unwrap_or(0),
             Relaxed,
         );
-        self.last_hurt_by_mob.store(
-            nbt.get_uuid("last_hurt_by_mob")
-                .map(|uuid| LastHurtByMob { uuid, entity_id: 0 }),
-        );
+        self.last_hurt_by_mob
+            .store(nbt.get_uuid("last_hurt_by_mob").map(|uuid| {
+                LastHurtByMob {
+                    uuid,
+                    entity_id: 0,
+                    game_time: nbt
+                        .get_long("last_hurt_by_mob_game_time")
+                        .unwrap_or_else(|| {
+                            self.game_time().saturating_sub(i64::from(
+                                nbt.get_int("ticks_since_last_hurt_by_mob").unwrap_or(0),
+                            ))
+                        }),
+                }
+            }));
         self.last_hurt_by_mob_timestamp.store(
             self.entity.tick_count.load(Relaxed)
                 - nbt.get_int("ticks_since_last_hurt_by_mob").unwrap_or(0),
@@ -4219,15 +4293,27 @@ impl LivingEntity {
             return false;
         };
         if let Some(attacker) = cause.or(source)
-            && attacker.get_living_entity().is_some()
-            && !damage_type.has_tag(&tag::DamageType::MINECRAFT_NO_ANGER)
-            && (damage_type != DamageType::WIND_CHARGE
-                || !self
-                    .entity
-                    .entity_type
-                    .has_tag(&tag::EntityType::MINECRAFT_NO_ANGER_FROM_WIND_CHARGE))
+            && let Some(living) = attacker.get_living_entity()
         {
-            self.set_last_hurt_by_mob(Some(attacker));
+            let game_time = self.game_time();
+            living
+                .last_hurt_mob
+                .store(Some((self.entity.entity_id, game_time)));
+            living
+                .last_attacking_id
+                .store(self.entity.entity_id, Relaxed);
+            living
+                .last_attack_time
+                .store(living.entity.tick_count.load(Relaxed), Relaxed);
+            if !damage_type.has_tag(&tag::DamageType::MINECRAFT_NO_ANGER)
+                && (damage_type != DamageType::WIND_CHARGE
+                    || !self
+                        .entity
+                        .entity_type
+                        .has_tag(&tag::EntityType::MINECRAFT_NO_ANGER_FROM_WIND_CHARGE))
+            {
+                self.set_last_hurt_by_mob_at(Some((attacker, game_time)));
+            }
         }
         let config = &server.advanced_config.pvp;
 
@@ -4496,6 +4582,7 @@ impl EntityBase for LivingEntity {
         let pre_tick_pos = self.entity.last_pos.load();
         self.entity.tick(caller, server);
         self.tick_last_hurt_by_mob();
+        self.tick_last_hurt_mob();
         if let Some(mob) = caller.get_mob() {
             mob.tick_ambient_sound();
             mob.base_tick();
