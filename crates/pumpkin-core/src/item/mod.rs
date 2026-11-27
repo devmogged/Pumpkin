@@ -111,6 +111,16 @@ pub trait ItemBehaviour: Send + Sync {
 
     fn on_stopped_using(&self, _stack: &ItemStack, _player: &Player) {}
 
+    /// Observe a successful direct player melee hit after damage has been applied.
+    fn on_successful_melee_hit(
+        &self,
+        _item: &Item,
+        _attacker: &Player,
+        _target: &dyn EntityBase,
+        _damage: f32,
+    ) {
+    }
+
     fn on_spear_jab(&self, _stack: &ItemStack, _player: &Player) {}
 
     fn on_use_tick(
