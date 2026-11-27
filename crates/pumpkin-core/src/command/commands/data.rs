@@ -595,9 +595,8 @@ fn execute_merge(context: &CommandContext, target_kind: TargetKind) -> CommandEx
     }
     let old = accessor.get_data()?;
     let mut updated = old.clone();
-    for (k, v) in nbt.child_tags {
-        updated.child_tags.insert(k, v);
-    }
+    // Vanilla `CompoundTag.merge`: nested compounds merge instead of being replaced.
+    updated.merge(&nbt);
     if old == updated {
         return Err(ERROR_MERGE_UNCHANGED.create_without_context());
     }
