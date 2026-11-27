@@ -4197,12 +4197,36 @@ impl LivingEntity {
         // Vanilla `actuallyHurt`: armor, then enchantments and effects
         let damage_after_armor =
             self.get_damage_after_armor_absorb(caller, incoming, &damage_type, cause.or(source));
-        let effective_amount = self.get_damage_after_magic_absorb(
+        let mut effective_amount = self.get_damage_after_magic_absorb(
             damage_after_armor,
             &damage_type,
             caller,
             cause.or(source),
         );
+        if let Some(server) = world.server.upgrade()
+            && server
+                .plugin_manager
+                .has_handlers::<crate::plugin::api::events::entity::EntityDamageFinalEvent>()
+        {
+            let absorption = self.absorption.load();
+            let mut event = crate::plugin::api::events::entity::EntityDamageFinalEvent {
+                hit: crate::plugin::api::events::entity::EntityDamageEvent::new(
+                    self.entity.entity_id,
+                    damage_type,
+                    effective_amount,
+                )
+                .with_source(
+                    damage_event.causing_entity_id,
+                    damage_event.direct_entity_id,
+                ),
+                lethal: effective_amount >= self.health.load() + absorption,
+                absorption,
+            };
+            server.plugin_manager.fire_blocking(&server, &mut event);
+            if event.hit.damage.is_finite() {
+                effective_amount = event.hit.damage.max(0.0);
+            }
+        }
         let play_sound = took_full_damage && self.health.load() > effective_amount;
         let damage_amount = effective_amount.max(0.0);
 
