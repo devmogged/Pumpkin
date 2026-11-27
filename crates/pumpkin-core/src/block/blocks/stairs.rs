@@ -2,9 +2,12 @@ use crate::entity::EntityBase;
 use pumpkin_data::block_properties::Half;
 use pumpkin_data::block_properties::HorizontalFacing;
 use pumpkin_data::block_properties::StairsShape;
+use pumpkin_data::block_properties::{BlockProperties, Facing};
 use pumpkin_data::fluid::Fluid;
 use pumpkin_data::tag::Taggable;
-use pumpkin_data::{Block, BlockDirection, BlockState, BlockStateId, Mirror, Rotation, tag};
+use pumpkin_data::{
+    Block, BlockDirection, BlockState, BlockStateId, Mirror, Property, Rotation, tag,
+};
 use pumpkin_macros::pumpkin_block_from_tag;
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_world::tick::TickPriority;
@@ -21,7 +24,10 @@ pub struct StairBlock;
 
 impl BlockBehaviour for StairBlock {
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let mut stair_props = StairsProperties::default(args.block);
+        let Some(mut stair_props) = stair_properties(args.block, args.block.default_state.id)
+        else {
+            return args.block.default_state.id;
+        };
         stair_props.waterlogged = args.replacing.water_source();
 
         stair_props.facing = args.player.get_entity().get_horizontal_facing();
@@ -41,14 +47,16 @@ impl BlockBehaviour for StairBlock {
             stair_props.half,
         );
 
-        stair_props.to_state_id(args.block)
+        stair_state(args.block, &stair_props)
     }
 
     fn get_state_for_neighbor_update(
         &self,
         args: GetStateForNeighborUpdateArgs<'_>,
     ) -> BlockStateId {
-        let mut stair_props = StairsProperties::from_state_id(args.state_id);
+        let Some(mut stair_props) = stair_properties(args.block, args.state_id) else {
+            return args.state_id;
+        };
         if stair_props.waterlogged {
             args.world.schedule_fluid_tick(
                 &Fluid::WATER,
@@ -65,7 +73,7 @@ impl BlockBehaviour for StairBlock {
                 stair_props.facing,
                 stair_props.half,
             );
-            return stair_props.to_state_id(args.block);
+            return stair_state(args.block, &stair_props);
         }
 
         args.state_id
@@ -77,13 +85,17 @@ impl BlockBehaviour for StairBlock {
         state_id: BlockStateId,
         rotation: Rotation,
     ) -> &'static BlockState {
-        let mut stair_props = StairsProperties::from_state_id(state_id);
+        let Some(mut stair_props) = stair_properties(block, state_id) else {
+            return BlockState::from_id(state_id);
+        };
         stair_props.facing = rotation.rotate_horizontal(stair_props.facing);
-        BlockState::from_id(stair_props.to_state_id(block))
+        BlockState::from_id(stair_state(block, &stair_props))
     }
 
     fn mirror(&self, block: &Block, state_id: BlockStateId, mirror: Mirror) -> &'static BlockState {
-        let mut stair_props = StairsProperties::from_state_id(state_id);
+        let Some(mut stair_props) = stair_properties(block, state_id) else {
+            return BlockState::from_id(state_id);
+        };
         let direction = stair_props.facing;
         let shape = stair_props.shape;
 
@@ -98,7 +110,7 @@ impl BlockBehaviour for StairBlock {
                         StairsShape::InnerLeft => StairsShape::InnerRight,
                         StairsShape::OuterRight => StairsShape::OuterLeft,
                     };
-                    return BlockState::from_id(stair_props.to_state_id(block));
+                    return BlockState::from_id(stair_state(block, &stair_props));
                 }
             }
             Mirror::FrontBack => {
@@ -111,7 +123,7 @@ impl BlockBehaviour for StairBlock {
                         StairsShape::InnerLeft => StairsShape::InnerLeft,
                         StairsShape::OuterRight => StairsShape::OuterLeft,
                     };
-                    return BlockState::from_id(stair_props.to_state_id(block));
+                    return BlockState::from_id(stair_state(block, &stair_props));
                 }
             }
             Mirror::None => {}
@@ -178,7 +190,44 @@ fn compute_stair_shape(
 
 fn get_stair_properties_if_exists(world: &World, block_pos: &BlockPos) -> Option<StairsProperties> {
     let (block, block_state) = world.get_block_and_state_id(block_pos);
-    block
-        .has_tag(&tag::Block::MINECRAFT_STAIRS)
-        .then(|| StairsProperties::from_state_id(block_state))
+    if !block.has_tag(&tag::Block::MINECRAFT_STAIRS) {
+        return None;
+    }
+    stair_properties(block, block_state)
+}
+
+fn stair_properties(block: &Block, state: BlockStateId) -> Option<StairsProperties> {
+    if StairsProperties::handles_block_id(block.id) {
+        return Some(StairsProperties::from_state_id(state));
+    }
+    let props = block.properties(state)?.to_props();
+    let [
+        Property::Facing(facing),
+        Property::Half(half),
+        Property::StairsShape(shape),
+        Property::Waterlogged(waterlogged),
+    ] = props.as_slice()
+    else {
+        return None;
+    };
+    let facing = match facing {
+        Facing::North => HorizontalFacing::North,
+        Facing::East => HorizontalFacing::East,
+        Facing::South => HorizontalFacing::South,
+        Facing::West => HorizontalFacing::West,
+        Facing::Up | Facing::Down => return None,
+    };
+    Some(StairsProperties {
+        facing,
+        half: *half,
+        shape: *shape,
+        waterlogged: *waterlogged,
+    })
+}
+
+fn stair_state(block: &Block, props: &StairsProperties) -> BlockStateId {
+    if StairsProperties::handles_block_id(block.id) {
+        return props.to_state_id(block);
+    }
+    block.from_properties(&props.to_props()).to_state_id(block)
 }
