@@ -48,6 +48,7 @@ use pumpkin_data::tag;
 use pumpkin_data::tag::Taggable;
 use pumpkin_protocol::codec::recipe::{DynamicRecipe, OwnedCraftingRecipe};
 use pumpkin_protocol::java::server::play::SlotActionType;
+use sha2::{Digest, Sha256};
 
 // Opt-in from the native Polymorph mod during startup. Without the mod, a
 // right-click on a crafting output retains vanilla Pickup semantics.
@@ -1078,18 +1079,61 @@ pub fn match_crafting_recipe_with<T>(
     result
 }
 
-/// Stable *engine-generated* identity of a matching recipe. Vanilla's
-/// generated crafting table lacks the source recipe identifier, so the
-/// index in its immutable compiled definition table is explicitly named as
-/// a surrogate, never misrepresented as Mojang's recipe resource location.
-/// Dynamic datapack definitions retain their real recipe IDs when provided.
+/// The compiled vanilla recipe table intentionally lacks Mojang's source IDs.
+/// Hash the *definition*, not its table position, so adding/reordering
+/// generated recipes does not redirect a persisted Crafter choice to another
+/// recipe after a binary upgrade. This is always an explicitly synthetic ID.
+fn generated_crafting_identity(recipe: &CraftingRecipeTypes) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"moddedmc-generated-crafting-v2\0");
+    digest.update(
+        serde_json::to_vec(recipe)
+            .expect("generated vanilla recipe must serialize deterministically"),
+    );
+
+    // RecipeResultStruct's generated Serialize implementation skips its
+    // data components. Include those separately, or changing a component
+    // could silently redirect a persisted machine choice to a new output.
+    let result = match recipe {
+        CraftingRecipeTypes::CraftingShaped { result, .. }
+        | CraftingRecipeTypes::CraftingShapeless { result, .. }
+        | CraftingRecipeTypes::CraftingTransmute { result, .. } => Some(result),
+        CraftingRecipeTypes::CraftingSpecial(special) => match special {
+            SpecialCraftingRecipe::Dye { result, .. }
+            | SpecialCraftingRecipe::Imbue { result, .. }
+            | SpecialCraftingRecipe::ShieldDecoration { result, .. }
+            | SpecialCraftingRecipe::BannerDuplicate { result, .. }
+            | SpecialCraftingRecipe::BookCloning { result, .. }
+            | SpecialCraftingRecipe::FireworkStar { result, .. }
+            | SpecialCraftingRecipe::FireworkStarFade { result, .. }
+            | SpecialCraftingRecipe::FireworkRocket { result, .. }
+            | SpecialCraftingRecipe::MapExtending { result, .. } => Some(result),
+            SpecialCraftingRecipe::RepairItem => None,
+        },
+        CraftingRecipeTypes::CraftingDecoratedPot { .. } => None,
+    };
+    if let Some(result) = result {
+        for (component, value) in result.components {
+            digest.update(component.to_name().as_bytes());
+            digest.update([0]);
+            digest.update(format!("{:?}", value.write_data()).as_bytes());
+            digest.update([0]);
+        }
+    }
+    let hash = digest.finalize();
+    let mut key = String::from("moddedmc:generated_crafting/v2/");
+    for byte in hash.iter().take(16) {
+        key.push_str(&format!("{byte:02x}"));
+    }
+    key
+}
+
+/// Stable synthetic identity for generated vanilla definitions, and authentic
+/// datapack recipe IDs when the dynamic provider supplies one.
 #[must_use]
 pub fn crafting_recipe_identity(definition: GenericRecipe<'_>) -> Option<String> {
     match definition {
-        GenericRecipe::Vanilla(recipe) => RECIPES_CRAFTING
-            .iter()
-            .position(|candidate| std::ptr::eq(candidate, recipe))
-            .map(|index| format!("moddedmc:generated_crafting/{index}")),
+        GenericRecipe::Vanilla(recipe) => Some(generated_crafting_identity(recipe)),
         GenericRecipe::Dynamic(
             OwnedCraftingRecipe::Shaped { recipe_id, .. }
             | OwnedCraftingRecipe::Shapeless { recipe_id, .. },
@@ -1598,7 +1642,10 @@ impl ScreenHandler for CraftingTableScreenHandler {
             && slot_index == 0
             && button == 1
             && action_type == SlotActionType::Pickup
-            && self.result_slot.as_ref().is_some_and(|slot| slot.cycle_recipe())
+            && self
+                .result_slot
+                .as_ref()
+                .is_some_and(|slot| slot.cycle_recipe())
         {
             // The stock client may have predicted a result Pickup. A full
             // authoritative revision resets the cursor while updating result.
@@ -1957,15 +2004,37 @@ mod tests {
     }
 
     #[test]
-    fn generated_vanilla_recipe_id_is_stable_and_explicitly_synthetic() {
+    fn generated_vanilla_recipe_id_follows_definition_not_table_ordinal() {
         assert!(RECIPES_CRAFTING.len() > 1);
+        let first = crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[0])).unwrap();
+        let second =
+            crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[1])).unwrap();
+        assert!(first.starts_with("moddedmc:generated_crafting/v2/"));
+        assert_eq!(first.len(), "moddedmc:generated_crafting/v2/".len() + 32);
+        assert_ne!(first, second);
+        // The definitions have moved to new indices and addresses, but their
+        // durable identities have not changed.
+        let reordered = [RECIPES_CRAFTING[1].clone(), RECIPES_CRAFTING[0].clone()];
         assert_eq!(
-            crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[0])).as_deref(),
-            Some("moddedmc:generated_crafting/0")
+            first,
+            crafting_recipe_identity(GenericRecipe::Vanilla(&reordered[1])).unwrap()
         );
         assert_eq!(
-            crafting_recipe_identity(GenericRecipe::Vanilla(&RECIPES_CRAFTING[1])).as_deref(),
-            Some("moddedmc:generated_crafting/1")
+            second,
+            crafting_recipe_identity(GenericRecipe::Vanilla(&reordered[0])).unwrap()
+        );
+        let mut altered = RECIPES_CRAFTING[0].clone();
+        if let CraftingRecipeTypes::CraftingShaped {
+            show_notification, ..
+        } = &mut altered
+        {
+            *show_notification = !*show_notification;
+        } else {
+            panic!("first fixture should be a shaped crafting recipe");
+        }
+        assert_ne!(
+            first,
+            crafting_recipe_identity(GenericRecipe::Vanilla(&altered)).unwrap()
         );
     }
 
