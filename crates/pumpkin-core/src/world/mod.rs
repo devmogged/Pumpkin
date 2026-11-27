@@ -6248,11 +6248,8 @@ impl World {
             crate::block::drop_loot(self, broken_block, position, true, &params);
         }
 
-        let new_state_id = if *self.get_fluid(position) == Fluid::WATER {
-            Block::WATER.default_state.id
-        } else {
-            Block::AIR.default_state.id
-        };
+        let (_, fluid) = self.get_fluid_and_fluid_state(position);
+        let new_state_id = fluid.block_state_id;
 
         let broken_state_id = self.set_block_state(position, new_state_id, flags);
         self.broadcast_destroy_block_particles(position, broken_state_id, new_state_id, cause);
@@ -6374,11 +6371,8 @@ impl World {
         }
 
         flags.insert(BlockFlags::SKIP_DROPS);
-        let new_state_id = if *self.get_fluid(position) == Fluid::WATER {
-            Block::WATER.default_state.id
-        } else {
-            Block::AIR.default_state.id
-        };
+        let (_, fluid) = self.get_fluid_and_fluid_state(position);
+        let new_state_id = fluid.block_state_id;
 
         let broken_state_id = self.set_block_state(position, new_state_id, flags);
         let broken_block = Block::from_state_id(broken_state_id);

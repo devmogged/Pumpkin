@@ -191,6 +191,7 @@ use pumpkin_data::data_component_impl::EquipmentSlot;
 use pumpkin_data::fluid::Fluid;
 use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
+use pumpkin_data::sound::SoundCategory;
 use pumpkin_data::tag::{self, Taggable};
 use pumpkin_data::{Block, BlockDirection, BlockId, BlockState};
 use pumpkin_inventory::screen_handler::ScreenHandlerFactory;
@@ -926,6 +927,30 @@ impl BlockRegistry {
                 block_id: format!("minecraft:{}", placed_block.name),
             },
         );
+
+        let sound = world.get_block_state(&final_block_pos).get_sound_type();
+        let position = final_block_pos.to_centered_f64();
+        let volume = (sound.volume + 1.0) * 0.5;
+        let pitch = sound.pitch * 0.8;
+        if placed_block.id.as_u16() >= BlockId::COUNT {
+            // The stock client cannot predict placement from a custom item's paper carrier.
+            world.play_sound_fine(
+                sound.place_sound,
+                SoundCategory::Blocks,
+                &position,
+                volume,
+                pitch,
+            );
+        } else {
+            world.play_sound_raw_expect(
+                player,
+                sound.place_sound as u16,
+                SoundCategory::Blocks,
+                &position,
+                volume,
+                pitch,
+            );
+        }
 
         Ok(Some((final_block_pos, new_state)))
     }
