@@ -12,7 +12,7 @@ use pumpkin_data::advancement_data::{
 use pumpkin_data::{ADVANCEMENT_TREE, Advancement, translation};
 use pumpkin_protocol::bedrock::server::text::SText;
 use pumpkin_protocol::java::client::play::{
-    CSelectAdvancementsTab, CSystemChatMessage, CUpdateAdvancements,
+    CRecipeBookUnlock, CSelectAdvancementsTab, CSystemChatMessage, CUpdateAdvancements,
 };
 use pumpkin_util::identifier::Identifier;
 use pumpkin_util::text::TextComponent;
@@ -564,6 +564,15 @@ impl PlayerAdvancement {
     /// Grants the rewards (like experience) associated with completing an advancement.
     pub fn grant_reward(player: &Arc<Player>, reward: &'static AdvancementReward) {
         player.add_experience_points(reward.experience);
+        if !reward.recipes.is_empty()
+            && let Some(server) = player.world().server.upgrade()
+        {
+            let dynamic_recipes = server.recipe_manager.get_dynamic_recipes_internal();
+            player.try_send_client_packet(&CRecipeBookUnlock {
+                dynamic_recipes: &dynamic_recipes,
+                recipe_ids: reward.recipes,
+            });
+        }
     }
 
     /// Records a criterion award while the player's advancement state is locked.
