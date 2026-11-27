@@ -202,7 +202,9 @@ impl dyn EntityBase + '_ {
             .find(|(_, rider)| rider.get_entity().entity_id == passenger.entity_id)
             .map(|(index, rider)| (index, rider.clone()))?;
         let seat = self
-            .passenger_attachment_point(rider.as_ref(), index)
+            .get_entity()
+            .custom_seat(index)
+            .or_else(|| self.passenger_attachment_point(rider.as_ref(), index))
             .or_else(|| default_passenger_attachment_point(self, index))?;
         Some(self.get_entity().pos.load() + seat)
     }
@@ -1451,8 +1453,9 @@ pub fn position_rider(vehicle: &dyn EntityBase, passenger: &dyn EntityBase) {
     else {
         return;
     };
-    let Some(seat) = vehicle
-        .passenger_attachment_point(passenger, index)
+    let Some(seat) = vehicle_entity
+        .custom_seat(index)
+        .or_else(|| vehicle.passenger_attachment_point(passenger, index))
         .or_else(|| default_passenger_attachment_point(vehicle, index))
     else {
         return;
@@ -1639,6 +1642,8 @@ pub struct Entity {
     pub removal_reason: AtomicCell<Option<RemovalReason>>,
     // The passengers that entity has
     pub passengers: std::sync::Mutex<Vec<Arc<dyn EntityBase>>>,
+    custom_seats: std::sync::Mutex<Vec<Option<[f64; 3]>>>,
+    custom_dismount: std::sync::Mutex<Vec<[f64; 3]>>,
     /// The vehicle that entity is in
     pub vehicle: std::sync::Mutex<Option<Weak<dyn EntityBase>>>,
     /// The entity this entity is attached/leashed to (if any)
@@ -1936,6 +1941,8 @@ impl Entity {
             was_in_powder_snow: AtomicBool::new(false),
             removal_reason: AtomicCell::new(None),
             passengers: std::sync::Mutex::new(Vec::new()),
+            custom_seats: std::sync::Mutex::new(Vec::new()),
+            custom_dismount: std::sync::Mutex::new(Vec::new()),
             vehicle: std::sync::Mutex::new(None),
             leashed_to: std::sync::Mutex::new(None),
             delayed_leash: std::sync::Mutex::new(None),
@@ -5455,6 +5462,53 @@ impl Entity {
         world.spawn_entity(Arc::new(item_entity));
     }
 
+    /// Override a passenger's default attachment using a yaw-relative offset in blocks.
+    pub fn set_custom_seat(&self, index: usize, offset: [f64; 3]) {
+        let mut seats = self
+            .custom_seats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if seats.len() <= index {
+            seats.resize(index + 1, None);
+        }
+        seats[index] = Some(offset);
+    }
+
+    fn custom_seat(&self, index: usize) -> Option<Vector3<f64>> {
+        let seats = self
+            .custom_seats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let offset = seats.get(index).copied().flatten()?;
+        Some(attachment_point(offset, 1.0, self.yaw.load()))
+    }
+
+    /// Set preferred local dismount candidates; unsafe positions are skipped at dismount.
+    pub fn set_custom_dismount(&self, offsets: Vec<[f64; 3]>) {
+        *self
+            .custom_dismount
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = offsets;
+    }
+
+    fn custom_dismount_position(&self, passenger: &Self, world: &World) -> Option<Vector3<f64>> {
+        let offsets = self
+            .custom_dismount
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let origin = self.pos.load();
+        let yaw = self.yaw.load();
+        offsets.iter().find_map(|&offset| {
+            let target = origin + attachment_point(offset, 1.0, yaw);
+            let block = BlockPos(Vector3::new(
+                target.x.floor() as i32,
+                target.y.floor() as i32,
+                target.z.floor() as i32,
+            ));
+            dismount_helper::find_safe_dismount_location(passenger.entity_type, world, &block, true)
+        })
+    }
+
     pub fn has_passengers(&self) -> bool {
         !self
             .passengers
@@ -5919,7 +5973,10 @@ impl Entity {
             let fallback_pos =
                 Vector3::new(self.pos.load().x, vehicle_box.max.y, self.pos.load().z);
 
-            let dismount_pos = if is_water {
+            let custom_pos = self.custom_dismount_position(passenger_entity, &world);
+            let dismount_pos = if let Some(position) = custom_pos {
+                position
+            } else if is_water {
                 fallback_pos
             } else {
                 // Vanilla checks Standing, Crouching, Swimming poses and their respective height checks
