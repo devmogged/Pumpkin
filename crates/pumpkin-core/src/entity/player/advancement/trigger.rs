@@ -89,7 +89,9 @@ pub enum AdvancementTrigger {
     EnchantedItem {
         levels: i32,
     },
-    BrewedPotion,
+    BrewedPotion {
+        potion: Option<String>,
+    },
     ItemDurabilityChanged {
         item_id: String,
         vehicle_type: Option<String>,
@@ -608,8 +610,10 @@ impl Player {
                 self.trigger_criterion_event("minecraft:enchanted_item", |_cond| true);
             }
 
-            AdvancementTrigger::BrewedPotion => {
-                self.trigger_criterion_event("minecraft:brewed_potion", |_cond| true);
+            AdvancementTrigger::BrewedPotion { potion } => {
+                self.trigger_criterion_event("minecraft:brewed_potion", |cond| {
+                    cond.matches_brewed_potion(potion.as_deref())
+                });
             }
 
             AdvancementTrigger::ItemDurabilityChanged {
