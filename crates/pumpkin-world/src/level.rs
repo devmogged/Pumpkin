@@ -89,7 +89,7 @@ pub struct Level {
     chunk_watchers: Arc<DashMap<Vector2<i32>, usize>>,
 
     pub chunk_saver: Arc<ChunkSaver>,
-    entity_saver: Arc<EntitySaver>,
+    pub entity_saver: Arc<EntitySaver>,
 
     pub world_gen: ArcSwap<WorldGenerator>,
     pub dimension_type_id: i32,
@@ -972,6 +972,16 @@ impl Level {
         }
     }
 
+    /// Flush all staged entity-chunk records and sync their region files. Transactional world
+    /// drops use this before acknowledging their durable participant journal.
+    pub async fn flush_entity_chunks(&self) {
+        self.entity_saver.flush_all().await;
+    }
+
+    pub async fn flush_entity_chunks_checked(&self) -> Result<(), crate::chunk::ChunkWritingError> {
+        self.entity_saver.flush_all_checked().await
+    }
+
     pub fn is_chunk_loaded(&self, coordinates: &Vector2<i32>) -> bool {
         self.loaded_chunks.contains_key(coordinates)
     }
@@ -1010,6 +1020,15 @@ impl Level {
         self.loaded_entity_chunks
             .get(pos)
             .map(|x| x.value().clone())
+    }
+
+    /// Whether the entity chunk has completed its first-watcher load and its serialized
+    /// entities have been consumed into the live world entity list. A cached/generated entity
+    /// chunk is not live until that transition completes.
+    #[must_use]
+    pub fn is_entity_chunk_live(&self, pos: &Vector2<i32>) -> bool {
+        self.get_entity_chunk_sync(pos)
+            .is_some_and(|chunk| chunk.live.load(Ordering::Acquire))
     }
 
     #[must_use]

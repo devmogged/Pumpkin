@@ -222,6 +222,17 @@ impl Inventory for DropperBlockEntity {
         pumpkin_inventory::update_locked_stack(&self.items, slot, update)
     }
 
+    fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        pumpkin_inventory::try_update_locked_stack(&self.items, slot, update)
+    }
+
+    fn try_update_inventory(
+        &self,
+        update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        pumpkin_inventory::try_update_locked_inventory(&self.items, update)
+    }
+
     fn mark_dirty(&self) {
         self.dirty.store(true, Ordering::Relaxed);
         self.comparator_dirty.store(true, Ordering::Relaxed);

@@ -337,6 +337,50 @@ macro_rules! impl_inventory_for_cooking {
                 self.comparator_dirty.store(true, Ordering::Relaxed);
             }
 
+            fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+                let Ok(mut items) = self.items.try_write() else {
+                    return false;
+                };
+                let Some(stack) = items.get_mut(slot) else {
+                    return false;
+                };
+                let mut next = stack.clone();
+                if !update(&mut next) {
+                    return false;
+                }
+                let same = !next.is_empty() && ItemStack::are_items_and_components_equal(stack, &next);
+                *stack = next;
+                self.on_stack_set(slot, same, stack);
+                true
+            }
+
+            fn try_update_inventory(
+                &self,
+                update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+            ) -> bool {
+                let Ok(mut items) = self.items.try_write() else {
+                    return false;
+                };
+                let before = items.clone();
+                let mut next = before.clone();
+                if !update(before.as_slice(), next.as_mut_slice()) {
+                    return false;
+                }
+                for (slot, stack) in next.iter().enumerate() {
+                    if !(before[slot].is_empty() && stack.is_empty())
+                        && (before[slot].item_count != stack.item_count
+                            || !ItemStack::are_items_and_components_equal(&before[slot], stack))
+                    {
+                        let same = slot == 0
+                            && !stack.is_empty()
+                            && ItemStack::are_items_and_components_equal(&before[slot], stack);
+                        items[slot] = stack.clone();
+                        self.on_stack_set(slot, same, &items[slot]);
+                    }
+                }
+                true
+            }
+
             fn is_valid_slot_for(&self, slot: usize, stack: &ItemStack) -> bool {
                 match slot {
                     2 => false,
@@ -345,6 +389,20 @@ macro_rules! impl_inventory_for_cooking {
                         .is_some()
                         || (stack.item.id == pumpkin_data::item::Item::BUCKET.id
                             && self.get_stack(1).item.id != pumpkin_data::item::Item::BUCKET.id),
+                    _ => slot < Self::INVENTORY_SIZE,
+                }
+            }
+
+            fn is_valid_slot_for_inventory(
+                &self, slot: usize, stack: &ItemStack, inventory: &[ItemStack],
+            ) -> bool {
+                match slot {
+                    2 => false,
+                    1 => stack
+                        .get_data_component::<pumpkin_data::data_component_impl::CookingFuelImpl>()
+                        .is_some()
+                        || (stack.item.id == pumpkin_data::item::Item::BUCKET.id
+                            && inventory.get(1).is_some_and(|current| current.item.id != pumpkin_data::item::Item::BUCKET.id)),
                     _ => slot < Self::INVENTORY_SIZE,
                 }
             }

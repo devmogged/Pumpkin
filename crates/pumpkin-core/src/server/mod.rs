@@ -108,6 +108,9 @@ pub struct Server {
     container_id: AtomicU32,
     pub recipe_manager: Arc<recipe::RecipeManager>,
     pub datapack_manager: Arc<crate::data::datapack::DatapackManager>,
+    /// Spawn modifiers resolved at world startup from enabled datapacks.
+    pub biome_spawn_additions:
+        Vec<pumpkin_world::generation::worldgen_overrides::BiomeSpawnAddition>,
     pub enchantment_manager: Arc<enchantment::EnchantmentManager>,
     /// Assigns unique IDs to maps.
     map_id: AtomicI32,
@@ -307,6 +310,7 @@ impl Server {
             WorldgenOverrides::from_packs(packs.iter().map(|pack| pack.root_path.as_path()));
         let biomes = datapack_manager.get_dynamic_registry_entries("minecraft:worldgen/biome");
         worldgen.set_biome_tags(datapack_manager.worldgen_biome_tags(&biomes));
+        let biome_spawn_additions = worldgen.spawn_additions(&biomes);
         if worldgen.has_biome_generation_overrides() {
             worldgen.set_block_tags(datapack_manager.worldgen_block_tags());
             worldgen
@@ -369,6 +373,7 @@ impl Server {
             container_id: 0.into(),
             recipe_manager,
             datapack_manager,
+            biome_spawn_additions,
             enchantment_manager: Arc::new(enchantment::EnchantmentManager::new()),
             map_id: level_info.load().map_id.into(),
             worlds: ArcSwap::from_pointee(vec![]),
@@ -732,8 +737,10 @@ impl Server {
         id: &uuid::Uuid,
     ) -> Option<(Arc<World>, Option<pumpkin_nbt::compound::NbtCompound>)> {
         let first_world = self.worlds.load().first().cloned()?;
-        let Ok(Some(data)) = self.player_data_storage.load_data(id) else {
-            return Some((first_world, None));
+        let data = match self.player_data_storage.load_data(id) {
+            Ok(Some(data)) => data,
+            Ok(None) => return Some((first_world, None)),
+            Err(_) => return None,
         };
         let Some(dimension_key) = data.get_string("Dimension") else {
             return Some((first_world, Some(data)));
@@ -775,9 +782,17 @@ impl Server {
 
         if let Some(mut nbt_data) = nbt {
             player.read_nbt(&mut nbt_data);
+            if !self
+                .player_data_storage
+                .recover_player(&player, Some(&nbt_data))
+            {
+                return None;
+            }
             // The data file itself proves this is a returning player. Older Bedrock
             // sessions could persist HasPlayedBefore as false and mask a valid Pos.
             player.has_played_before.store(true, Ordering::Relaxed);
+        } else if !self.player_data_storage.recover_player(&player, None) {
+            return None;
         }
 
         // Wrap in Arc after data is loaded

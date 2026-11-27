@@ -898,6 +898,12 @@ pub trait StructureGenerator {
 pub trait HeightSampler {
     fn estimate_height(&mut self, block_x: i32, block_z: i32) -> i32;
 
+    /// Vanilla's scattered-feature terrain anchor uses
+    /// `MOTION_BLOCKING_NO_LEAVES`, not `WORLD_SURFACE`.
+    fn estimate_motion_blocking_no_leaves_height(&mut self, block_x: i32, block_z: i32) -> i32 {
+        self.estimate_height(block_x, block_z)
+    }
+
     fn estimate_ocean_floor_height(&mut self, block_x: i32, block_z: i32) -> i32 {
         self.estimate_height(block_x, block_z)
     }

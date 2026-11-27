@@ -90,6 +90,17 @@ impl Inventory for SimpleInventory {
         crate::update_locked_stack(&self.stacks, slot, update)
     }
 
+    fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        crate::try_update_locked_stack(&self.stacks, slot, update)
+    }
+
+    fn try_update_inventory(
+        &self,
+        update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        crate::try_update_locked_inventory(&self.stacks, update)
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -6,7 +6,7 @@ use pumpkin_data::{
 };
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_util::{
-    BlockDirection, HeightMap,
+    BlockDirection,
     math::{block_box::BlockBox, position::BlockPos},
     random::{
         RandomDeriverImpl, RandomGenerator, RandomImpl, hash_block_pos, legacy_rand::LegacyRand,
@@ -50,9 +50,28 @@ impl StructureGenerator for DesertPyramidGenerator {
         );
         piece.set_facing(Some(facing));
 
+        // Match ShiftableStructurePiece.adjustToMinHeight: anchor the
+        // structure to the lowest pre-decoration motion-blocking column of
+        // its complete footprint, not the first chunk that happens to execute
+        // its feature stage.
+        let mut ground_height = None;
+        if let Some(sampler) = context.height_sampler.as_deref_mut() {
+            let bb = piece.bounding_box;
+            let mut lowest = i32::MAX;
+            for z in bb.min.z..=bb.max.z {
+                for x in bb.min.x..=bb.max.x {
+                    lowest = lowest.min(sampler.estimate_motion_blocking_no_leaves_height(x, z));
+                }
+            }
+            if lowest != i32::MAX {
+                ground_height = Some(lowest);
+            }
+        }
+
         let mut collector = StructurePiecesCollector::default();
         collector.add_piece(Box::new(DesertPyramidPiece {
             piece,
+            ground_height,
             height_adjusted: false,
             has_placed_chest: [false; 4],
         }));
@@ -66,6 +85,7 @@ impl StructureGenerator for DesertPyramidGenerator {
 
 pub struct DesertPyramidPiece {
     piece: StructurePiece,
+    ground_height: Option<i32>,
     height_adjusted: bool,
     has_placed_chest: [bool; 4],
 }
@@ -75,32 +95,6 @@ impl DesertPyramidPiece {
         let mut props = WhiteWoolStairsLikeProperties::default(&Block::SANDSTONE_STAIRS);
         props.facing = facing;
         BlockState::from_id(props.to_state_id(&Block::SANDSTONE_STAIRS))
-    }
-
-    fn adjust_height(&mut self, chunk: &ProtoChunk, random: &mut RandomGenerator) -> bool {
-        if self.height_adjusted {
-            return true;
-        }
-
-        let ground_offset = -(random.next_bounded_i32(3));
-        let bb = self.piece.bounding_box;
-        let mut lowest = i32::MAX;
-
-        for z in bb.min.z..=bb.max.z {
-            for x in bb.min.x..=bb.max.x {
-                let y = chunk.get_top_y(&HeightMap::MotionBlockingNoLeaves, x, z);
-                lowest = lowest.min(y);
-            }
-        }
-
-        if lowest == i32::MAX {
-            return false;
-        }
-
-        let shift_y = lowest - self.piece.bounding_box.min.y + ground_offset;
-        self.piece.bounding_box.move_pos(0, shift_y, 0);
-        self.height_adjusted = true;
-        true
     }
 
     fn place_sand(
@@ -195,8 +189,11 @@ impl DesertPyramidPiece {
             return;
         }
 
+        // The deferred chest loot seed comes from its own block-position
+        // random, not from the mutable feature-step generator. In particular,
+        // hash_block_pos uses wrapping i32 multiplication for the x term.
         let world_pos = self.piece.offset_pos(x, y, z);
-        let mut random = RandomGenerator::Legacy(LegacyRand::from_seed(hash_block_pos(
+        let mut chest_random = RandomGenerator::Legacy(LegacyRand::from_seed(hash_block_pos(
             world_pos.x,
             world_pos.y,
             world_pos.z,
@@ -205,7 +202,7 @@ impl DesertPyramidPiece {
         if self.piece.add_chest(
             chunk,
             bb,
-            &mut random,
+            &mut chest_random,
             x,
             y,
             z,
@@ -535,21 +532,24 @@ impl StructurePieceBase for DesertPyramidPiece {
         &mut self,
         chunk: &mut ProtoChunk,
         _block_registry: &dyn crate::world::WorldPortalExt,
-        random: &mut RandomGenerator,
+        _random: &mut RandomGenerator,
         seed: i64,
         chunk_box: &BlockBox,
     ) {
-        use pumpkin_util::random::xoroshiro128::Xoroshiro;
-
-        if !self.adjust_height(chunk, random) {
-            return;
+        if !self.height_adjusted {
+            if let Some(height) = self.ground_height {
+                let shift = height + 1 - self.piece.bounding_box.min.y;
+                self.piece.bounding_box.move_pos(0, shift, 0);
+            }
+            self.height_adjusted = true;
         }
+
+        use pumpkin_util::random::xoroshiro128::Xoroshiro;
 
         let origin = self.piece.bounding_box.min;
         let mut level_random = RandomGenerator::Xoroshiro(Xoroshiro::from_seed(seed as u64));
         let splitter = level_random.next_splitter();
         let mut level_random = splitter.split_pos(origin.x, origin.y, origin.z);
-
         let bb = chunk_box;
         let ss = Block::SANDSTONE.default_state;
         let air = Block::AIR.default_state;

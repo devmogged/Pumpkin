@@ -293,6 +293,17 @@ impl Inventory for BarrelBlockEntity {
         pumpkin_inventory::update_locked_stack(&self.items, slot, update)
     }
 
+    fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        pumpkin_inventory::try_update_locked_stack(&self.items, slot, update)
+    }
+
+    fn try_update_inventory(
+        &self,
+        update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        pumpkin_inventory::try_update_locked_inventory(&self.items, update)
+    }
+
     fn on_open(&self) {
         self.viewers.open_container();
     }

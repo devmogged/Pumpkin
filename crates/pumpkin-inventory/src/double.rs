@@ -37,6 +37,25 @@ impl DoubleInventory {
     pub fn new(first: Arc<dyn Inventory>, second: Arc<dyn Inventory>) -> Arc<Self> {
         Arc::new(Self { first, second })
     }
+
+    /// Resolve a logical slot to the physical inventory that owns it.
+    /// Separate wrappers around the same chest halves must not be treated as
+    /// separate transaction participants.
+    pub fn physical_slot(&self, slot: usize) -> Option<(Arc<dyn Inventory>, usize)> {
+        let (inventory, slot) = if slot < self.first.size() {
+            (&self.first, slot)
+        } else {
+            (&self.second, slot - self.first.size())
+        };
+        if slot >= inventory.size() {
+            return None;
+        }
+        if let Some(double) = inventory.as_any().downcast_ref::<Self>() {
+            double.physical_slot(slot)
+        } else {
+            Some((inventory.clone(), slot))
+        }
+    }
 }
 
 impl Inventory for DoubleInventory {
@@ -92,6 +111,14 @@ impl Inventory for DoubleInventory {
     fn on_open(&self) {
         self.first.on_open();
         self.second.on_open();
+    }
+
+    fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        if slot >= self.first.size() {
+            self.second.try_update_stack(slot - self.first.size(), update)
+        } else {
+            self.first.try_update_stack(slot, update)
+        }
     }
 
     fn on_close(&self) {

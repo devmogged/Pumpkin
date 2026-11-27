@@ -24,6 +24,7 @@ pub struct NoiseHeightSampler<'a> {
     preliminary: SurfaceHeightEstimateSampler<'a>,
     heights: FxHashMap<(i32, i32), i32>,
     ocean_floor_heights: FxHashMap<(i32, i32), i32>,
+    motion_blocking_no_leaves_heights: FxHashMap<(i32, i32), i32>,
     columns: FxHashMap<(i32, i32), (i32, Vec<&'static BlockState>)>,
 }
 
@@ -43,6 +44,7 @@ impl<'a> NoiseHeightSampler<'a> {
             preliminary,
             heights: FxHashMap::default(),
             ocean_floor_heights: FxHashMap::default(),
+            motion_blocking_no_leaves_heights: FxHashMap::default(),
             columns: FxHashMap::default(),
         }
     }
@@ -133,6 +135,23 @@ impl HeightSampler for NoiseHeightSampler<'_> {
         let height = self.sample_column(block_x, block_z, false);
         self.heights.insert(key, height);
         height
+    }
+
+    fn estimate_motion_blocking_no_leaves_height(&mut self, block_x: i32, block_z: i32) -> i32 {
+        if let Some(height) = self.motion_blocking_no_leaves_heights.get(&(block_x, block_z)) {
+            return *height;
+        }
+        self.ensure_column_sampled(block_x, block_z);
+        let value = self.columns.get(&(block_x, block_z)).map_or(0, |(min_y, blocks)| {
+            blocks.iter().enumerate().rev().find_map(|(idx, &state)| {
+                let block = BlockId::from_state_id(state.id);
+                let motion_blocking = blocks_movement(state, block) || state.is_liquid();
+                (motion_blocking && !block.has_tag(pumpkin_data::tag::Block::MINECRAFT_LEAVES))
+                    .then_some(*min_y + idx as i32 + 1)
+            }).unwrap_or(*min_y)
+        });
+        self.motion_blocking_no_leaves_heights.insert((block_x, block_z), value);
+        value
     }
 
     fn estimate_ocean_floor_height(&mut self, block_x: i32, block_z: i32) -> i32 {

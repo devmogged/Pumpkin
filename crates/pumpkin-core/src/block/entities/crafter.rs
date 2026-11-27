@@ -312,7 +312,8 @@ impl CrafterBlockEntity {
     }
 
     pub fn set_slot_state(&self, slot: usize, enabled: bool) {
-        if self.slot_can_be_disabled(slot) {
+        let items = self.items.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot < Self::INVENTORY_SIZE && items[slot].is_empty() {
             let mut disabled = self
                 .disabled_slots
                 .write()
@@ -438,28 +439,95 @@ impl Inventory for CrafterBlockEntity {
     }
 
     fn set_stack(&self, slot: usize, stack: ItemStack) {
-        if self.is_slot_disabled(slot) {
-            self.set_slot_state(slot, true);
-        }
         let mut items = self
             .items
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.disabled_slots.write().unwrap_or_else(std::sync::PoisonError::into_inner)[slot] = false;
         items[slot] = stack;
         self.mark_dirty();
     }
 
     fn update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
-        let changed = pumpkin_inventory::update_locked_stack(&self.items, slot, update);
-        // Like `set_stack`, a write re-enables the slot.
-        if changed && self.is_slot_disabled(slot) {
-            // `set_slot_state` refuses a filled slot, and the update already filled it.
-            self.disabled_slots
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)[slot] = false;
+        let mut items = self.items.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(current) = items.get_mut(slot) else { return false; };
+        let mut trial = current.clone();
+        if !update(&mut trial) { return false; }
+        self.disabled_slots.write().unwrap_or_else(std::sync::PoisonError::into_inner)[slot] = false;
+        *current = trial;
+        self.mark_dirty();
+        true
+    }
+
+    fn try_update_inventory(
+        &self,
+        update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        let Ok(_craft) = self.craft_transaction.try_lock() else {
+            return false;
+        };
+        let committed = pumpkin_inventory::try_update_locked_inventory(
+            &self.items,
+            &mut |before, after| {
+                if !update(before, after) {
+                    return false;
+                }
+                let changed_slots =
+                    before
+                        .iter()
+                        .zip(after.iter())
+                        .enumerate()
+                        .filter_map(|(slot, (old, new))| {
+                            (!(old.is_empty() && new.is_empty())
+                                && (old.item_count != new.item_count
+                                    || !old.are_items_and_components_equal(new)))
+                                .then_some(slot)
+                        });
+                let mut disabled = self.disabled_slots.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for slot in changed_slots {
+                    disabled[slot] = false;
+                }
+                true
+            },
+        );
+        if committed {
             self.mark_dirty();
         }
-        changed
+        committed
+    }
+
+    fn is_valid_slot_for_inventory(
+        &self,
+        slot: usize,
+        _stack: &ItemStack,
+        items: &[ItemStack],
+    ) -> bool {
+        if slot >= Self::INVENTORY_SIZE || self.is_slot_disabled(slot) {
+            return false;
+        }
+        let existing = &items[slot];
+        let count = existing.item_count;
+        if count >= existing.get_max_stack_size() {
+            return false;
+        }
+        if existing.is_empty() {
+            return true;
+        }
+        let disabled = self
+            .disabled_slots
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for other_slot in (slot + 1)..Self::INVENTORY_SIZE {
+            if !disabled[other_slot] {
+                let other = &items[other_slot];
+                if other.is_empty()
+                    || (other.item_count < count && other.are_items_and_components_equal(existing))
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// Vanilla `CrafterBlockEntity.canPlaceItem`: hoppers spread items, a slot only takes more while

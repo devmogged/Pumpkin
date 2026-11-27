@@ -82,14 +82,34 @@ impl Slot for MenuSlot {
     }
 }
 
-struct PlayerSnapshot {
+/// Exact player-side inventory state for a proposed mod-menu mutation.
+///
+/// The snapshot is captured before touching the live inventory. A persistence
+/// coordinator can serialize both sides of a transfer without taking locks on
+/// the live player while the click's compare-and-swap is in progress.
+pub struct PlayerSnapshot {
     main: [ItemStack; PlayerInventory::MAIN_SIZE],
     equipment: EntityEquipment,
     selected: u8,
 }
 
 impl PlayerSnapshot {
-    fn capture(inventory: &PlayerInventory) -> Self {
+    #[must_use]
+    pub fn main(&self) -> &[ItemStack; PlayerInventory::MAIN_SIZE] {
+        &self.main
+    }
+
+    #[must_use]
+    pub fn equipment(&self) -> &EntityEquipment {
+        &self.equipment
+    }
+
+    #[must_use]
+    pub const fn selected(&self) -> u8 {
+        self.selected
+    }
+
+    pub fn capture(inventory: &PlayerInventory) -> Self {
         let main = inventory
             .main_inventory
             .read()
@@ -127,7 +147,7 @@ impl PlayerSnapshot {
         self,
         inventory: &PlayerInventory,
         expected: &Self,
-        persist: impl FnOnce() -> bool,
+        persist: impl FnOnce(&Self) -> bool,
     ) -> bool {
         let mut equipment = inventory
             .entity_equipment
@@ -149,7 +169,7 @@ impl PlayerSnapshot {
                     .get(slot)
                     .is_none_or(|other| !same_stack(stack, other))
             })
-            || !persist()
+            || !persist(&self)
         {
             return false;
         }
@@ -193,8 +213,23 @@ fn same_stacks(left: &[ItemStack], right: &[ItemStack]) -> bool {
             .all(|(left, right)| same_stack(left, right))
 }
 
-pub type PersistMenu =
-    dyn Fn(&dyn InventoryPlayer, &[ItemStack], &[ItemStack]) -> bool + Send + Sync;
+/// A complete proposed transfer, including the cursor and any deferred drops.
+///
+/// A successful callback authorizes the in-memory commit. A callback that
+/// persists only `after_container` without also durably coordinating the
+/// player and cursor states does **not** provide crash atomicity.
+pub struct MenuTransfer<'a> {
+    pub before_container: &'a [ItemStack],
+    pub after_container: &'a [ItemStack],
+    pub overflow: &'a [ItemStack],
+    pub before_player: &'a PlayerSnapshot,
+    pub after_player: &'a PlayerSnapshot,
+    pub before_cursor: &'a ItemStack,
+    pub after_cursor: &'a ItemStack,
+    pub drops: &'a [ItemStack],
+}
+
+pub type PersistMenu = dyn Fn(&dyn InventoryPlayer, &MenuTransfer<'_>) -> bool + Send + Sync;
 pub type ValidateMenu = dyn Fn(&dyn InventoryPlayer) -> bool + Send + Sync;
 
 /// Runs a vanilla click against trial slots. A failed write preserves the live inventories,
@@ -207,6 +242,7 @@ pub struct NativeMenu {
     trial_inventory: Arc<SimpleInventory>,
     trial_player: Arc<PlayerInventory>,
     persist: Arc<PersistMenu>,
+    persist_player_only: bool,
     validity: Option<Arc<ValidateMenu>>,
     actions: Vec<(usize, MenuAction)>,
     pending_action: Option<MenuAction>,
@@ -265,6 +301,7 @@ impl NativeMenu {
             trial_inventory,
             trial_player,
             persist,
+            persist_player_only: false,
             validity: None,
             actions: Vec::new(),
             pending_action: None,
@@ -275,6 +312,11 @@ impl NativeMenu {
 
     pub fn set_validity(&mut self, validity: Arc<ValidateMenu>) {
         self.validity = Some(validity);
+    }
+
+    /// Opt in only for a host that jointly commits the player and container.
+    pub fn persist_player_only(&mut self) {
+        self.persist_player_only = true;
     }
 
     pub fn set_slot_action(&mut self, index: usize, action: MenuAction) -> bool {
@@ -387,8 +429,27 @@ impl NativeMenu {
         let after = PlayerSnapshot::capture(&self.trial_player);
         let mut effects = Vec::new();
         after.record_equipment_changes(&before, &self.player_inventory, &mut effects);
-        if !after.commit(&self.player_inventory, &before, || {
-            (self.persist)(player, &proposed, &displaced)
+        let cursor = self
+            .inner
+            .get_behaviour()
+            .cursor_stack
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if !after.commit(&self.player_inventory, &before, |after_player| {
+            (self.persist)(
+                player,
+                &MenuTransfer {
+                    before_container: &stored,
+                    after_container: &proposed,
+                    overflow: &displaced,
+                    before_player: &before,
+                    after_player,
+                    before_cursor: &cursor,
+                    after_cursor: &cursor,
+                    drops: &[],
+                },
+            )
         }) {
             drop(stored);
             self.refresh();
@@ -529,8 +590,42 @@ impl ScreenHandler for NativeMenu {
         let changed = !same_stacks(&stored, &proposed);
         let after = PlayerSnapshot::capture(&self.trial_player);
         after.record_equipment_changes(&before, &self.player_inventory, &mut effects);
-        let committed = after.commit(&self.player_inventory, &before, || {
-            !changed || (self.persist)(player, &proposed, &[])
+        let new_cursor = cursor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let drops: Vec<_> = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                SlotClickEffect::Drop(stack, _) => Some(stack.clone()),
+                SlotClickEffect::Equipment(_, _) => None,
+            })
+            .collect();
+        let player_changed = !same_stacks(&before.main, &after.main)
+            || before.selected != after.selected
+            || before.equipment.equipment.len() != after.equipment.equipment.len()
+            || before
+                .equipment
+                .equipment
+                .iter()
+                .any(|(slot, stack)| !same_stack(stack, &after.equipment.get(slot)))
+            || !same_stack(&old_cursor, &new_cursor)
+            || !drops.is_empty();
+        let committed = after.commit(&self.player_inventory, &before, |after_player| {
+            (!changed && !(self.persist_player_only && player_changed))
+                || (self.persist)(
+                    player,
+                    &MenuTransfer {
+                        before_container: &stored,
+                        after_container: &proposed,
+                        overflow: &[],
+                        before_player: &before,
+                        after_player,
+                        before_cursor: &old_cursor,
+                        after_cursor: &new_cursor,
+                        drops: &drops,
+                    },
+                )
         });
         if committed {
             if changed {
@@ -544,6 +639,12 @@ impl ScreenHandler for NativeMenu {
         if committed {
             for effect in effects {
                 effect.apply(player);
+            }
+            if std::env::var("MODDEDMC_CRASH_AT")
+                .is_ok_and(|selected| selected == "menu_after_gameplay_publication")
+            {
+                tracing::error!("Injected process termination after native menu publication");
+                std::process::abort();
             }
         } else {
             self.refresh();

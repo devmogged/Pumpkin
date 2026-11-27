@@ -508,6 +508,17 @@ impl pumpkin_inventory::Inventory for BrewingStandBlockEntity {
         pumpkin_inventory::update_locked_stack(&self.items, slot, update)
     }
 
+    fn try_update_stack(&self, slot: usize, update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        pumpkin_inventory::try_update_locked_stack(&self.items, slot, update)
+    }
+
+    fn try_update_inventory(
+        &self,
+        update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        pumpkin_inventory::try_update_locked_inventory(&self.items, update)
+    }
+
     fn on_open(&self) {}
 
     fn on_close(&self) {}
@@ -522,6 +533,11 @@ impl pumpkin_inventory::Inventory for BrewingStandBlockEntity {
     }
 
     fn is_valid_slot_for(&self, slot: usize, stack: &ItemStack) -> bool {
+        let items = self.items.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.is_valid_slot_for_inventory(slot, stack, items.as_slice())
+    }
+
+    fn is_valid_slot_for_inventory(&self, slot: usize, stack: &ItemStack, inventory: &[ItemStack]) -> bool {
         if stack.is_empty() {
             return false;
         }
@@ -529,7 +545,7 @@ impl pumpkin_inventory::Inventory for BrewingStandBlockEntity {
         match slot {
             // Slots 0-2: valid potion input, only when the bottle slot is currently empty.
             0..=2 => {
-                self.get_stack(slot).is_empty()
+                inventory.get(slot).is_some_and(ItemStack::is_empty)
                     && (pumpkin_inventory::brewing::brewing_screen_handler::is_potion_item(
                         stack.get_item(),
                     ) || BREWING_RECIPES

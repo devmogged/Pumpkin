@@ -40,6 +40,29 @@ pub struct RuntimeNoiseSettings {
     pub(crate) surface_rule: Option<&'static MaterialRule>,
 }
 
+/// Resolved NeoForge biome spawn addition. Entity registration and placement
+/// rules belong to the embedder; this layer only resolves datapack metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BiomeSpawnAddition {
+    pub biome: u16,
+    pub entity: String,
+    pub weight: i32,
+    pub min_count: i32,
+    pub max_count: i32,
+    pub placement: SpawnPlacement,
+}
+
+/// Declarative placement for mod mobs whose vanilla carriers have different
+/// spawn restrictions. The carrier still supplies vanilla darkness and caps.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpawnPlacement {
+    pub floor: Option<String>,
+    #[serde(default)]
+    pub clear_air: u8,
+    pub min_height_offset: Option<i32>,
+}
+
 /// Merged worldgen resources from enabled datapacks in priority order.
 #[derive(Default)]
 pub struct WorldgenOverrides {
@@ -48,6 +71,7 @@ pub struct WorldgenOverrides {
     dimension_type_ids: BTreeMap<String, i32>,
     biomes: BTreeMap<String, PathBuf>,
     biome_modifiers: BTreeMap<String, PathBuf>,
+    spawn_placements: BTreeMap<String, PathBuf>,
     carvers: BTreeMap<String, PathBuf>,
     configured_features: BTreeMap<String, PathBuf>,
     placed_features: BTreeMap<String, PathBuf>,
@@ -92,6 +116,11 @@ impl WorldgenOverrides {
                     &prefix,
                     &mut overrides.biome_modifiers,
                 );
+                index_json(
+                    &namespace.path().join("moddedmc/spawn_placement"),
+                    &prefix,
+                    &mut overrides.spawn_placements,
+                );
                 for (kind, registry) in [
                     ("biome", &mut overrides.biomes),
                     ("carver", &mut overrides.carvers),
@@ -125,6 +154,127 @@ impl WorldgenOverrides {
     /// Saves the merged tags at the biome IDs installed for this world generation run.
     pub fn set_biome_tags(&mut self, tags: BTreeMap<String, Vec<u16>>) {
         self.biome_tags = tags;
+    }
+
+    /// Resolve add_spawns modifiers against the same merged biome registry
+    /// and tag membership used for worldgen. Each modifier is validated before
+    /// any of its entries are returned.
+    #[must_use]
+    pub fn spawn_additions(&self, registry: &[RegistryEntryData]) -> Vec<BiomeSpawnAddition> {
+        let mut additions = Vec::new();
+        for (name, path) in &self.biome_modifiers {
+            let result =
+                read_json(path).and_then(|json| self.resolve_spawn_modifier(&json, registry));
+            match result {
+                Ok(entries) => additions.extend(entries),
+                Err(error) => tracing::warn!("Skipping spawn modifier {name}: {error}"),
+            }
+        }
+        additions
+    }
+
+    fn resolve_spawn_modifier(
+        &self,
+        json: &Value,
+        registry: &[RegistryEntryData],
+    ) -> Result<Vec<BiomeSpawnAddition>, String> {
+        if json.get("type").and_then(Value::as_str) != Some("neoforge:add_spawns") {
+            return Ok(Vec::new());
+        }
+        #[derive(serde::Deserialize)]
+        struct Spawn {
+            #[serde(rename = "type")]
+            entity: String,
+            weight: i32,
+            #[serde(rename = "minCount")]
+            min_count: i32,
+            #[serde(rename = "maxCount")]
+            max_count: i32,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Spawns {
+            Single(Spawn),
+            Multiple(Vec<Spawn>),
+        }
+        #[derive(serde::Deserialize)]
+        struct Modifier {
+            biomes: HolderSetJson,
+            spawners: Spawns,
+        }
+        let modifier: Modifier = serde_json::from_value(json.clone()).map_err(|e| e.to_string())?;
+        let mut ids = BTreeSet::new();
+        for entry in modifier.biomes.entries() {
+            if let Some(tag) = entry.strip_prefix('#') {
+                let tag = resource_id(tag);
+                let members = self
+                    .biome_tags
+                    .get(tag.as_ref())
+                    .map(Vec::as_slice)
+                    .or_else(|| {
+                        pumpkin_data::tag::get_tag_ids(
+                            pumpkin_data::tag::RegistryKey::WorldgenBiome,
+                            &tag,
+                        )
+                    })
+                    .ok_or_else(|| format!("unknown biome tag {tag}"))?;
+                ids.extend(members.iter().copied());
+            } else {
+                let key = resource_id(entry);
+                let id = registry
+                    .iter()
+                    .position(|biome| resource_id(&biome.entry_id) == key)
+                    .and_then(|id| u16::try_from(id).ok())
+                    .ok_or_else(|| format!("unknown biome {entry}"))?;
+                ids.insert(id);
+            }
+        }
+        let spawns = match modifier.spawners {
+            Spawns::Single(spawn) => vec![spawn],
+            Spawns::Multiple(spawns) => spawns,
+        };
+        let mut result = Vec::new();
+        for spawn in spawns {
+            if spawn.weight <= 0
+                || spawn.weight > 1_000_000
+                || spawn.min_count <= 0
+                || spawn.max_count < spawn.min_count
+                || spawn.max_count > 128
+            {
+                return Err(format!(
+                    "invalid spawn weight or group size for {}",
+                    spawn.entity
+                ));
+            }
+            let entity = resource_id(&spawn.entity).into_owned();
+            let placement = if let Some(path) = self.spawn_placements.get(&entity) {
+                serde_json::from_value::<SpawnPlacement>(read_json(path)?)
+                    .map_err(|error| format!("spawn placement {entity}: {error}"))?
+            } else {
+                SpawnPlacement::default()
+            };
+            if placement.clear_air > 8
+                || placement
+                    .min_height_offset
+                    .is_some_and(|y| !(0..=4096).contains(&y))
+            {
+                return Err(format!("invalid placement for {entity}"));
+            }
+            for &biome in &ids {
+                if usize::from(biome) >= registry.len() {
+                    return Err(format!("unregistered biome ID {biome}"));
+                }
+                result.push(BiomeSpawnAddition {
+                    biome,
+                    entity: entity.clone(),
+                    weight: spawn.weight,
+                    min_count: spawn.min_count,
+                    max_count: spawn.max_count,
+                    placement: placement.clone(),
+                });
+            }
+        }
+        Ok(result)
     }
 
     /// Keeps the resolved block tag membership used to compile generation rules.

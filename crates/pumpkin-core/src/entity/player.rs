@@ -614,6 +614,9 @@ pub struct Player {
     pub client: Arc<ClientPlatform>,
     /// The player's inventory.
     pub inventory: Arc<PlayerInventory>,
+    /// Last jointly committed native inventory-menu transaction.
+    pub native_menu_checkpoint: AtomicCell<i64>,
+    pub native_menu_checkpoint_proof: AtomicCell<[u8; 32]>,
     /// The player's `EnderChest` inventory.
     pub ender_chest_inventory: Arc<EnderChestInventory>,
     /// The player's configuration settings. Changes when the player changes their settings.
@@ -716,6 +719,8 @@ pub struct Player {
     pub experience_progress: AtomicCell<f32>,
     /// The player's total experience points.
     pub experience_points: AtomicI32,
+    /// Serializes experience mutations, including mod actions that spend levels.
+    experience_mutation: Mutex<()>,
     pub item_cooldowns: std::sync::Mutex<HashMap<String, ItemCooldown>>,
     pub experience_pick_up_delay: Mutex<u32>,
     pub chunk_sender: Mutex<crate::net::ChunkSender>,
@@ -1054,10 +1059,13 @@ impl Player {
                     |op| AtomicCell::new(op.level),
                 ),
             inventory,
+            native_menu_checkpoint: AtomicCell::new(0),
+            native_menu_checkpoint_proof: AtomicCell::new([0; 32]),
             ender_chest_inventory,
             experience_level: AtomicI32::new(0),
             experience_progress: AtomicCell::new(0.0),
             experience_points: AtomicI32::new(0),
+            experience_mutation: Mutex::new(()),
             item_cooldowns: std::sync::Mutex::new(HashMap::new()),
             chunk_sender: Mutex::new(crate::net::ChunkSender::new()),
             chunk_listener: Mutex::new(world.level.chunk_listener.add_global_chunk_listener()),
@@ -6502,7 +6510,39 @@ impl Player {
 
     /// Sets the player's experience level and notifies the client.
     pub fn set_experience(&self, level: i32, progress: f32, points: i32) {
+        self.update_experience(|_, _, _| Some((level, progress, points)));
+    }
+
+    fn update_experience(
+        &self,
+        update: impl FnOnce(i32, f32, i32) -> Option<(i32, f32, i32)>,
+    ) -> bool {
+        let guard = self.experience_mutation.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let old_level = self.experience_level.load(Ordering::Relaxed);
+        let Some((level, progress, points)) = update(
+            old_level,
+            self.experience_progress.load(),
+            self.experience_points.load(Ordering::Relaxed),
+        ) else {
+            return false;
+        };
+        self.store_experience(level, progress, points);
+        drop(guard);
+        self.notify_experience(old_level, level);
+        true
+    }
+
+    fn store_experience(&self, level: i32, progress: f32, points: i32) {
+        self.experience_level.store(level, Ordering::Relaxed);
+        self.experience_progress.store(progress.clamp(0.0, 1.0));
+        self.experience_points.store(points, Ordering::Relaxed);
+        self.last_sent_xp.store(-1, Ordering::Relaxed);
+    }
+
+    fn notify_experience(&self, old_level: i32, level: i32) {
+        // Plugin callbacks may themselves change XP. Run them without the
+        // mutation lock, and synchronize the latest state, not a stale image.
         if old_level != level
             && let Some(server) = self.world().server.upgrade()
             && let Some(player_arc) = self.world().get_player_by_uuid(self.gameprofile.id)
@@ -6514,41 +6554,64 @@ impl Player {
             );
             server.plugin_manager.fire_blocking(&server, &mut event);
         }
-        // TODO: These should be atomic together, not isolated; make a struct containing these. can cause ABA issues
-        self.experience_level.store(level, Ordering::Relaxed);
-        self.experience_progress.store(progress.clamp(0.0, 1.0));
-        self.experience_points.store(points, Ordering::Relaxed);
-        self.last_sent_xp.store(-1, Ordering::Relaxed);
         self.tick_experience();
 
         if self.has_client_loaded() {
             self.try_send_client_packet(&CSetExperience::new(
-                progress.clamp(0.0, 1.0),
-                level.into(),
-                points.into(),
+                self.experience_progress.load().clamp(0.0, 1.0),
+                self.experience_level.load(Ordering::Relaxed).into(),
+                self.experience_points.load(Ordering::Relaxed).into(),
             ));
         }
     }
 
+    fn scale_experience_points(points: i32, old: i32, new: i32) -> i32 {
+        let old_max = experience::points_in_level(old).max(1);
+        let new_max = experience::points_in_level(new);
+        (points as f32 * (new_max as f32 / old_max as f32)) as i32
+    }
+
+    /// Execute a fallible inventory operation and pay for it exactly once.
+    /// No plugin callback runs until the XP and inventory mutation have
+    /// completed. The closure must not re-enter experience mutation.
+    pub fn try_with_experience_debit<R>(
+        &self,
+        cost: i32,
+        commit: impl FnOnce() -> Option<R>,
+    ) -> Option<R> {
+        if cost < 0 {
+            return None;
+        }
+        let guard = self.experience_mutation.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old = self.experience_level.load(Ordering::Relaxed);
+        let new = old.checked_sub(cost)?;
+        if new < 0 {
+            return None;
+        }
+        let result = commit()?;
+        if cost > 0 {
+            let progress = self.experience_progress.load();
+            let points = Self::scale_experience_points(
+                self.experience_points.load(Ordering::Relaxed), old, new,
+            );
+            self.store_experience(new, progress, points);
+        }
+        drop(guard);
+        if cost > 0 {
+            self.notify_experience(old, new);
+        }
+        Some(result)
+    }
+
     /// Sets the player's experience level directly.
     pub fn set_experience_level(&self, new_level: i32, keep_progress: bool) {
-        let progress = self.experience_progress.load();
-        let mut points = self.experience_points.load(Ordering::Relaxed);
-
-        // If `keep_progress` is `true` then calculate the number of points needed to keep the same progress scaled.
-        if keep_progress {
-            // Get our current level
-            let current_level = self.experience_level.load(Ordering::Relaxed);
-            let current_max_points = experience::points_in_level(current_level);
-            // Calculate the max value for the new level
-            let new_max_points = experience::points_in_level(new_level);
-            // Calculate the scaling factor
-            let scale = new_max_points as f32 / current_max_points as f32;
-            // Scale the points (Vanilla doesn't seem to recalculate progress so we won't)
-            points = (points as f32 * scale) as i32;
-        }
-
-        self.set_experience(new_level, progress, points);
+        self.update_experience(|current, progress, points| {
+            let points = if keep_progress {
+                Self::scale_experience_points(points, current, new_level)
+            } else { points };
+            Some((new_level, progress, points))
+        });
     }
 
     pub fn add_effect(&self, effect: Effect) {
@@ -6690,29 +6753,24 @@ impl Player {
 
     /// Add experience levels to the player.
     pub fn add_experience_levels(&self, added_levels: i32) {
-        let current_level = self.experience_level.load(Ordering::Relaxed);
-        let new_level = current_level + added_levels;
-        self.set_experience_level(new_level, true);
+        self.update_experience(|current, progress, points| {
+            let new = current.saturating_add(added_levels).max(0);
+            Some((new, progress, Self::scale_experience_points(points, current, new)))
+        });
     }
 
     /// Set the player's experience points directly. Returns `true` if successful.
     pub fn set_experience_points(&self, new_points: i32) -> bool {
-        let current_points = self.experience_points.load(Ordering::Relaxed);
-
-        if new_points == current_points {
-            return true;
-        }
-
-        let current_level = self.experience_level.load(Ordering::Relaxed);
-        let max_points = experience::points_in_level(current_level);
-
-        if new_points < 0 || new_points > max_points {
-            return false;
-        }
-
-        let progress = new_points as f32 / max_points as f32;
-        self.set_experience(current_level, progress, new_points);
-        true
+        self.update_experience(|current_level, progress, current_points| {
+            if new_points == current_points {
+                return Some((current_level, progress, current_points));
+            }
+            let max_points = experience::points_in_level(current_level);
+            if new_points < 0 || new_points > max_points {
+                return None;
+            }
+            Some((current_level, new_points as f32 / max_points as f32, new_points))
+        })
     }
 
     /// Add experience points to the player.
@@ -6724,17 +6782,14 @@ impl Player {
             added_points = event.amount;
         }
 
-        let current_level = self.experience_level.load(Ordering::Relaxed);
-        let current_points = self.experience_points.load(Ordering::Relaxed);
-
-        let total_exp = experience::points_to_level(current_level) as i64 + current_points as i64;
-        let new_total_exp = total_exp + added_points as i64;
-        let safe_new_total = new_total_exp.clamp(0, i32::MAX as i64) as i32;
-
-        let (new_level, new_points) = experience::total_to_level_and_points(safe_new_total);
-        let progress = experience::progress_in_level(new_points, new_level);
-
-        self.set_experience(new_level, progress, new_points);
+        self.update_experience(|current_level, _, current_points| {
+            let total_exp = experience::points_to_level(current_level) as i64 + current_points as i64;
+            let new_total_exp = total_exp + added_points as i64;
+            let safe_new_total = new_total_exp.clamp(0, i32::MAX as i64) as i32;
+            let (new_level, new_points) = experience::total_to_level_and_points(safe_new_total);
+            let progress = experience::progress_in_level(new_points, new_level);
+            Some((new_level, progress, new_points))
+        });
     }
 
     pub fn apply_mending_from_xp(&self, mut xp: i32) -> i32 {
@@ -6903,9 +6958,25 @@ impl Player {
         &self,
         screen_handler: &std::sync::Mutex<T>,
     ) {
+        // The carried stack is player state, including a cursor recovered
+        // before login. Share it across windows instead of orphaning it when
+        // a new handler is created. Never relock the base handler itself.
+        let cursor = if std::ptr::from_ref(screen_handler).cast::<()>()
+            == Arc::as_ptr(&self.player_screen_handler).cast::<()>()
+        {
+            None
+        } else {
+            Some(self.player_screen_handler
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_behaviour().cursor_stack.clone())
+        };
         let mut screen_handler = screen_handler
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cursor) = cursor {
+            screen_handler.get_behaviour_mut().cursor_stack = cursor;
+        }
 
         screen_handler.add_listener(self.screen_handler_listener.clone());
         screen_handler.update_sync_handler(self.screen_handler_sync_handler.clone());
@@ -8337,6 +8408,8 @@ impl EntityBase for Player {
     fn write_custom_nbt(&self, nbt: &mut NbtCompound) {
         self.write_shoulders(nbt);
         nbt.put_int("DataVersion", DATA_VERSION);
+        let xp_guard = self.experience_mutation.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.inventory.write_nbt(nbt);
         self.ender_chest_inventory.write_nbt(nbt);
 
@@ -8350,6 +8423,7 @@ impl EntityBase for Player {
         nbt.put_float("XpP", self.experience_progress.load());
         nbt.put_int("XpLevel", self.experience_level.load(Ordering::Relaxed));
         nbt.put_int("XpTotal", total_exp);
+        drop(xp_guard);
         nbt.put_int("XpSeed", self.enchantment_seed.load(Ordering::Relaxed));
         nbt.put_int("Score", self.score.load(Ordering::Relaxed));
         nbt.put_short("SleepTimer", self.sleeping_since.load().unwrap_or(0) as i16);

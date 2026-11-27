@@ -20,7 +20,7 @@ pub struct PlayerDataStorage {
     data_path: PathBuf,
     /// Whether player data saving is enabled
     save_enabled: bool,
-    file_access: RwLock<HashMap<Uuid, u64>>,
+    file_access: RwLock<HashMap<Uuid, (u64, i64)>>,
     next_snapshot: AtomicU64,
 }
 
@@ -30,6 +30,14 @@ pub enum PlayerDataError {
     Io(#[from] io::Error),
     #[error("NBT error: {0}")]
     Nbt(String),
+}
+
+/// Only Written proves that this particular snapshot replaced the disk file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotOutcome {
+    Written,
+    Superseded,
+    Disabled,
 }
 
 impl PlayerDataStorage {
@@ -134,6 +142,7 @@ impl PlayerDataStorage {
     /// A Result indicating success or the error that occurred.
     pub fn save_player_data(&self, uuid: &Uuid, data: NbtCompound) -> Result<(), PlayerDataError> {
         self.save_player_snapshot(uuid, self.reserve_snapshot(), data)
+            .map(|_| ())
     }
 
     /// Reserve the ordering for a player snapshot before serializing the player's state.
@@ -148,10 +157,10 @@ impl PlayerDataStorage {
         uuid: &Uuid,
         revision: u64,
         data: NbtCompound,
-    ) -> Result<(), PlayerDataError> {
+    ) -> Result<SnapshotOutcome, PlayerDataError> {
         // Skip saving if disabled in config
         if !self.is_save_enabled() {
-            return Ok(());
+            return Ok(SnapshotOutcome::Disabled);
         }
 
         let path = self.get_player_data_path(uuid);
@@ -162,6 +171,7 @@ impl PlayerDataStorage {
         }
 
         // Shutdown, disconnect and periodic saves can overlap for the same player.
+        let checkpoint = data.get_long("moddedmc:menu_checkpoint").unwrap_or(0);
         let mut pending = NamedTempFile::new_in(&self.data_path)?;
         if let Err(e) =
             pumpkin_nbt::nbt_compress::write_gzip_compound_tag(data, pending.as_file_mut())
@@ -169,19 +179,98 @@ impl PlayerDataStorage {
             error!("Failed to write compressed player data for {uuid}: {e}");
             return Err(PlayerDataError::Nbt(e.to_string()));
         }
+        pending.as_file().sync_all()?;
         let pending = pending.into_temp_path();
         // Windows may reject replacement while another handle to the destination is open.
         let mut saved = self
             .file_access
             .write()
             .unwrap_or_else(PoisonError::into_inner);
-        if saved.get(uuid).is_some_and(|latest| *latest >= revision) {
-            return Ok(());
+        if let Some(&(sequence, durable_checkpoint)) = saved.get(uuid) {
+            if sequence >= revision {
+                return Ok(SnapshotOutcome::Superseded);
+            }
+            if durable_checkpoint > checkpoint {
+                return Err(PlayerDataError::Nbt("player checkpoint regression".into()));
+            }
+        } else {
+            // The process-local sequence resets on restart. The durable
+            // transaction revision does not. Inspect the existing file under
+            // the same exclusion as replacement; never overwrite a corrupt
+            // or newer checkpoint on the first save of a new process.
+            match File::open(&path) {
+                Ok(file) => {
+                    let prior = pumpkin_nbt::nbt_compress::read_gzip_compound_tag(file)
+                        .map_err(|e| PlayerDataError::Nbt(e.to_string()))?;
+                    if prior.get("moddedmc:menu_checkpoint").is_some() {
+                        let durable = prior
+                            .get_long("moddedmc:menu_checkpoint")
+                            .filter(|value| *value > 0)
+                            .ok_or_else(|| {
+                                PlayerDataError::Nbt("invalid durable player checkpoint".into())
+                            })?;
+                        if durable > checkpoint {
+                            return Err(PlayerDataError::Nbt(
+                                "player checkpoint regression".into(),
+                            ));
+                        }
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error.into()),
+            }
         }
+        inject_player_save_crash("player_before_durable_replace");
         pending.persist(path).map_err(|e| e.error)?;
-        saved.insert(*uuid, revision);
+        inject_player_save_crash("player_after_durable_replace");
+        saved.insert(*uuid, (revision, checkpoint));
         debug!("Saved player data for {uuid} to disk");
-        Ok(())
+        Ok(SnapshotOutcome::Written)
+    }
+
+    /// Inspect the actual latest player file after a save was superseded.
+    /// The caller must never infer durability merely from snapshot ordering:
+    /// only a successfully decoded on-disk file proves the checkpoint reached
+    /// storage, and a newer image may contain a strictly newer checkpoint.
+    pub fn persisted_checkpoint_at_least(
+        &self,
+        uuid: &Uuid,
+        minimum: i64,
+        tag: &str,
+    ) -> Result<bool, PlayerDataError> {
+        Ok(minimum > 0
+            && self
+                .persisted_checkpoint_revision(uuid, tag)?
+                .is_some_and(|saved| saved >= minimum))
+    }
+
+    /// Read the revision from the player file which actually reached disk.
+    /// A missing checkpoint is not a durable acknowledgment. Invalid or
+    /// non-positive checkpoint data is an error, not permission to proceed.
+    pub fn persisted_checkpoint_revision(
+        &self,
+        uuid: &Uuid,
+        tag: &str,
+    ) -> Result<Option<i64>, PlayerDataError> {
+        if !self.is_save_enabled() {
+            return Ok(None);
+        }
+        let (exists, nbt) = self.load_player_data(uuid)?;
+        if !exists || nbt.get(tag).is_none() {
+            return Ok(None);
+        }
+        nbt.get_long(tag)
+            .filter(|revision| *revision > 0)
+            .map(Some)
+            .ok_or_else(|| PlayerDataError::Nbt("invalid persisted player checkpoint".into()))
+    }
+}
+
+/// Explicitly opt-in crash point used by the transaction recovery harness.
+fn inject_player_save_crash(boundary: &str) {
+    if std::env::var("MODDEDMC_CRASH_AT").is_ok_and(|selected| selected == boundary) {
+        error!("Injected process termination at {boundary}");
+        std::process::abort();
     }
 }
 
@@ -189,6 +278,7 @@ impl PlayerDataStorage {
 mod tests {
     use super::*;
     use pumpkin_nbt::tag::NbtTag;
+    use std::process::Command;
     use std::sync::Barrier;
 
     #[test]
@@ -202,14 +292,166 @@ mod tests {
         old.put("InventoryMarker", NbtTag::Int(1));
         let mut new = NbtCompound::new();
         new.put("InventoryMarker", NbtTag::Int(2));
-        storage
-            .save_player_snapshot(&player, new_revision, new.clone())
-            .unwrap();
-        storage
-            .save_player_snapshot(&player, old_revision, old)
-            .unwrap();
+        assert_eq!(
+            storage
+                .save_player_snapshot(&player, new_revision, new.clone())
+                .unwrap(),
+            SnapshotOutcome::Written
+        );
+        assert_eq!(
+            storage
+                .save_player_snapshot(&player, old_revision, old)
+                .unwrap(),
+            SnapshotOutcome::Superseded
+        );
         let (_, saved) = storage.load_player_data(&player).unwrap();
         assert_eq!(saved, new);
+    }
+
+    #[test]
+    fn superseded_save_requires_actual_checkpoint_on_disk() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = PlayerDataStorage::new(directory.path(), true);
+        let player = Uuid::new_v4();
+        let older = storage.reserve_snapshot();
+        let newer = storage.reserve_snapshot();
+        let mut first = NbtCompound::new();
+        first.put_long("moddedmc:menu_checkpoint", 7);
+        let mut latest = NbtCompound::new();
+        latest.put_long("moddedmc:menu_checkpoint", 9);
+        assert_eq!(
+            storage
+                .save_player_snapshot(&player, newer, latest)
+                .unwrap(),
+            SnapshotOutcome::Written
+        );
+        assert_eq!(
+            storage.save_player_snapshot(&player, older, first).unwrap(),
+            SnapshotOutcome::Superseded
+        );
+        assert!(
+            storage
+                .persisted_checkpoint_at_least(&player, 7, "moddedmc:menu_checkpoint")
+                .unwrap()
+        );
+        assert!(
+            storage
+                .persisted_checkpoint_at_least(&player, 9, "moddedmc:menu_checkpoint")
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .persisted_checkpoint_at_least(&player, 10, "moddedmc:menu_checkpoint")
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .persisted_checkpoint_at_least(&Uuid::new_v4(), 7, "moddedmc:menu_checkpoint")
+                .unwrap()
+        );
+        assert_eq!(
+            storage
+                .persisted_checkpoint_revision(&player, "moddedmc:menu_checkpoint")
+                .unwrap(),
+            Some(9)
+        );
+        assert_eq!(
+            storage
+                .persisted_checkpoint_revision(&Uuid::new_v4(), "moddedmc:menu_checkpoint")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn corrupt_checkpoint_cannot_be_acknowledged_as_durable() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = PlayerDataStorage::new(directory.path(), true);
+        let player = Uuid::new_v4();
+        let mut nbt = NbtCompound::new();
+        nbt.put_long("moddedmc:menu_checkpoint", -1);
+        storage.save_player_data(&player, nbt).unwrap();
+        assert!(
+            storage
+                .persisted_checkpoint_revision(&player, "moddedmc:menu_checkpoint")
+                .is_err()
+        );
+        assert!(
+            storage
+                .persisted_checkpoint_at_least(&player, 1, "moddedmc:menu_checkpoint")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn checkpoint_regression_is_rejected_across_storage_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let player = Uuid::new_v4();
+        let image = |revision| {
+            let mut nbt = NbtCompound::new();
+            nbt.put_long("moddedmc:menu_checkpoint", revision);
+            nbt
+        };
+        {
+            let storage = PlayerDataStorage::new(directory.path(), true);
+            storage.save_player_data(&player, image(7)).unwrap();
+            assert!(storage.save_player_data(&player, image(6)).is_err());
+        }
+        let storage = PlayerDataStorage::new(directory.path(), true);
+        assert!(storage.save_player_data(&player, image(6)).is_err());
+        assert_eq!(storage.load_player_data(&player).unwrap().1, image(7));
+        storage.save_player_data(&player, image(8)).unwrap();
+        assert_eq!(storage.load_player_data(&player).unwrap().1, image(8));
+        assert!(storage.save_player_data(&player, image(7)).is_err());
+    }
+
+    #[test]
+    fn player_save_crash_child_process() {
+        let (Ok(directory), Ok(uuid)) = (
+            std::env::var("MODDEDMC_PLAYER_CRASH_DIRECTORY"),
+            std::env::var("MODDEDMC_PLAYER_CRASH_UUID"),
+        ) else {
+            return;
+        };
+        let player = Uuid::parse_str(&uuid).unwrap();
+        let storage = PlayerDataStorage::new(directory, true);
+        let mut nbt = NbtCompound::new();
+        nbt.put_int("InventoryMarker", 2);
+        let _ = storage.save_player_data(&player, nbt);
+    }
+
+    #[test]
+    fn player_file_crash_points_terminate_a_real_child_and_preserve_replace_boundary()
+    -> std::io::Result<()> {
+        for (boundary, expected_marker) in [
+            ("player_before_durable_replace", 1),
+            ("player_after_durable_replace", 2),
+        ] {
+            let directory = tempfile::tempdir()?;
+            let player = Uuid::new_v4();
+            let storage = PlayerDataStorage::new(directory.path(), true);
+            let mut original = NbtCompound::new();
+            original.put_int("InventoryMarker", 1);
+            storage
+                .save_player_data(&player, original)
+                .map_err(std::io::Error::other)?;
+            let child = Command::new(std::env::current_exe()?)
+                .arg("--exact")
+                .arg("data::player_data::tests::player_save_crash_child_process")
+                .env("MODDEDMC_PLAYER_CRASH_DIRECTORY", directory.path())
+                .env("MODDEDMC_PLAYER_CRASH_UUID", player.to_string())
+                .env("MODDEDMC_CRASH_AT", boundary)
+                .output()?;
+            assert!(
+                !child.status.success(),
+                "{boundary} must abort the child process"
+            );
+            let (_, persisted) = storage
+                .load_player_data(&player)
+                .map_err(std::io::Error::other)?;
+            assert_eq!(persisted.get_int("InventoryMarker"), Some(expected_marker));
+        }
+        Ok(())
     }
 
     #[test]

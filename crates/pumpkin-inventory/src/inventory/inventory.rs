@@ -40,6 +40,34 @@ pub trait Inventory: Send + Sync + Clearable {
         changed
     }
 
+    /// Nonblocking, atomic slot update. Unsupported inventories fail closed.
+    /// Used while another inventory is locked; never wait for its lock.
+    fn try_update_stack(&self, _slot: usize, _update: &mut dyn FnMut(&mut ItemStack) -> bool) -> bool {
+        false
+    }
+
+    /// Nonblocking all-slot update for host-mediated multi-slot transactions.
+    /// Unsupported inventories fail closed. The callback receives a private
+    /// copy and is committed only when it returns true.
+    fn try_update_inventory(
+        &self,
+        _update: &mut dyn FnMut(&[ItemStack], &mut [ItemStack]) -> bool,
+    ) -> bool {
+        false
+    }
+
+    /// Slot predicate evaluated against a caller-held inventory snapshot.
+    /// Inventories with cross-slot placement rules override this instead of
+    /// recursively locking themselves from a multi-slot transaction.
+    fn is_valid_slot_for_inventory(
+        &self,
+        slot: usize,
+        stack: &ItemStack,
+        _inventory: &[ItemStack],
+    ) -> bool {
+        self.is_valid_slot_for(slot, stack)
+    }
+
     fn on_open(&self) {}
     fn on_close(&self) {}
 

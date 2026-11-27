@@ -3,15 +3,110 @@ use crate::{
     server::Server,
 };
 use crossbeam::atomic::AtomicCell;
+use pumpkin_data::item_stack::ItemStack;
 use pumpkin_inventory::screen_handler::ScreenHandler;
 use pumpkin_nbt::compound::NbtCompound;
-use pumpkin_world::data::player_data::{PlayerDataError, PlayerDataStorage};
-use std::sync::Arc;
+use pumpkin_world::data::player_data::{PlayerDataError, PlayerDataStorage, SnapshotOutcome};
+use std::sync::{Arc, OnceLock, PoisonError, TryLockError};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tracing::{debug, error};
+
+const MENU_CHECKPOINT: &str = "moddedmc:menu_checkpoint";
+const MENU_CURSOR: &str = "moddedmc:menu_cursor";
+const MENU_PROOF: &str = "moddedmc:menu_checkpoint_proof";
+fn read_proof(nbt: &NbtCompound) -> Option<[u8; 32]> {
+    if nbt.get(MENU_PROOF).is_none() {
+        return Some([0; 32]);
+    }
+    let encoded = nbt.get_string(MENU_PROOF)?;
+    if encoded.len() != 64 || !encoded.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut proof = [0; 32];
+    for (i, byte) in proof.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&encoded[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(proof)
+}
+fn has_orphaned_menu_metadata(nbt: &NbtCompound) -> bool {
+    nbt.get(MENU_CHECKPOINT).is_none()
+        && [MENU_PROOF, "moddedmc:menu_lineage", MENU_CURSOR]
+            .iter()
+            .any(|key| nbt.get(key).is_some())
+}
+type RecoverPlayerData = fn(&Player) -> bool;
+type PlayerDataSaved = fn(&Path, uuid::Uuid, i64, [u8; 32], &NbtCompound) -> bool;
+static PLAYER_DATA_HOOKS: OnceLock<(RecoverPlayerData, PlayerDataSaved)> = OnceLock::new();
+type SerializePlayerLineage = fn(&Path, uuid::Uuid, i64, [u8; 32], &mut NbtCompound) -> bool;
+static PLAYER_LINEAGE_HOOK: OnceLock<SerializePlayerLineage> = OnceLock::new();
+
+pub fn install_player_lineage_hook(hook: SerializePlayerLineage) -> bool {
+    PLAYER_LINEAGE_HOOK.set(hook).is_ok()
+}
+
+/// Register embedder recovery before player admission and acknowledgement after
+/// a complete player file has been replaced. A failed recovery denies login.
+pub fn install_player_data_hooks(recover: RecoverPlayerData, saved: PlayerDataSaved) -> bool {
+    PLAYER_DATA_HOOKS.set((recover, saved)).is_ok()
+}
+
+fn acknowledge(
+    root: &Path,
+    uuid: uuid::Uuid,
+    revision: i64,
+    proof: [u8; 32],
+    nbt: &NbtCompound,
+) -> Result<(), PlayerDataError> {
+    if revision > 0
+        && let Some((_, saved)) = PLAYER_DATA_HOOKS.get()
+    {
+        if !saved(root, uuid, revision, proof, nbt) {
+            return Err(PlayerDataError::Nbt(
+                "cannot acknowledge durable player checkpoint".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A superseding save is not itself an acknowledgement: inspect the newer
+/// durable player file and acknowledge only revisions it actually contains.
+fn acknowledge_snapshot(
+    storage: &PlayerDataStorage,
+    root: &Path,
+    uuid: uuid::Uuid,
+    revision: i64,
+    outcome: SnapshotOutcome,
+) -> Result<(), PlayerDataError> {
+    match outcome {
+        SnapshotOutcome::Written | SnapshotOutcome::Superseded if revision > 0 => {
+            // The file was replaced by this snapshot, but another save can
+            // replace it before a slow completion callback, or this attempt
+            // may itself have been superseded. The newest disk revision must
+            // be forwarded, never the stale snapshot revision.
+            let (exists, nbt) = storage.load_player_data(&uuid)?;
+            if exists {
+                let persisted = nbt
+                    .get_long(MENU_CHECKPOINT)
+                    .filter(|value| *value >= revision)
+                    .ok_or_else(|| {
+                        PlayerDataError::Nbt("missing or stale persisted checkpoint".into())
+                    })?;
+                let proof = read_proof(&nbt).ok_or_else(|| {
+                    PlayerDataError::Nbt("invalid persisted checkpoint proof".into())
+                })?;
+                acknowledge(root, uuid, persisted, proof, &nbt)?;
+            } else {
+                return Err(PlayerDataError::Nbt("missing persisted player file".into()));
+            }
+        }
+        SnapshotOutcome::Written | SnapshotOutcome::Superseded | SnapshotOutcome::Disabled => (),
+    }
+    Ok(())
+}
 
 /// Helper for managing player data in the server context.
 ///
@@ -30,6 +125,151 @@ impl ServerPlayerData {
             storage: Arc::new(PlayerDataStorage::new(data_path, enabled)),
             save_interval,
             last_save: AtomicCell::new(Instant::now()),
+        }
+    }
+
+    #[must_use]
+    pub fn is_save_enabled(&self) -> bool {
+        self.storage.is_save_enabled()
+    }
+
+    /// Restore the ordinary player file's menu revision and cursor, then let
+    /// the embedder recover any newer jointly committed inventory image.
+    pub fn recover_player(&self, player: &Player, nbt: Option<&NbtCompound>) -> bool {
+        if nbt.is_some_and(has_orphaned_menu_metadata) {
+            error!(
+                "Cannot admit player {} with orphaned native menu metadata",
+                player.gameprofile.id
+            );
+            return false;
+        }
+        if let Some(nbt) = nbt
+            && nbt.get(MENU_CHECKPOINT).is_some()
+        {
+            let Some(revision) = nbt
+                .get_long(MENU_CHECKPOINT)
+                .filter(|revision| *revision > 0)
+            else {
+                return false;
+            };
+            let cursor = if nbt.get(MENU_CURSOR).is_some() {
+                let Some(stack) = nbt
+                    .get_compound(MENU_CURSOR)
+                    .and_then(ItemStack::read_item_stack)
+                else {
+                    return false;
+                };
+                stack
+            } else {
+                ItemStack::EMPTY.clone()
+            };
+            let handler = player
+                .player_screen_handler
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            *handler
+                .get_behaviour()
+                .cursor_stack
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = cursor;
+            let Some(proof) = read_proof(nbt).filter(|proof| *proof != [0; 32]) else {
+                return false;
+            };
+            player.native_menu_checkpoint_proof.store(proof);
+            player.native_menu_checkpoint.store(revision);
+        }
+        if !PLAYER_DATA_HOOKS
+            .get()
+            .is_none_or(|(recover, _)| recover(player))
+        {
+            return false;
+        }
+        // A recovered journal image must reach the ordinary player file and
+        // retire before the player can perform unrelated gameplay mutations.
+        if player.native_menu_checkpoint.load()
+            > nbt
+                .and_then(|data| data.get_long(MENU_CHECKPOINT))
+                .unwrap_or(0)
+        {
+            if let Err(error) = self.extract_data_and_save_player(player) {
+                error!(
+                    "Cannot persist recovered player {}: {error}",
+                    player.gameprofile.id
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A menu click holds its screen lock from trial through inventory commit.
+    /// Capture the cursor and revision under the same lock as the inventory
+    /// image so a periodic save cannot acknowledge a half-applied click.
+    fn snapshot(&self, player: &Player) -> Result<(u64, NbtCompound), PlayerDataError> {
+        loop {
+            let screen = player
+                .current_screen_handler
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            let handler = screen.lock().unwrap_or_else(PoisonError::into_inner);
+            // Some screen operations take the active-screen lock first. Never
+            // wait on it while holding the individual handler lock.
+            let active = match player.current_screen_handler.try_lock() {
+                Ok(active) => active,
+                Err(TryLockError::Poisoned(error)) => error.into_inner(),
+                Err(TryLockError::WouldBlock) => continue,
+            };
+            if !Arc::ptr_eq(&screen, &active) {
+                continue;
+            }
+            let revision = self.storage.reserve_snapshot();
+            let mut nbt = NbtCompound::new();
+            player.write_nbt(&mut nbt);
+            let checkpoint = player.native_menu_checkpoint.load();
+            if checkpoint > 0 {
+                nbt.put_long(MENU_CHECKPOINT, checkpoint);
+                let proof = player.native_menu_checkpoint_proof.load();
+                if proof != [0; 32] {
+                    nbt.put_string(
+                        MENU_PROOF,
+                        proof
+                            .iter()
+                            .map(|byte| format!("{byte:02x}"))
+                            .collect::<String>(),
+                    );
+                }
+                let cursor = handler
+                    .get_behaviour()
+                    .cursor_stack
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                if !cursor.is_empty() {
+                    let encoded = cursor.to_nbt().ok_or_else(|| {
+                        PlayerDataError::Nbt("cannot encode nonempty menu cursor".to_string())
+                    })?;
+                    nbt.put_compound(MENU_CURSOR, encoded);
+                }
+            }
+            if checkpoint > 0 {
+                let Some(serialize) = PLAYER_LINEAGE_HOOK.get() else {
+                    return Err(PlayerDataError::Nbt(
+                        "menu checkpoint exists without a durable lineage serializer".into(),
+                    ));
+                };
+                if !serialize(
+                    &player.world().level.level_folder.root_folder,
+                    player.gameprofile.id,
+                    checkpoint,
+                    player.native_menu_checkpoint_proof.load(),
+                    &mut nbt,
+                ) {
+                    return Err(PlayerDataError::Nbt(
+                        "cannot serialize durable menu lineage".into(),
+                    ));
+                }
+            }
+            return Ok((revision, nbt));
         }
     }
 
@@ -72,10 +312,15 @@ impl ServerPlayerData {
             let mut snapshots = Vec::new();
             for world in server.worlds.load().iter() {
                 for player in world.players.load().iter() {
-                    let revision = self.storage.reserve_snapshot();
-                    let mut nbt = NbtCompound::new();
-                    player.write_nbt(&mut nbt);
-                    snapshots.push((player.gameprofile.id, revision, nbt));
+                    let (revision, nbt) = match self.snapshot(player) {
+                        Ok(snapshot) => snapshot,
+                        Err(e) => {
+                            error!("Cannot snapshot player {}: {e}", player.gameprofile.id);
+                            continue;
+                        }
+                    };
+                    let root = world.level.level_folder.root_folder.clone();
+                    snapshots.push((player.gameprofile.id, revision, root, nbt));
                 }
             }
 
@@ -87,9 +332,17 @@ impl ServerPlayerData {
             // The tick runs on a simulation thread with no Tokio context, so use the
             // server's runtime handle instead of `tokio::task::spawn_blocking`.
             server.runtime.spawn_blocking(move || {
-                for (uuid, revision, nbt) in snapshots {
-                    if let Err(e) = storage.save_player_snapshot(&uuid, revision, nbt) {
-                        error!("Failed to save player data for {uuid}: {e}");
+                for (uuid, revision, root, nbt) in snapshots {
+                    let checkpoint = nbt.get_long(MENU_CHECKPOINT).unwrap_or(0);
+                    match storage.save_player_snapshot(&uuid, revision, nbt) {
+                        Ok(outcome) => {
+                            if let Err(e) =
+                                acknowledge_snapshot(&storage, &root, uuid, checkpoint, outcome)
+                            {
+                                error!("Failed to verify saved checkpoint for {uuid}: {e}");
+                            }
+                        }
+                        Err(e) => error!("Failed to save player data for {uuid}: {e}"),
                     }
                 }
                 debug!("Periodic player data save completed");
@@ -143,11 +396,11 @@ impl ServerPlayerData {
                 if self.storage.is_save_enabled() {
                     // Only log as error if player data saving is enabled
                     error!("Error loading player data for {uuid}: {e}");
+                    return Err(e);
                 } else {
                     // Otherwise just log as info since it's expected
                     debug!("Not loading player data for {uuid} (saving disabled)");
                 }
-                // Continue with default data even if there's an error
                 Ok(None)
             }
         }
@@ -170,23 +423,56 @@ impl ServerPlayerData {
         }
 
         let uuid = player.gameprofile.id;
-        let revision = self.storage.reserve_snapshot();
-        let mut nbt = NbtCompound::new();
-        player.write_nbt(&mut nbt);
-
-        self.storage.save_player_snapshot(&uuid, revision, nbt)
+        let (revision, nbt) = self.snapshot(player)?;
+        let checkpoint = nbt.get_long(MENU_CHECKPOINT).unwrap_or(0);
+        let outcome = self.storage.save_player_snapshot(&uuid, revision, nbt)?;
+        acknowledge_snapshot(
+            &self.storage,
+            &player.world().level.level_folder.root_folder,
+            uuid,
+            checkpoint,
+            outcome,
+        )?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::data::player_server::ServerPlayerData;
-    use pumpkin_nbt::compound::NbtCompound;
+    use crate::data::player_server::{ServerPlayerData, has_orphaned_menu_metadata};
+    use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
     use pumpkin_world::data::player_data::PlayerDataStorage;
     use std::time::Duration;
     use std::time::Instant;
     use tempfile::tempdir;
     use uuid::Uuid;
+
+    #[test]
+    fn login_rejects_orphaned_native_menu_metadata_but_accepts_legacy_player_data() {
+        assert!(!has_orphaned_menu_metadata(&NbtCompound::new()));
+
+        let mut valid_checkpoint = NbtCompound::new();
+        valid_checkpoint.put_long("moddedmc:menu_checkpoint", 7);
+        valid_checkpoint.put_string("moddedmc:menu_checkpoint_proof", "00".repeat(32));
+        assert!(!has_orphaned_menu_metadata(&valid_checkpoint));
+
+        for (index, key) in [
+            "moddedmc:menu_checkpoint_proof",
+            "moddedmc:menu_lineage",
+            "moddedmc:menu_cursor",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut orphaned = NbtCompound::new();
+            match index {
+                0 => orphaned.put_string(key, "00".repeat(32)),
+                1 => orphaned.put(key, NbtTag::List(Vec::new())),
+                _ => orphaned.put_compound(key, NbtCompound::new()),
+            }
+            assert!(has_orphaned_menu_metadata(&orphaned), "orphaned {key}");
+        }
+    }
 
     #[tokio::test]
     async fn player_data_storage_new() {

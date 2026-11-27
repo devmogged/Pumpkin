@@ -141,6 +141,76 @@ mod tests {
         }
     }
 
+    /// Regression for a genuine structure-generated chest, before any mod conversion.
+    /// Exact seeded terrain and placement must match the saved vanilla baseline.
+    #[test]
+    fn seed_42_desert_pyramid_generates_authentic_chest() {
+        let world_gen = get_world_gen(
+            Seed(42),
+            Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let chunk = generate_single_chunk_with_radius(
+            &world_gen,
+            &BlockRegistry,
+            -86,
+            -110,
+            StagedChunkEnum::Features,
+            8,
+        );
+        let Chunk::Proto(chunk) = chunk else {
+            panic!("desert pyramid features must produce a proto chunk");
+        };
+        let pyramid_chests: Vec<_> = chunk
+            .pending_block_entities
+            .iter()
+            .filter(|nbt| nbt.get_string("LootTable") == Some("minecraft:chests/desert_pyramid"))
+            .collect();
+        assert_eq!(pyramid_chests.len(), 4, "expected four real pyramid chests");
+        let location = pumpkin_util::math::vector3::Vector3::new(-1366, 64, -1748);
+        let state = chunk.get_block_state(&location);
+        let actual = state.to_block_id();
+        let loot_positions: Vec<_> = chunk
+            .pending_block_entities
+            .iter()
+            .filter(|entity| {
+                entity.get_string("LootTable") == Some("minecraft:chests/desert_pyramid")
+            })
+            .map(|entity| {
+                (
+                    entity.get_int("x"),
+                    entity.get_int("y"),
+                    entity.get_int("z"),
+                    entity.get_long("LootTableSeed"),
+                )
+            })
+            .collect();
+        eprintln!("seed42 pyramid chests {loot_positions:?}");
+        assert_eq!(
+            actual,
+            pumpkin_data::Block::CHEST.id,
+            "seed 42 generated {:?} where the vanilla desert pyramid has a chest",
+            actual
+        );
+        let chest = chunk
+            .pending_block_entities
+            .iter()
+            .find(|nbt| {
+                nbt.get_int("x") == Some(location.x)
+                    && nbt.get_int("y") == Some(location.y)
+                    && nbt.get_int("z") == Some(location.z)
+            })
+            .expect("authentic chest must have pending NBT");
+        assert_eq!(chest.get_string("id"), Some("minecraft:chest"));
+        assert_eq!(
+            chest.get_string("LootTable"),
+            Some("minecraft:chests/desert_pyramid")
+        );
+        assert_eq!(chest.get_long("LootTableSeed"), Some(8451212618467398019));
+    }
+
     #[test]
     fn nether_lighting_clears_stale_sky_light_and_preserves_block_light() {
         use crate::chunk_system::Cache;

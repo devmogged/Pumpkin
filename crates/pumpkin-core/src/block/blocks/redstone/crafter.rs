@@ -54,7 +54,7 @@ impl ScreenHandlerFactory for CrafterScreenFactory {
         let container: Arc<dyn RecipeInputInventory> = self.crafter.clone();
         let property_delegate: Arc<dyn PropertyDelegate> = self.crafter.clone();
         let recipe_provider: Arc<dyn RecipeProvider> = self.recipe_manager.clone();
-        let handler = CrafterScreenHandler::new(
+        let mut handler = CrafterScreenHandler::new(
             sync_id,
             player_inventory,
             container,
@@ -62,6 +62,10 @@ impl ScreenHandlerFactory for CrafterScreenFactory {
             Some(recipe_provider),
             player.is_spectator(),
         );
+        // The choice belongs to the placed machine, not the previous viewer.
+        // New viewers (including after an NBT reload) must see the persisted
+        // recipe, or an empty preview when its definition became stale.
+        handler.refresh_selected_preview(self.crafter.selected_recipe().as_deref());
         let screen_handler_arc = Arc::new(Mutex::new(handler));
 
         Some(screen_handler_arc as SharedScreenHandler)

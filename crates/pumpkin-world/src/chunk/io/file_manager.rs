@@ -371,6 +371,40 @@ impl<R: RegionFile, D: SingleChunkDataSerializer> ChunkFileManager<R, D> {
             error!("Region flush task failed");
         }
     }
+
+    /// Flush every staged region with `sync=true` and propagate serialization, write and task
+    /// failures. Cross-participant transaction acknowledgments must not rely on logging-only IO.
+    pub async fn flush_all_checked(&self) -> Result<(), ChunkWritingError> {
+        let entries = self.entries();
+        let mut first_error = None;
+        for result in join_all(
+            entries
+                .iter()
+                .map(|entry| entry.save_pending(self.config.clone())),
+        )
+        .await
+        {
+            if let Err(error) = result {
+                first_error.get_or_insert(error);
+            }
+        }
+        let flush_result = run_blocking(move || {
+            let mut first_error = None;
+            for entry in entries {
+                if let Err(error) = entry.flush(true, false) {
+                    first_error.get_or_insert(ChunkWritingError::IoError(error));
+                }
+            }
+            first_error.map_or(Ok(()), Err)
+        })
+        .await
+        .map_err(|error| ChunkWritingError::IoError(std::io::Error::other(error.to_string())))?;
+        if let Err(error) = flush_result {
+            first_error.get_or_insert(error);
+        }
+        self.evict();
+        first_error.map_or(Ok(()), Err)
+    }
 }
 
 impl<R, D> FileIO for ChunkFileManager<R, D>
@@ -641,6 +675,16 @@ pub enum LevelFileIO<D> {
     Pump(ChunkFileManager<PumpFile, D>),
 }
 
+impl<D: SingleChunkDataSerializer> LevelFileIO<D> {
+    pub async fn flush_all_checked(&self) -> Result<(), ChunkWritingError> {
+        match self {
+            Self::Linear(io) => io.flush_all_checked().await,
+            Self::Anvil(io) => io.flush_all_checked().await,
+            Self::Pump(io) => io.flush_all_checked().await,
+        }
+    }
+}
+
 impl<D> FileIO for LevelFileIO<D>
 where
     D: SingleChunkDataSerializer + PathFromLevelFolder,
@@ -817,6 +861,40 @@ mod tests {
         let nbt = AnvilRegion::decode_chunk(reopened.read_chunk(0).unwrap().unwrap()).unwrap();
         let chunk = ChunkEntityData::from_bytes(&nbt, Vector2::new(0, 0)).unwrap();
         assert_eq!(*chunk.data.lock().unwrap(), vec![entity]);
+    }
+
+    #[tokio::test]
+    async fn checked_flush_reports_io_failure_and_retries_the_exact_pending_chunk() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let folder = folder(dir.path());
+        std::fs::write(&folder.entities_folder, b"not a directory").unwrap();
+        let manager =
+            ChunkFileManager::<AnvilRegion, ChunkEntityData>::new(AnvilChunkConfig::default());
+        let chunk = Arc::new(entity_chunk(9));
+        let mut entity = pumpkin_nbt::compound::NbtCompound::new();
+        entity.put_string("id", "minecraft:item".to_owned());
+        entity.put_int("Age", 42);
+        chunk.data.lock().unwrap().push(entity.clone());
+        assert!(
+            manager
+                .save_chunks(&folder, vec![(Vector2::new(9, 0), chunk.clone())])
+                .await
+                .is_err()
+        );
+        assert!(manager.flush_all_checked().await.is_err());
+        assert!(
+            chunk.is_dirty(),
+            "failed durable flush must retain the exact retry source"
+        );
+
+        std::fs::remove_file(&folder.entities_folder).unwrap();
+        std::fs::create_dir(&folder.entities_folder).unwrap();
+        manager.flush_all_checked().await.unwrap();
+        let path = folder.entities_folder.join("r.0.0.mca");
+        let region = AnvilRegion::open(&path, Vector2::new(0, 0)).unwrap();
+        let nbt = AnvilRegion::decode_chunk(region.read_chunk(9).unwrap().unwrap()).unwrap();
+        let saved = ChunkEntityData::from_bytes(&nbt, Vector2::new(9, 0)).unwrap();
+        assert_eq!(*saved.data.lock().unwrap(), vec![entity]);
     }
 
     #[tokio::test]

@@ -103,6 +103,12 @@ const MERGE_DISTANCE: f64 = 0.5;
 impl ItemEntity {
     pub const DEFAULT_PICKUP_DELAY: u8 = 10;
 
+    /// Set the vanilla pickup delay for a host-coordinated durable world drop.
+    pub fn set_pickup_delay_ticks(&self, ticks: i32) {
+        self.pickup_delay
+            .store(ticks.clamp(0, INFINITE_PICKUP_DELAY), Ordering::Relaxed);
+    }
+
     pub fn new(entity: Entity, item_stack: ItemStack) -> Self {
         // TODO: vanilla rolls velocity and yaw from the entity `random`; not seed-reproducible.
         entity.velocity.store(Vector3::new(

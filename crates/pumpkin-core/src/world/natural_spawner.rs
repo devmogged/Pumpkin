@@ -199,9 +199,10 @@ pub fn spawn_pending_generation(world: &Arc<World>) {
                 entity
                     .get_entity()
                     .set_rotation(rand::random::<f32>() * 360.0, 0.0);
-                if matches!(entry, SpawnEntry::Vanilla(..)) {
-                    finalize_spawn(&entity, world, EntitySpawnReason::ChunkGeneration, None);
-                }
+                // Embedder mobs use a vanilla carrier type, so they need the
+                // same source spawn finalization (variant, equipment and
+                // group initialization) as the carrier's vanilla counterpart.
+                finalize_spawn(&entity, world, EntitySpawnReason::ChunkGeneration, None);
                 world.spawn_entity_non_save(entity);
                 break;
             }
@@ -1040,14 +1041,8 @@ pub fn spawn_category_for_position(
                     });
 
                     if is_valid_for_mob {
-                        if matches!(entry, SpawnEntry::Vanilla(..)) {
-                            group_data = finalize_spawn(
-                                &entity,
-                                world,
-                                EntitySpawnReason::Natural,
-                                group_data,
-                            );
-                        }
+                        group_data =
+                            finalize_spawn(&entity, world, EntitySpawnReason::Natural, group_data);
                         cluster_size += 1;
                         group_size += 1;
                         let max_group_size_reached = entity

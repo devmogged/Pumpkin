@@ -50,8 +50,8 @@ mod tests {
 
     fn unopened() -> NbtCompound {
         let mut nbt = NbtCompound::new();
-        nbt.put_string("id", "minecraft:chest");
-        nbt.put_string("LootTable", "minecraft:chests/desert_pyramid");
+        nbt.put_string("id", "minecraft:chest".to_owned());
+        nbt.put_string("LootTable", "minecraft:chests/desert_pyramid".to_owned());
         nbt.put_long("LootTableSeed", 8451212618467398019);
         nbt
     }
@@ -60,7 +60,10 @@ mod tests {
     fn accepts_only_unopened_vanilla_single_chests() {
         let single = Block::CHEST.default_state.id;
         let base = unopened();
-        assert_eq!(ChestLikeProperties::from_state_id(single).r#type, ChestType::Single);
+        assert_eq!(
+            ChestLikeProperties::from_state_id(single).r#type,
+            ChestType::Single
+        );
         assert!(supported(single, &base));
         assert!(!supported(Block::TRAPPED_CHEST.default_state.id, &base));
         assert!(!supported(Block::BARREL.default_state.id, &base));
@@ -87,14 +90,14 @@ mod tests {
 
         for key in ["Lock", "lock"] {
             let mut locked = base.clone();
-            locked.put_string(key, "secret");
+            locked.put_string(key, "secret".to_owned());
             assert!(!supported(single, &locked));
         }
         let mut no_table = base.clone();
         no_table.child_tags.remove("LootTable");
         assert!(!supported(single, &no_table));
         let mut missing_id = base;
-        missing_id.put_string("id", "minecraft:barrel");
+        missing_id.put_string("id", "minecraft:barrel".to_owned());
         assert!(!supported(single, &missing_id));
     }
 }

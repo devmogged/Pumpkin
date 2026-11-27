@@ -849,6 +849,28 @@ impl World {
         }
     }
 
+    /// Persist the current entity snapshot for one live chunk after a durable transaction has
+    /// released a temporary pickup delay. The complete live chunk is included so unrelated item,
+    /// mob and vehicle entities in the same chunk are never overwritten by a partial snapshot.
+    pub async fn save_entity_chunk(&self, entity_uuid: Uuid) {
+        let Some(target) = self.get_entity_by_uuid(entity_uuid) else {
+            return;
+        };
+        let chunk_pos = target.get_entity().chunk_pos.load();
+        let entities = self.entities.load_full();
+        let snapshot: Vec<_> = entities
+            .iter()
+            .filter(|entity| entity.get_entity().chunk_pos.load() == chunk_pos)
+            .cloned()
+            .collect();
+        self.save_entities_by_chunk(&snapshot, [chunk_pos]).await;
+        if let Err(error) = self.level.flush_entity_chunks_checked().await {
+            tracing::error!(
+                "Could not persist released pickup delay for entity {entity_uuid}: {error}"
+            );
+        }
+    }
+
     fn save_block_entities(&self, chunk_pos: Vector2<i32>) {
         if let Some(chunk) = self.level.read_chunk_sync(&chunk_pos, Arc::clone) {
             self.snapshot_block_entities(&chunk);
@@ -7496,8 +7518,8 @@ impl World {
         destination: BlockStateId,
         replacement: Option<&NbtCompound>,
     ) -> bool {
-        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
         use crate::block::entities::content::ContentBlockEntity;
+        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
 
         if incarnation == 0 || expected_state == destination || !self.is_in_build_limit(*pos) {
             return false;
@@ -7906,8 +7928,7 @@ impl World {
         let start = if count > MAX_MIGRATIONS_PER_CHUNK_TICK {
             // World age is a persisted tick counter and supplies a stable,
             // lock-free rotation without another per-chunk cursor map.
-            usize::try_from(self.get_world_age().max(0)).unwrap_or(0)
-                % count
+            usize::try_from(self.get_world_age().max(0)).unwrap_or(0) % count
         } else {
             0
         };
@@ -8512,6 +8533,19 @@ impl World {
             self.save_block_entities(chunk_pos);
         }
 
+        // WorldSaveEvent consumers may acknowledge transactions spanning block inventories and
+        // item entities. Make both participant stores durable before firing the event; merely
+        // staging chunk snapshots would let a saved-data journal retire ahead of its participants.
+        let mut participants_durable = true;
+        if let Err(error) = self.level.chunk_saver.flush_all_checked().await {
+            tracing::error!("WorldSaveEvent withheld: block-chunk durability failed: {error}");
+            participants_durable = false;
+        }
+        if let Err(error) = self.level.flush_entity_chunks_checked().await {
+            tracing::error!("WorldSaveEvent withheld: entity-chunk durability failed: {error}");
+            participants_durable = false;
+        }
+
         if let Ok(mut portal_poi) = self.portal_poi.try_lock() {
             let _ = portal_poi.save_all();
         }
@@ -8537,11 +8571,13 @@ impl World {
             .store(true, std::sync::atomic::Ordering::Relaxed);
         self.level.level_channel.notify();
 
-        let mut save_event = crate::plugin::api::events::world::world_save::WorldSaveEvent::new(
-            format!("{:?}", self.dimension),
-        );
-        if let Some(server) = self.server.upgrade() {
-            server.plugin_manager.fire(&server, &mut save_event).await;
+        if participants_durable {
+            let mut save_event = crate::plugin::api::events::world::world_save::WorldSaveEvent::new(
+                format!("{:?}", self.dimension),
+            );
+            if let Some(server) = self.server.upgrade() {
+                server.plugin_manager.fire(&server, &mut save_event).await;
+            }
         }
     }
 
