@@ -556,7 +556,12 @@ impl EntitySelectorPredicate {
                     return false;
                 };
                 for (adv_id, expected_done) in advancements_map {
-                    if let Some(advancement) = Advancement::from_name(adv_id) {
+                    let id = if adv_id.contains(':') {
+                        adv_id.clone()
+                    } else {
+                        format!("minecraft:{adv_id}")
+                    };
+                    if let Some(advancement) = Advancement::from_minecraft_name(&id) {
                         let is_done = player.has_advancement(advancement);
                         if is_done != *expected_done {
                             return false;
