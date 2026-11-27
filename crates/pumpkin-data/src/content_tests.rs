@@ -3,6 +3,48 @@ use super::{
 };
 
 #[test]
+fn custom_physics_overrides_template_without_mutating_vanilla()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("registry.dat");
+    let properties = super::BlockPhysics {
+        hardness: 50.0,
+        blast_resistance: 50.0,
+        tool_required: true,
+        sound_type: Block::NETHERITE_BLOCK.default_state.sound_type,
+    };
+    let registry = Registry::open_with_properties(
+        &file,
+        &[definition("test:alloy")],
+        &[],
+        |_, _| None,
+        |_| Some(properties),
+    )?;
+    let block = registry.block("test:alloy").ok_or("missing alloy")?;
+    assert_eq!(block.hardness, 50.0);
+    assert_eq!(block.blast_resistance, 50.0);
+    assert_eq!(block.default_state.hardness, 50.0);
+    assert!(block.default_state.tool_required());
+    assert_eq!(block.default_state.sound_type, properties.sound_type);
+    assert_eq!(Block::NETHERITE_BLOCK.blast_resistance, 1200.0);
+    let invalid = super::BlockPhysics {
+        hardness: f32::NAN,
+        ..properties
+    };
+    assert!(
+        Registry::open_with_properties(
+            &file,
+            &[definition("test:alloy")],
+            &[],
+            |_, _| None,
+            |_| Some(invalid),
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::error::Error>> {
     let world = tempfile::tempdir()?;
     let file = world.path().join("moddedmc/registry.dat");
@@ -87,6 +129,45 @@ fn a_slab_can_copy_a_different_blocks_material() -> Result<(), Box<dyn std::erro
     assert_eq!(state.get_sound_type().name, "CALCITE");
     assert_eq!(state.hardness, 1.25);
     assert_eq!(block.blast_resistance, 0.75);
+    assert_eq!(block.map_color, MapColor::TERRACOTTA_YELLOW.id);
+    Ok(())
+}
+
+#[test]
+fn explicit_physics_preserve_material_and_collision() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::map_color::MapColor;
+
+    let world = tempfile::tempdir()?;
+    let mut slab = definition("test:alloy_slab");
+    slab.states[0].physical = Block::STONE_SLAB.default_state;
+    slab.material = Some(BlockMaterial {
+        template: &Block::CALCITE,
+        hardness: Some(1.25),
+        map_color: Some(MapColor::TERRACOTTA_YELLOW.id),
+    });
+    let properties = super::BlockPhysics {
+        hardness: 50.0,
+        blast_resistance: 50.0,
+        tool_required: true,
+        sound_type: Block::NETHERITE_BLOCK.default_state.sound_type,
+    };
+    let registry = Registry::open_with_properties(
+        &world.path().join("registry.dat"),
+        &[slab],
+        &[],
+        |_, _| None,
+        |_| Some(properties),
+    )?;
+    let block = registry.block("test:alloy_slab").ok_or("missing slab")?;
+    assert_eq!(
+        block.default_state.collision_shapes,
+        Block::STONE_SLAB.default_state.collision_shapes
+    );
+    assert_eq!(block.default_state.sound_type, properties.sound_type);
+    assert_eq!(block.default_state.hardness, 50.0);
+    assert!(block.default_state.tool_required());
+    assert_eq!(block.hardness, 50.0);
+    assert_eq!(block.blast_resistance, 50.0);
     assert_eq!(block.map_color, MapColor::TERRACOTTA_YELLOW.id);
     Ok(())
 }

@@ -399,6 +399,29 @@ impl ChunkSections {
         }
     }
 
+    /// Inspect a state while holding the section read lock. The closure must
+    /// not perform world operations or acquire the section lock again.
+    pub fn with_block_absolute_y<R>(
+        &self,
+        relative_x: usize,
+        y: i32,
+        relative_z: usize,
+        inspect: impl FnOnce(BlockStateId) -> R,
+    ) -> Option<R> {
+        let y = y.checked_sub(self.min_y)?;
+        let relative_y = usize::try_from(y).ok()?;
+        let sections = self
+            .block_sections
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let section = sections.get(relative_y / BlockPalette::SIZE)?;
+        Some(inspect(section.get(
+            relative_x,
+            relative_y % BlockPalette::SIZE,
+            relative_z,
+        )))
+    }
+
     pub fn set_block_absolute_y(
         &self,
         relative_x: usize,

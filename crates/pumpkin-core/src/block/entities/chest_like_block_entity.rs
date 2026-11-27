@@ -29,6 +29,7 @@ macro_rules! impl_block_entity_for_chest {
                     })),
                     dirty: std::sync::atomic::AtomicBool::new(false),
                     comparator_dirty: std::sync::atomic::AtomicBool::new(false),
+                    inventory_access: std::sync::atomic::AtomicU8::new(0),
                     viewers: $crate::block::viewer::ViewerCountTracker::new(),
                     loot_table: StdMutex::new(loot_table_key),
                     loot_table_seed,
@@ -88,7 +89,18 @@ macro_rules! impl_block_entity_for_chest {
             }
 
             fn get_inventory(self: Arc<Self>) -> Option<Arc<dyn pumpkin_inventory::Inventory>> {
-                Some(self)
+                use std::sync::atomic::Ordering;
+                // Once an inventory handle escapes, a live conversion cannot
+                // safely retire this entity. Retired entities never issue handles.
+                match self.inventory_access.compare_exchange(
+                    0,
+                    1,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) | Err(1) => Some(self),
+                    Err(_) => None,
+                }
             }
 
             fn is_comparator_dirty(&self) -> bool {
@@ -391,6 +403,7 @@ macro_rules! impl_chest_helper_methods {
                     items: RwLock::new(from_fn(|_| ItemStack::EMPTY.clone())),
                     dirty: AtomicBool::new(false),
                     comparator_dirty: AtomicBool::new(false),
+                    inventory_access: std::sync::atomic::AtomicU8::new(0),
                     viewers: $crate::block::viewer::ViewerCountTracker::new(),
                     loot_table: StdMutex::new(None),
                     loot_table_seed: 0,

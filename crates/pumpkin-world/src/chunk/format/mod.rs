@@ -546,13 +546,13 @@ impl ChunkData {
             .light_populated
             .load(std::sync::atomic::Ordering::Relaxed);
 
-        let block_entities_nbt = {
-            let entities_guard = self
-                .pending_block_entities
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            entities_guard.values().cloned().collect::<Vec<_>>()
-        };
+        // Hold the pending-record lock until the state snapshot is pinned.
+        // Container conversion acquires this same lock before changing both.
+        let entities_guard = self
+            .pending_block_entities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let block_entities_nbt = entities_guard.values().cloned().collect::<Vec<_>>();
 
         let light_lock = self
             .light_engine
@@ -567,6 +567,7 @@ impl ChunkData {
             .block_sections
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        drop(entities_guard);
         let biome_lock = self
             .section
             .biome_sections
@@ -728,13 +729,12 @@ impl ChunkData {
         const PUMP_CHUNK_VERSION: u8 = 1;
 
         let is_light_correct = self.light_populated.load(Ordering::Relaxed);
-        let block_entities_nbt = {
-            let entities_guard = self
-                .pending_block_entities
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            entities_guard.values().cloned().collect::<Vec<_>>()
-        };
+        // Match the NBT snapshot to the state snapshot in the native format too.
+        let entities_guard = self
+            .pending_block_entities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let block_entities_nbt = entities_guard.values().cloned().collect::<Vec<_>>();
 
         let light_lock = self
             .light_engine
@@ -749,6 +749,7 @@ impl ChunkData {
             .block_sections
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        drop(entities_guard);
         let biome_lock = self
             .section
             .biome_sections

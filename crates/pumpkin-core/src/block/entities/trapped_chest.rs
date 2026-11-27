@@ -13,6 +13,7 @@ pub struct TrappedChestBlockEntity {
     pub items: RwLock<[ItemStack; Self::INVENTORY_SIZE]>,
     pub dirty: AtomicBool,
     pub comparator_dirty: AtomicBool,
+    pub(crate) inventory_access: std::sync::atomic::AtomicU8,
 
     // Viewer
     viewers: ViewerCountTracker,

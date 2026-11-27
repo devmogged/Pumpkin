@@ -195,6 +195,7 @@ fn same_stacks(left: &[ItemStack], right: &[ItemStack]) -> bool {
 
 pub type PersistMenu =
     dyn Fn(&dyn InventoryPlayer, &[ItemStack], &[ItemStack]) -> bool + Send + Sync;
+pub type ValidateMenu = dyn Fn(&dyn InventoryPlayer) -> bool + Send + Sync;
 
 /// Runs a vanilla click against trial slots. A failed write preserves the live inventories,
 /// cursor and world, and sends the old view back to the player.
@@ -206,6 +207,7 @@ pub struct NativeMenu {
     trial_inventory: Arc<SimpleInventory>,
     trial_player: Arc<PlayerInventory>,
     persist: Arc<PersistMenu>,
+    validity: Option<Arc<ValidateMenu>>,
     actions: Vec<(usize, MenuAction)>,
     pending_action: Option<MenuAction>,
 }
@@ -263,11 +265,16 @@ impl NativeMenu {
             trial_inventory,
             trial_player,
             persist,
+            validity: None,
             actions: Vec::new(),
             pending_action: None,
         };
         menu.refresh();
         Some(menu)
+    }
+
+    pub fn set_validity(&mut self, validity: Arc<ValidateMenu>) {
+        self.validity = Some(validity);
     }
 
     pub fn set_slot_action(&mut self, index: usize, action: MenuAction) -> bool {
@@ -322,7 +329,11 @@ impl NativeMenu {
         player: &dyn InventoryPlayer,
         targets: &[(usize, Option<usize>)],
     ) -> bool {
-        if player.is_spectator() || targets.is_empty() || targets.len() > self.inventory.size() {
+        if player.is_spectator()
+            || !self.can_use(player)
+            || targets.is_empty()
+            || targets.len() > self.inventory.size()
+        {
             return false;
         }
         let mut sources = [false; 54];
@@ -404,6 +415,9 @@ impl ScreenHandler for NativeMenu {
     fn take_slot_action(&mut self) -> Option<MenuAction> {
         self.pending_action.take()
     }
+    fn can_use(&self, player: &dyn InventoryPlayer) -> bool {
+        self.validity.as_ref().is_none_or(|check| check(player))
+    }
     fn get_behaviour(&self) -> &ScreenHandlerBehaviour {
         self.inner.get_behaviour()
     }
@@ -452,7 +466,7 @@ impl ScreenHandler for NativeMenu {
         action: SlotActionType,
         player: &dyn InventoryPlayer,
     ) {
-        if player.is_spectator() {
+        if player.is_spectator() || !self.can_use(player) {
             return;
         }
         if let Ok(slot) = usize::try_from(slot)

@@ -23,6 +23,7 @@ use tracing::{debug, error, info, trace, warn};
 mod active_chunks;
 pub mod brightness;
 pub mod chunker;
+pub mod container_conversion;
 mod entity_index;
 pub(crate) use entity_index::EntityIndex;
 pub mod cat_spawner;
@@ -866,22 +867,41 @@ impl World {
         };
 
         for block_entity in block_entities {
-            let mut nbt = NbtCompound::new();
-            block_entity.write_internal(&mut nbt);
-            if let Some(custom_data) = self
-                .custom_block_entity_data
-                .get(&block_entity.get_position())
-                && !custom_data.is_empty()
-            {
-                nbt.put_compound("PumpkinCustomData", custom_data.clone());
-            }
-            chunk
-                .pending_block_entities
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(block_entity.get_position(), nbt);
-            chunk.mark_dirty(true);
+            self.persist_current_block_entity(chunk, &block_entity);
         }
+    }
+
+    /// Never publish a snapshot belonging to an already replaced live entity.
+    /// Keep the pending record and live-map identity stable until serialization
+    /// finishes; this is also the lock order used by custom entity CAS.
+    fn persist_current_block_entity(
+        &self,
+        chunk: &ChunkData,
+        entity: &Arc<dyn BlockEntity>,
+    ) -> bool {
+        let pos = entity.get_position();
+        let mut pending = chunk
+            .pending_block_entities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(entities) = self.block_entities.get(&pos.chunk_position()) else {
+            return false;
+        };
+        if !entities
+            .get(&pos)
+            .is_some_and(|current| Arc::ptr_eq(current, entity))
+        {
+            return false;
+        }
+        let mut saved = block_entity_nbt(entity.as_ref());
+        if let Some(custom) = self.custom_block_entity_data.get(&pos)
+            && !custom.is_empty()
+        {
+            saved.put_compound("PumpkinCustomData", custom.clone());
+        }
+        pending.insert(pos, saved);
+        chunk.mark_dirty(true);
+        true
     }
 
     /// Broadcasts an entity status update / event to all players tracking the specified entity,
@@ -5906,7 +5926,13 @@ impl World {
         let replaced_block_state_id = self
             .write_block_state_if(position, block_state_id, |_| true)
             .unwrap_or(Block::AIR.default_state.id);
-        self.on_block_state_set(position, replaced_block_state_id, block_state_id, flags)
+        self.on_block_state_set(
+            position,
+            replaced_block_state_id,
+            block_state_id,
+            flags,
+            false,
+        )
     }
 
     /// `set_block_state`, but only when `condition` accepts the current state. The check and
@@ -5924,7 +5950,13 @@ impl World {
         }
         let replaced_block_state_id =
             self.write_block_state_if(position, block_state_id, condition)?;
-        Some(self.on_block_state_set(position, replaced_block_state_id, block_state_id, flags))
+        Some(self.on_block_state_set(
+            position,
+            replaced_block_state_id,
+            block_state_id,
+            flags,
+            false,
+        ))
     }
 
     /// Writes the state into the loaded chunk
@@ -5984,6 +6016,7 @@ impl World {
         replaced_block_state_id: BlockStateId,
         block_state_id: BlockStateId,
         flags: BlockFlags,
+        entity_replaced: bool,
     ) -> BlockStateId {
         if !flags.contains(BlockFlags::FORCE_STATE) && replaced_block_state_id == block_state_id {
             return block_state_id;
@@ -6001,7 +6034,8 @@ impl World {
             block_moved,
         );
 
-        if is_new_block
+        if !entity_replaced
+            && is_new_block
             && old_block.default_state.block_entity_type != u16::MAX
             && (old_block.default_state.block_entity_type
                 != new_block.default_state.block_entity_type
@@ -7345,6 +7379,222 @@ impl World {
             .map(|be| block_entity_nbt(be.as_ref()))
     }
 
+    /// Snapshot a loaded custom entity with its exact block state and process-local
+    /// incarnation. The latter prevents ABA replacement at the same position.
+    pub fn content_entity_snapshot(
+        &self,
+        pos: &BlockPos,
+    ) -> Option<(BlockStateId, u64, NbtCompound)> {
+        use crate::block::entities::content::ContentBlockEntity;
+        let entity = self.get_block_entity(pos)?;
+        let (chunk_pos, relative) = pos.chunk_and_chunk_relative_position();
+        self.level
+            .read_chunk_sync(&chunk_pos, |chunk| {
+                let entities = self.block_entities.get(&chunk_pos)?;
+                let current = entities.get(pos)?;
+                if !Arc::ptr_eq(current, &entity) {
+                    return None;
+                }
+                let content = current.as_any().downcast_ref::<ContentBlockEntity>()?;
+                chunk
+                    .section
+                    .with_block_absolute_y(
+                        relative.x as usize,
+                        relative.y,
+                        relative.z as usize,
+                        |state| {
+                            if pumpkin_data::content::state(state.as_u16())
+                                .and_then(|entry| entry.entity)
+                                != Some(content.resource_location())
+                            {
+                                return None;
+                            }
+                            Some((state, content.incarnation(), block_entity_nbt(content)))
+                        },
+                    )
+                    .flatten()
+            })
+            .flatten()
+    }
+
+    /// Compare state, incarnation and saved custom fields, then commit the
+    /// new fields to the live entity and its loaded chunk's saved copy.
+    /// No mod callbacks or network operations run under these locks.
+    pub fn compare_content_entity(
+        &self,
+        pos: &BlockPos,
+        expected_state: BlockStateId,
+        incarnation: u64,
+        expected: &NbtCompound,
+        replacement: &NbtCompound,
+    ) -> bool {
+        use crate::block::entities::content::ContentBlockEntity;
+        let (chunk_pos, relative) = pos.chunk_and_chunk_relative_position();
+        self.level
+            .read_chunk_sync(&chunk_pos, |chunk| {
+                let mut pending = chunk
+                    .pending_block_entities
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let Some(entities) = self.block_entities.get(&chunk_pos) else {
+                    return false;
+                };
+                let Some(content) = entities
+                    .get(pos)
+                    .and_then(|entity| entity.as_any().downcast_ref::<ContentBlockEntity>())
+                else {
+                    return false;
+                };
+                if content.incarnation() != incarnation {
+                    return false;
+                }
+                chunk
+                    .section
+                    .with_block_absolute_y(
+                        relative.x as usize,
+                        relative.y,
+                        relative.z as usize,
+                        |state| {
+                            if state != expected_state
+                                || pumpkin_data::content::state(state.as_u16())
+                                    .and_then(|entry| entry.entity)
+                                    != Some(content.resource_location())
+                            {
+                                return false;
+                            }
+                            let Some(mut saved) = content.compare_data(expected, replacement)
+                            else {
+                                return false;
+                            };
+                            if let Some(custom) = self.custom_block_entity_data.get(pos)
+                                && !custom.is_empty()
+                            {
+                                saved.put_compound("PumpkinCustomData", custom.clone());
+                            }
+                            pending.insert(*pos, saved);
+                            chunk.mark_dirty(true);
+                            true
+                        },
+                    )
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+
+    /// Atomically replace a loaded custom block and its entity only when the
+    /// exact state, process-local incarnation and saved custom fields match.
+    /// A destination with a block entity must provide its complete saved NBT;
+    /// a destination without one must not. No drops are produced by this CAS.
+    /// The caller handles any durable item transfer independently, and must
+    /// not mistake this in-memory chunk transaction for a cross-file journal.
+    pub fn compare_replace_content_entity(
+        self: &Arc<Self>,
+        pos: &BlockPos,
+        expected_state: BlockStateId,
+        incarnation: u64,
+        expected: &NbtCompound,
+        destination: BlockStateId,
+        replacement: Option<&NbtCompound>,
+    ) -> bool {
+        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
+        use crate::block::entities::content::ContentBlockEntity;
+
+        if incarnation == 0 || expected_state == destination || !self.is_in_build_limit(*pos) {
+            return false;
+        }
+        // Construct and validate before holding a world or section lock. This
+        // includes checking the destination entity kind and exact coordinates;
+        // silently reinterpreting a custom entity as a vanilla one is unsafe.
+        let prototype = create_block_entity_for_state(destination, *pos);
+        let next = match (prototype, replacement) {
+            (None, None) => None,
+            (Some(prototype), Some(saved))
+                if saved.get_string("id") == Some(prototype.resource_location())
+                    && saved.get_int("x") == Some(pos.0.x)
+                    && saved.get_int("y") == Some(pos.0.y)
+                    && saved.get_int("z") == Some(pos.0.z) =>
+            {
+                let Some(next) = block_entity_from_nbt(saved) else {
+                    return false;
+                };
+                Some(next)
+            }
+            _ => return false,
+        };
+        if let Some(next) = &next
+            && let Some(weak) = self.weak_self()
+        {
+            next.set_world(weak);
+        }
+        let (chunk_pos, relative) = pos.chunk_and_chunk_relative_position();
+        let committed = self
+            .level
+            .read_chunk_sync(&chunk_pos, |chunk| {
+                let mut pending = chunk
+                    .pending_block_entities
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let Some(mut entities) = self.block_entities.get_mut(&chunk_pos) else {
+                    return false;
+                };
+                let Some(content) = entities
+                    .get(pos)
+                    .and_then(|entity| entity.as_any().downcast_ref::<ContentBlockEntity>())
+                else {
+                    return false;
+                };
+                if content.incarnation() != incarnation {
+                    return false;
+                }
+                // The state condition is executed under the section write lock,
+                // and checks the entity data in the same order as regular CAS:
+                // pending -> entity map -> section -> entity data.
+                let changed = chunk
+                    .set_block_absolute_y_if(
+                        relative.x as usize,
+                        relative.y,
+                        relative.z as usize,
+                        destination,
+                        |current| current == expected_state && content.data_matches(expected),
+                    )
+                    .is_some();
+                if !changed {
+                    return false;
+                }
+                entities.remove(pos);
+                if let Some(next) = &next {
+                    entities.insert(*pos, next.clone());
+                }
+                if let Some(saved) = replacement {
+                    pending.insert(*pos, saved.clone());
+                } else {
+                    pending.remove(pos);
+                }
+                self.custom_block_entity_data.remove(pos);
+                chunk.mark_dirty(true);
+                true
+            })
+            .unwrap_or(false);
+        if !committed {
+            return false;
+        }
+        // Callbacks, client packets and menu closures must not execute under
+        // pending, entity-map, section or inventory locks.
+        self.close_container_screens_at(pos);
+        self.on_block_state_set(
+            pos,
+            expected_state,
+            destination,
+            BlockFlags::NOTIFY_LISTENERS
+                | BlockFlags::NOTIFY_NEIGHBORS
+                | BlockFlags::SKIP_DROPS
+                | BlockFlags::SKIP_BLOCK_ADDED_CALLBACK
+                | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK,
+            true,
+        );
+        true
+    }
+
     /// Like [`Self::get_block_entity_nbt`], for a caller already inside `read_chunk_sync`
     /// of the chunk holding `block_pos`. Reading that chunk again could deadlock.
     pub fn get_block_entity_nbt_in_chunk(
@@ -7388,43 +7638,72 @@ impl World {
             return Some(entity);
         }
 
-        let nbt = self
+        match container_conversion::pending(self, *block_pos, false) {
+            container_conversion::Outcome::Pass => {}
+            container_conversion::Outcome::Deferred => {
+                self.pending_block_entity_migrations.push(chunk_pos);
+                return None;
+            }
+            container_conversion::Outcome::Converted => {
+                return self
+                    .block_entities
+                    .get(&chunk_pos)
+                    .and_then(|entities| entities.get(block_pos).cloned());
+            }
+        }
+
+        // Serialize lazy publication with replacement/removal and snapshots.
+        // Do not resurrect a copied pending record after it has been removed.
+        let relative = block_pos.chunk_relative_position();
+        let (entity, inserted) = self
             .level
             .read_chunk_sync(&chunk_pos, |chunk| {
-                chunk
+                let pending = chunk
                     .pending_block_entities
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(block_pos)
-                    .cloned()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(entity) = self
+                    .block_entities
+                    .get(&chunk_pos)
+                    .and_then(|entities| entities.get(block_pos).cloned())
+                {
+                    return Some((entity, false));
+                }
+                let nbt = pending.get(block_pos)?;
+                let state = chunk.section.get_block_absolute_y(
+                    relative.x as usize,
+                    relative.y,
+                    relative.z as usize,
+                )?;
+                if let Some(id) = nbt.get_string("id")
+                    && pumpkin_data::content::entity_name(id).is_some()
+                    && pumpkin_data::content::state(state.as_u16()).and_then(|entry| entry.entity)
+                        != Some(id)
+                {
+                    return None;
+                }
+                let entity = block_entity_from_nbt(nbt)?;
+                if let Some(weak) = self.weak_self() {
+                    entity.set_world(weak);
+                }
+                if let Some(custom_data) = nbt
+                    .get_compound("PumpkinCustomData")
+                    .or_else(|| nbt.get_compound("BukkitValues"))
+                {
+                    self.custom_block_entity_data
+                        .insert(*block_pos, custom_data.clone());
+                }
+                self.block_entities
+                    .entry(chunk_pos)
+                    .or_default()
+                    .insert(*block_pos, entity.clone());
+                Some((entity, true))
             })
             .flatten()?;
-        if let Some(custom_data) = nbt
-            .get_compound("PumpkinCustomData")
-            .or_else(|| nbt.get_compound("BukkitValues"))
-        {
-            self.custom_block_entity_data
-                .insert(*block_pos, custom_data.clone());
-        }
-        if let Some(id) = nbt.get_string("id")
-            && pumpkin_data::content::entity_name(id).is_some()
-            && pumpkin_data::content::state(self.get_block_state_id(block_pos).as_u16())
-                .and_then(|state| state.entity)
-                != Some(id)
-        {
-            return None;
-        }
-        let entity = block_entity_from_nbt(&nbt)?;
-        if let Some(weak) = self.weak_self() {
-            entity.set_world(weak);
-        }
-        self.block_entities
-            .entry(chunk_pos)
-            .or_default()
-            .insert(*block_pos, entity.clone());
-        if entity
-            .as_any()
-            .is::<crate::block::entities::content::ContentBlockEntity>()
+        if inserted
+            && entity
+                .as_any()
+                .is::<crate::block::entities::content::ContentBlockEntity>()
         {
             crate::block::entities::content::notify(
                 self,
@@ -7500,13 +7779,31 @@ impl World {
         let block_pos = block_entity.get_position();
         let chunk_pos = block_pos.chunk_position();
         let block_entity_nbt = block_entity.chunk_data_nbt();
-        let entity_id = block_entity.resource_location().to_string();
-        if pumpkin_data::content::entity_name(&entity_id).is_some() {
-            self.add_block_entity_nbt(block_pos, &{
-                let mut saved = NbtCompound::new();
-                block_entity.write_internal(&mut saved);
-                saved
-            });
+        // Network update NBT is deliberately incomplete (for example, chests
+        // omit deferred loot metadata). Never use it as the persisted record.
+        let full_nbt = self::block_entity_nbt(block_entity.as_ref());
+
+        // Both representations change together under the pending-record lock.
+        if self
+            .level
+            .read_chunk_sync(&chunk_pos, |chunk| {
+                let mut pending = chunk
+                    .pending_block_entities
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                self.block_entities
+                    .entry(chunk_pos)
+                    .or_default()
+                    .insert(block_pos, block_entity.clone());
+                pending.insert(block_pos, full_nbt.clone());
+                chunk.mark_dirty(true);
+            })
+            .is_none()
+        {
+            self.block_entities
+                .entry(chunk_pos)
+                .or_default()
+                .insert(block_pos, block_entity.clone());
         }
 
         if let Some(nbt) = &block_entity_nbt {
@@ -7527,24 +7824,6 @@ impl World {
         {
             self.broadcast_to_chunk_bedrock(chunk_pos, &CBlockActorData::new(block_pos, data));
         }
-
-        self.block_entities
-            .entry(chunk_pos)
-            .or_default()
-            .insert(block_pos, block_entity);
-
-        if let Some(nbt) = block_entity_nbt {
-            let mut full_nbt = nbt;
-            full_nbt.put_string("id", entity_id);
-            full_nbt.put_int("x", block_pos.0.x);
-            full_nbt.put_int("y", block_pos.0.y);
-            full_nbt.put_int("z", block_pos.0.z);
-            self.add_block_entity_nbt(block_pos, &full_nbt);
-        }
-
-        self.level.read_chunk_sync(&chunk_pos, |chunk| {
-            chunk.mark_dirty(true);
-        });
     }
 
     pub fn add_block_entity_nbt(&self, block_pos: BlockPos, nbt: &NbtCompound) {
@@ -7568,36 +7847,38 @@ impl World {
     pub fn remove_block_entity(&self, block_pos: &BlockPos) {
         let chunk_pos = block_pos.chunk_position();
         // The NBT copy also serves lazy loading; leaving it revives removed entities.
-        let removed_pending = self
+        let remove_live = || {
+            let removed = self
+                .block_entities
+                .get_mut(&chunk_pos)
+                .is_some_and(|mut entities| entities.remove(block_pos).is_some());
+            self.block_entities
+                .remove_if(&chunk_pos, |_, entities| entities.is_empty());
+            removed
+        };
+        let removed = self
             .level
             .read_chunk_sync(&chunk_pos, |chunk| {
-                let removed = chunk
+                let mut pending = chunk
                     .pending_block_entities
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(block_pos)
-                    .is_some();
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let removed_pending = pending.remove(block_pos).is_some();
+                let removed = remove_live() || removed_pending;
                 if removed {
+                    self.custom_block_entity_data.remove(block_pos);
                     chunk.mark_dirty(true);
                 }
                 removed
             })
-            .unwrap_or(false);
-        let removed =
-            self.block_entities
-                .get_mut(&chunk_pos)
-                .is_some_and(|mut chunk_block_entities| {
-                    chunk_block_entities.remove(block_pos).is_some()
-                });
-        if removed || removed_pending {
-            self.custom_block_entity_data.remove(block_pos);
-            // Drop the chunk's map once its last block entity is gone.
-            self.block_entities
-                .remove_if(&chunk_pos, |_, entities| entities.is_empty());
-            self.level.read_chunk_sync(&chunk_pos, |chunk| {
-                chunk.mark_dirty(true);
+            .unwrap_or_else(|| {
+                let removed = remove_live();
+                if removed {
+                    self.custom_block_entity_data.remove(block_pos);
+                }
+                removed
             });
-        }
+        let _ = removed;
     }
 
     fn migrate_pending_block_entities(&self, chunk_pos: Vector2<i32>) {
@@ -7613,13 +7894,47 @@ impl World {
                     .collect()
             })
             .unwrap_or_default();
-        for pos in positions {
+        // Bound the number of expensive conversion callbacks per active-chunk
+        // tick. Iteration must be stable: selecting the first 16 keys of a
+        // randomized hash map would starve any pending record after those keys
+        // whenever the earlier records defer. Process a deterministic rotating
+        // window of 16 positions and retain a retry while this chunk has more.
+        const MAX_MIGRATIONS_PER_CHUNK_TICK: usize = 16;
+        let mut positions = positions;
+        positions.sort_unstable_by_key(|pos| (pos.0.y, pos.0.x, pos.0.z));
+        let count = positions.len();
+        let start = if count > MAX_MIGRATIONS_PER_CHUNK_TICK {
+            // World age is a persisted tick counter and supplies a stable,
+            // lock-free rotation without another per-chunk cursor map.
+            usize::try_from(self.get_world_age().max(0)).unwrap_or(0)
+                % count
+        } else {
+            0
+        };
+        if count > MAX_MIGRATIONS_PER_CHUNK_TICK {
+            self.pending_block_entity_migrations.push(chunk_pos);
+        }
+        for offset in 0..count.min(MAX_MIGRATIONS_PER_CHUNK_TICK) {
+            let index = (start + offset) % count;
+            let pos = positions[index];
             let already_loaded = self
                 .block_entities
                 .get(&chunk_pos)
-                .is_some_and(|m| m.contains_key(&pos));
-            if !already_loaded && let Some(entity) = self.get_block_entity(&pos) {
-                self.update_block_entity(&entity);
+                .and_then(|m| m.get(&pos).cloned());
+            if let Some(entity) = already_loaded {
+                container_conversion::live(self, &entity, true);
+            } else {
+                match container_conversion::pending(self, pos, true) {
+                    container_conversion::Outcome::Deferred => {
+                        self.pending_block_entity_migrations.push(chunk_pos)
+                    }
+                    container_conversion::Outcome::Converted => {}
+                    container_conversion::Outcome::Pass => {
+                        if let Some(entity) = self.get_block_entity(&pos) {
+                            self.update_block_entity(&entity);
+                        }
+                    }
+                }
             }
         }
     }
@@ -7627,6 +7942,14 @@ impl World {
     pub fn update_block_entity(&self, block_entity: &Arc<dyn BlockEntity>) {
         let block_pos = block_entity.get_position();
         let chunk_pos = block_pos.chunk_position();
+        // An old entity's tick may finish after a replacement. Do not
+        // publish its update or resurrect its saved record.
+        if self.level.read_chunk_sync(&chunk_pos, |chunk| {
+            self.persist_current_block_entity(chunk, block_entity)
+        }) != Some(true)
+        {
+            return;
+        }
         let block_entity_nbt = block_entity.chunk_data_nbt();
 
         if let Some(nbt) = &block_entity_nbt {
@@ -7639,13 +7962,6 @@ impl World {
                     bytes.as_ref().into(),
                 ),
             );
-            let mut full_nbt = nbt.clone();
-            full_nbt.put_string("id", block_entity.resource_location().to_string());
-            let pos = block_entity.get_position();
-            full_nbt.put_int("x", pos.0.x);
-            full_nbt.put_int("y", pos.0.y);
-            full_nbt.put_int("z", pos.0.z);
-            self.add_block_entity_nbt(block_pos, &full_nbt);
         }
 
         let state = self.get_block_state(&block_pos);
@@ -8798,6 +9114,7 @@ fn block_entity_nbt(block_entity: &dyn BlockEntity) -> NbtCompound {
 
 #[cfg(test)]
 mod tests {
+    use crate::block::entities::{BlockEntity, chest::ChestBlockEntity};
     use pumpkin_data::{
         Block,
         block_properties::{ChestLikeProperties, ChestType, HorizontalFacing, WaterLikeProperties},
@@ -8807,6 +9124,33 @@ mod tests {
     use pumpkin_util::math::position::BlockPos;
     use pumpkin_util::math::vector2::Vector2;
     use uuid::Uuid;
+
+    #[test]
+    fn deferred_chest_saved_nbt_is_not_its_network_projection() {
+        let pos = BlockPos(pumpkin_util::math::vector3::Vector3::new(16, 80, -32));
+        let mut source = NbtCompound::new();
+        source.put_string("LootTable", "minecraft:chests/simple_dungeon".to_owned());
+        source.put_long("LootTableSeed", -42);
+        let chest = ChestBlockEntity::from_nbt(&source, pos);
+        assert!(
+            chest
+                .chunk_data_nbt()
+                .is_some_and(|nbt| nbt.get_string("LootTable").is_none())
+        );
+        let saved = super::block_entity_nbt(&chest);
+        assert_eq!(
+            saved.get_string("LootTable"),
+            Some("minecraft:chests/simple_dungeon")
+        );
+        assert_eq!(saved.get_long("LootTableSeed"), Some(-42));
+        assert_eq!(saved.get_string("id"), Some("minecraft:chest"));
+        assert_eq!(saved.get_int("x"), Some(16));
+        assert_eq!(saved.get_int("y"), Some(80));
+        assert_eq!(saved.get_int("z"), Some(-32));
+        let restored = ChestBlockEntity::from_nbt(&saved, pos);
+        assert!(restored.has_loot_table());
+        assert_eq!(restored.loot_table_seed, -42);
+    }
 
     use super::{
         NaturalSpawnChunkCache, World, bedrock_block_breaking_rate, bedrock_chest_block_actor,

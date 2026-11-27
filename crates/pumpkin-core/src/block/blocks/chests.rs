@@ -201,7 +201,17 @@ impl Drop for LootEventDispatch {
 }
 
 /// Vanilla `RandomizableContainer.unpackLootTable`: fills the chest from its pending loot table once.
-fn unpack_loot_table(world: &World, entity: &Arc<dyn BlockEntity>, player: Option<&Player>) {
+/// False means the original vanilla inventory must not be exposed.
+fn unpack_loot_table(
+    world: &World,
+    entity: &Arc<dyn BlockEntity>,
+    player: Option<&Player>,
+) -> bool {
+    use crate::world::container_conversion::{self, Outcome};
+    match container_conversion::live(world, entity, false) {
+        Outcome::Pass => {}
+        Outcome::Deferred | Outcome::Converted => return false,
+    }
     // Fired before the loot lock -> a handler reading this chest would unpack it again.
     // A cancel still clears the key, the chest just stays empty.
     // TODO let `LootGenerateEvent` carry the container, context and generated items so a plugin can edit the loot.
@@ -210,7 +220,7 @@ fn unpack_loot_table(world: &World, entity: &Arc<dyn BlockEntity>, player: Optio
     let chest = (std::ptr::from_ref(world) as usize, entity.get_position());
     // A handler reading this chest lands here again: it stays packed, the outer call decides.
     if LOOT_EVENT_DISPATCH.with_borrow(|chests| chests.contains(&chest)) {
-        return;
+        return false;
     }
     let cancelled_key = entity.loot_table_key().filter(|key| {
         let _dispatch = LootEventDispatch::enter(chest);
@@ -236,6 +246,7 @@ fn unpack_loot_table(world: &World, entity: &Arc<dyn BlockEntity>, player: Optio
             },
         );
     }
+    true
 }
 
 fn generate_chest_loot(
@@ -275,15 +286,20 @@ pub fn chest_container(
     state_id: BlockStateId,
     entity: &Arc<dyn BlockEntity>,
 ) -> Option<Arc<dyn Inventory>> {
-    unpack_loot_table(world, entity, None);
+    if !unpack_loot_table(world, entity, None) {
+        return None;
+    }
     let this = entity.clone().get_container()?;
     let props = ChestLikeProperties::from_state_id(state_id);
-    let other = connected_half(world, block, position, props)
-        .and_then(|other_pos| world.get_block_entity(&other_pos))
-        .and_then(|other| {
-            unpack_loot_table(world, &other, None);
-            other.get_container()
-        });
+    let other = if let Some(other_pos) = connected_half(world, block, position, props) {
+        let other = world.get_block_entity(&other_pos)?;
+        if !unpack_loot_table(world, &other, None) {
+            return None;
+        }
+        Some(other.get_container()?)
+    } else {
+        None
+    };
     Some(match other {
         Some(other) => combine_halves(props.r#type, this, other),
         None => this,
@@ -308,7 +324,9 @@ fn get_chest_comparator_output(args: &GetComparatorOutputArgs<'_>) -> Option<u8>
     // Vanilla reads every slot through `getItem`, which unpacks pending loot first.
     let second_chest = other_pos.and_then(|other_pos| args.world.get_block_entity(&other_pos));
     for entity in std::iter::once(&first_chest).chain(&second_chest) {
-        unpack_loot_table(args.world, entity, None);
+        if !unpack_loot_table(args.world, entity, None) {
+            return Some(0);
+        }
     }
 
     let first_inventory = first_chest.get_inventory()?;
@@ -347,7 +365,9 @@ fn get_chest_screen_handler_factory(
     // Both halves of a double chest are unpacked at once, like vanilla's CompoundContainer.
     if args.player.gamemode.load() != GameMode::Spectator {
         for entity in first_chest.iter().chain(&second) {
-            unpack_loot_table(args.world, entity, Some(args.player));
+            if !unpack_loot_table(args.world, entity, Some(args.player)) {
+                return None;
+            }
         }
     }
 
@@ -355,6 +375,9 @@ fn get_chest_screen_handler_factory(
         .iter()
         .chain(&second)
         .any(|entity| entity.has_loot_table());
+    if loot_pending && args.player.gamemode.load() == GameMode::Spectator {
+        return None;
+    }
     let first_inventory = first_chest.and_then(BlockEntity::get_inventory)?;
 
     let inventory = match second.and_then(BlockEntity::get_inventory) {
@@ -744,7 +767,8 @@ fn get_chest_properties_if_can_connect(
     None
 }
 
-fn is_chest_blocked(world: &World, block_pos: &BlockPos) -> bool {
+/// Vanilla lid obstruction, also shared with native mod containers.
+pub fn is_chest_blocked(world: &World, block_pos: &BlockPos) -> bool {
     has_block_on_top(world, block_pos) || is_cat_sitting_on_chest(world, block_pos)
 }
 fn has_block_on_top(world: &World, block_pos: &BlockPos) -> bool {

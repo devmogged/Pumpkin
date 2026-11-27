@@ -40,6 +40,9 @@ fn java_non_negative_int<'de, D: serde::Deserializer<'de>>(
 /// Deserialized placement configuration for a structure set.
 #[derive(Deserialize)]
 pub struct StructurePlacementStruct {
+    /// Block offset from the candidate chunk's minimum corner for locate results.
+    #[serde(default, deserialize_with = "deserialize_locate_offset")]
+    pub locate_offset: [i32; 3],
     /// Optional frequency-reduction method name applied before placement.
     pub frequency_reduction_method: Option<String>,
     /// Optional probability (0–1) that a candidate chunk actually spawns the structure.
@@ -52,6 +55,18 @@ pub struct StructurePlacementStruct {
     /// The specific placement algorithm and its parameters.
     #[serde(flatten)]
     pub r#type: StructurePlacementTypeStruct,
+}
+
+fn deserialize_locate_offset<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<[i32; 3], D::Error> {
+    let offset = <[i32; 3]>::deserialize(deserializer)?;
+    if offset.iter().any(|v| !(-16..=16).contains(v)) {
+        return Err(serde::de::Error::custom(
+            "locate_offset exceeds 16 blocks per axis",
+        ));
+    }
+    Ok(offset)
 }
 
 /// Deserialized exclusion zone configuration.
@@ -265,10 +280,12 @@ mod tokens {
             };
 
             let salt = self.salt;
+            let [x, y, z] = self.locate_offset;
             let placement_type = &self.r#type;
 
             tokens.extend(quote!(
                 StructurePlacement {
+                    locate_offset: [#x, #y, #z],
                     frequency_reduction_method: #frequency_reduction,
                     frequency: #frequency,
                     salt: #salt,
@@ -1145,6 +1162,7 @@ mod runtime {
                 .transpose()?;
             Ok(StructureSet {
                 placement: StructurePlacement {
+                    locate_offset: placement.locate_offset,
                     frequency_reduction_method,
                     frequency: placement.frequency,
                     salt: placement.salt,

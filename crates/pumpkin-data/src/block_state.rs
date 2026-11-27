@@ -492,6 +492,15 @@ const HAS_RANDOM_TICKS: u16 = 1 << 9;
 
 impl BlockState {
     #[cfg(feature = "item")]
+    pub(crate) fn set_tool_required(&mut self, enabled: bool) {
+        if enabled {
+            self.state_flags |= TOOL_REQUIRED;
+        } else {
+            self.state_flags &= !TOOL_REQUIRED;
+        }
+    }
+
+    #[cfg(feature = "item")]
     pub(crate) fn set_random_ticks(&mut self, enabled: bool) {
         if enabled {
             self.state_flags |= HAS_RANDOM_TICKS;

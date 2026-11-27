@@ -13,6 +13,8 @@ pub struct ChestBlockEntity {
     pub items: RwLock<[ItemStack; Self::INVENTORY_SIZE]>,
     pub dirty: AtomicBool,
     pub comparator_dirty: AtomicBool,
+    /// 0 = no inventory handle issued; 1 = exposed; 2 = retired by conversion.
+    pub(crate) inventory_access: std::sync::atomic::AtomicU8,
 
     // Viewer
     viewers: ViewerCountTracker,

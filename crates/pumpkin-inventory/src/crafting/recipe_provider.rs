@@ -2,6 +2,15 @@ use pumpkin_protocol::codec::recipe::DynamicRecipe;
 
 pub trait RecipeProvider: Send + Sync {
     fn get_dynamic_recipes(&self) -> Vec<DynamicRecipe>;
+
+    /// A nonzero, monotonically advancing revision for the complete dynamic
+    /// crafting catalog. Menus can check it before dispensing a cached result
+    /// after `/reload` without cloning all recipes on every inventory sync.
+    /// Mutable providers without a reliable revision should return `None`
+    /// (the default), so their result slots revalidate on every read.
+    fn recipe_revision(&self) -> Option<u64> {
+        None
+    }
 }
 
 #[derive(Clone, Copy)]
