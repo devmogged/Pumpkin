@@ -696,7 +696,7 @@ impl BlockDisplayEntity {
             pumpkin_data::tracked_data::block_display::BLOCK_STATE,
             VarInt(i32::from(
                 pumpkin_data::BlockStateId::runtime_or_air(block_state as u16)
-                    .vanilla_view()
+                    .block_display_view()
                     .as_u16(),
             )),
         );
@@ -730,7 +730,7 @@ impl EntityBase for BlockDisplayEntity {
                 pumpkin_data::BlockStateId::runtime_or_air(
                     self.block_state.load(Ordering::Relaxed) as u16,
                 )
-                .vanilla_view()
+                .block_display_view()
                 .as_u16(),
             )),
         );
