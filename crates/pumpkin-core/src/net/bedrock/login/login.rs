@@ -160,6 +160,16 @@ impl BedrockClient {
         profile: &GameProfile,
         server: &Arc<Server>,
     ) -> bool {
+        // A Bedrock client cannot satisfy a required Java configuration exchange.
+        if let Some(reason) = server
+            .java_configuration_extension
+            .get()
+            .and_then(|extension| extension.required)
+        {
+            self.kick(DisconnectReason::NotAllowed, reason.to_owned())
+                .await;
+            return false;
+        }
         server
             .data
             .user_cache
