@@ -25,6 +25,14 @@ pub struct CrafterBlockEntity {
     pub dirty: AtomicBool,
     pub comparator_dirty: AtomicBool,
     pub metadata: super::ContainerMetadata,
+    /// Serializes machine craft planning with other machine activations.
+    /// External hopper and screen mutations must eventually use this same
+    /// gate before it can be treated as a full inventory transaction lock.
+    pub craft_transaction: std::sync::Mutex<()>,
+    /// The selected machine recipe is scoped to this block entity and kept
+    /// across ordinary chunk save/reloads. Never store an ordinal alone:
+    /// resolve and verify the identity, ingredients and output on activation.
+    pub selected_recipe: RwLock<Option<String>>,
 }
 
 impl BlockEntity for CrafterBlockEntity {
@@ -53,6 +61,14 @@ impl BlockEntity for CrafterBlockEntity {
             .filter_map(|(i, &d)| d.then_some(i as i32))
             .collect();
         nbt.put("disabled_slots", NbtTag::IntArray(disabled_vec));
+        if let Some(recipe) = self
+            .selected_recipe
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            nbt.put_string("moddedmc:selected_crafter_recipe", recipe.clone());
+        }
         self.metadata.write_nbt(nbt);
     }
 
@@ -74,6 +90,11 @@ impl BlockEntity for CrafterBlockEntity {
             dirty: AtomicBool::new(false),
             comparator_dirty: AtomicBool::new(false),
             metadata: super::ContainerMetadata::from_nbt(nbt),
+            craft_transaction: std::sync::Mutex::new(()),
+            selected_recipe: RwLock::new(
+                nbt.get_string("moddedmc:selected_crafter_recipe")
+                    .map(str::to_owned),
+            ),
         };
 
         sync_read_items_from_nbt(
@@ -232,6 +253,37 @@ impl CrafterBlockEntity {
     pub const NUM_DATA: i32 = 10;
     pub const ID: &'static str = "minecraft:crafter";
 
+    /// Consumes one item from every occupied slot only if the complete grid
+    /// still matches the snapshot used to resolve the recipe. Holding the
+    /// shared inventory write lock prevents hopper/menu mutations between
+    /// validating and consuming inputs; a failed comparison changes nothing.
+    pub fn consume_matching_ingredients(&self, expected: &[ItemStack; Self::INVENTORY_SIZE]) -> bool {
+        let mut items = self.items.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if items.iter().zip(expected.iter()).any(|(current, original)| {
+            current.item_count != original.item_count
+                || !current.are_items_and_components_equal(original)
+        }) {
+            return false;
+        }
+        for item in items.iter_mut() {
+            if !item.is_empty() {
+                item.decrement(1);
+            }
+        }
+        self.mark_dirty();
+        true
+    }
+
+    /// Snapshot all nine slots under one lock. Reading each slot separately
+    /// can mix hopper or GUI edits from different moments during recipe matching.
+    #[must_use]
+    pub fn ingredient_snapshot(&self) -> [ItemStack; Self::INVENTORY_SIZE] {
+        self.items
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     #[must_use]
     pub fn new(position: BlockPos) -> Self {
         Self {
@@ -243,6 +295,8 @@ impl CrafterBlockEntity {
             dirty: AtomicBool::new(false),
             comparator_dirty: AtomicBool::new(false),
             metadata: super::ContainerMetadata::default(),
+            craft_transaction: std::sync::Mutex::new(()),
+            selected_recipe: RwLock::new(None),
         }
     }
 
@@ -290,6 +344,22 @@ impl CrafterBlockEntity {
     pub fn set_crafting_ticks_remaining(&self, ticks: i32) {
         self.crafting_ticks_remaining
             .store(ticks, Ordering::Relaxed);
+    }
+
+    #[must_use]
+    pub fn selected_recipe(&self) -> Option<String> {
+        self.selected_recipe
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn set_selected_recipe(&self, recipe: Option<String>) {
+        *self
+            .selected_recipe
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = recipe;
+        self.mark_dirty();
     }
 
     #[must_use]
@@ -523,5 +593,53 @@ mod tests {
         crafter.set_stack(0, log.clone());
         assert!(!crafter.is_valid_slot_for(0, &log));
         assert!(crafter.is_valid_slot_for(2, &log));
+    }
+
+    #[test]
+    fn selected_recipe_is_machine_local_and_survives_nbt_reload() {
+        let first = CrafterBlockEntity::new(BlockPos::new(2, 64, 2));
+        let second = CrafterBlockEntity::new(BlockPos::new(3, 64, 2));
+        assert_eq!(first.selected_recipe(), None);
+        assert_eq!(second.selected_recipe(), None);
+        first.set_selected_recipe(Some("test:conflict_emerald".to_owned()));
+        assert_eq!(second.selected_recipe(), None);
+
+        let mut serialized = NbtCompound::new();
+        first.write_nbt(&mut serialized);
+        assert_eq!(
+            serialized.get_string("moddedmc:selected_crafter_recipe"),
+            Some("test:conflict_emerald")
+        );
+        let restored = CrafterBlockEntity::from_nbt(&serialized, BlockPos::new(2, 64, 2));
+        assert_eq!(
+            restored.selected_recipe().as_deref(),
+            Some("test:conflict_emerald")
+        );
+        restored.set_selected_recipe(None);
+        let mut empty = NbtCompound::new();
+        restored.write_nbt(&mut empty);
+        assert_eq!(empty.get("moddedmc:selected_crafter_recipe"), None);
+    }
+
+    #[test]
+    fn stale_machine_ingredient_snapshot_must_not_consume_or_duplicate_items() {
+        let crafter = CrafterBlockEntity::new(BlockPos::new(0, 64, 0));
+        crafter.set_stack(0, ItemStack::new(2, &Item::DIAMOND));
+        crafter.set_stack(1, ItemStack::new(1, &Item::EMERALD));
+        let snapshot = crafter.ingredient_snapshot();
+        crafter.set_stack(1, ItemStack::new(2, &Item::EMERALD));
+        assert_eq!(snapshot[0].item_count, 2);
+        assert_eq!(snapshot[1].item_count, 1);
+        assert!(!crafter.consume_matching_ingredients(&snapshot));
+        assert_eq!(crafter.get_stack(0).item_count, 2);
+        assert_eq!(crafter.get_stack(1).item_count, 2);
+
+        let current = crafter.ingredient_snapshot();
+        assert!(crafter.consume_matching_ingredients(&current));
+        assert_eq!(crafter.get_stack(0).item_count, 1);
+        assert_eq!(crafter.get_stack(1).item_count, 1);
+        assert!(!crafter.consume_matching_ingredients(&current));
+        assert_eq!(crafter.get_stack(0).item_count, 1);
+        assert_eq!(crafter.get_stack(1).item_count, 1);
     }
 }

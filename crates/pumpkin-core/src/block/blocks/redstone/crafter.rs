@@ -21,9 +21,12 @@ use pumpkin_data::translation;
 use pumpkin_data::world::WorldEvent;
 use pumpkin_data::{Block, BlockDirection, BlockStateId, FacingExt};
 use pumpkin_inventory::crafter_screen_handler::CrafterScreenHandler;
-use pumpkin_inventory::crafting::crafting_screen_handler::match_crafting_recipe;
+use pumpkin_inventory::crafting::crafting_screen_handler::{
+    crafting_recipe_identity, for_each_matching_crafting_recipe, match_crafting_recipe,
+};
 use pumpkin_inventory::crafting::recipe_provider::RecipeProvider;
 use pumpkin_inventory::crafting::recipes::RecipeInputInventory;
+use pumpkin_inventory::crafting::crafting_inventory::CraftingInventory;
 use pumpkin_inventory::player::player_inventory::PlayerInventory;
 use pumpkin_inventory::screen_handler::{
     InventoryPlayer, ScreenHandlerFactory, SharedScreenHandler,
@@ -129,13 +132,42 @@ impl CrafterBlock {
             return;
         };
 
+        let _craft_guard = crafter
+            .craft_transaction
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let server = world.server.upgrade();
-        let recipe = match_crafting_recipe(
-            crafter,
-            server
-                .as_deref()
-                .map(|s| &*s.recipe_manager as &dyn RecipeProvider),
-        );
+        let provider = server
+            .as_deref()
+            .map(|s| &*s.recipe_manager as &dyn RecipeProvider);
+        // Match against one immutable grid. The same snapshot must be the
+        // one consumed after plugins have run: a concurrent menu/hopper edit
+        // invalidates the entire craft, rather than changing its recipe.
+        let inputs = crafter.ingredient_snapshot();
+        let frozen_grid = CraftingInventory::new(3, 3);
+        for (slot, ingredient) in inputs.iter().enumerate() {
+            frozen_grid.set_stack(slot, ingredient.clone());
+        }
+        let recipe = if let Some(selected) = crafter.selected_recipe() {
+            let mut chosen = None;
+            for_each_matching_crafting_recipe(&frozen_grid, provider, |definition, result| {
+                if crafting_recipe_identity(definition).as_deref() == Some(selected.as_str()) {
+                    chosen = Some(result);
+                    return false;
+                }
+                true
+            });
+            if chosen.is_none() {
+                // The recorded choice no longer matches the machine grid or
+                // recipe table. Fail closed, rather than craft a different item.
+                crafter.set_selected_recipe(None);
+                world.sync_world_event(WorldEvent::SoundCrafterFail, *pos, 0);
+                return;
+            }
+            chosen
+        } else {
+            match_crafting_recipe(&frozen_grid, provider)
+        };
         if let Some(recipe_result) = recipe
             && Item::from_registry_key(
                 recipe_result
@@ -170,6 +202,26 @@ impl CrafterBlock {
                 }
                 result_stack = event.result;
             }
+            // Do not publish output to another inventory (or to the world)
+            // before consuming its inputs. Keep a consistent input snapshot
+            // and compute remainders before committing, to prevent the recipe
+            // re-reading a partially changed ingredient grid.
+            let remainders: Vec<_> = inputs
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, ingredient)| {
+                    (!ingredient.is_empty())
+                        .then(|| recipe_result.remaining_item_for_slot(slot, ingredient))?
+                })
+                .collect();
+            if !crafter.consume_matching_ingredients(&inputs) {
+                // A hopper or menu modified the grid while the recipe or a
+                // plugin event was being processed. Never dispense an item
+                // which has not been paid for by its exact ingredient grid.
+                world.sync_world_event(WorldEvent::SoundCrafterFail, *pos, 0);
+                return;
+            }
+
             Self::dispense_item(world, pos, crafter, &mut result_stack, props.orientation);
 
             let recipe_id = result_stack.item.identifier().into_owned();
@@ -189,30 +241,9 @@ impl CrafterBlock {
                 }
             }
 
-            for i in 0..CrafterBlockEntity::INVENTORY_SIZE {
-                let stack = crafter.get_stack(i);
-                if !stack.is_empty()
-                    && let Some(mut remainder_stack) =
-                        recipe_result.remaining_item_for_slot(i, &stack)
-                {
-                    Self::dispense_item(
-                        world,
-                        pos,
-                        crafter,
-                        &mut remainder_stack,
-                        props.orientation,
-                    );
-                }
+            for mut remainder_stack in remainders {
+                Self::dispense_item(world, pos, crafter, &mut remainder_stack, props.orientation);
             }
-
-            for i in 0..CrafterBlockEntity::INVENTORY_SIZE {
-                let mut stack = crafter.get_stack(i);
-                if !stack.is_empty() {
-                    stack.decrement(1);
-                    crafter.set_stack(i, stack);
-                }
-            }
-            crafter.mark_dirty();
         } else {
             world.sync_world_event(WorldEvent::SoundCrafterFail, *pos, 0);
         }

@@ -508,14 +508,10 @@ impl Inventory for JukeboxBlockEntity {
     fn is_valid_slot_for(&self, slot: usize, stack: &ItemStack) -> bool {
         slot == 0
             && self.is_empty()
-            && stack
-                .get_data_component::<JukeboxPlayableImpl>()
-                .is_some_and(|song| {
-                    self.world
-                        .get()
-                        .and_then(Weak::upgrade)
-                        .is_some_and(|world| Self::song_event_id(&world, song).is_some())
-                })
+            // Vanilla 26.3 JukeboxBlockEntity.canPlaceItem checks only for
+            // JUKEBOX_PLAYABLE and an empty slot. Resolving a song's registry
+            // ID is a playback concern, not a prerequisite for insertion.
+            && stack.get_data_component::<JukeboxPlayableImpl>().is_some()
     }
 
     /// Vanilla `canTakeItem`: only into a container with an empty slot, so a pulled record always fits.
