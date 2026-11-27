@@ -223,7 +223,11 @@ static VANILLA_CONDITIONS_CACHE: std::sync::LazyLock<
     let mut map = HashMap::new();
     for node in &ADVANCEMENT_TREE.nodes_vector {
         for crit in node.value.criteria_definitions {
-            let parsed = Arc::new(predicate::CriterionConditions::from(crit.conditions));
+            let parsed = crate::data::datapack::advancement_loader::datapack_conditions(
+                &node.value.id,
+                crit.name,
+            )
+            .unwrap_or_else(|| Arc::new(predicate::CriterionConditions::from(crit.conditions)));
             map.insert((node.value, crit.name), parsed);
         }
     }

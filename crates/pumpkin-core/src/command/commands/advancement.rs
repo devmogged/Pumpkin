@@ -586,7 +586,14 @@ impl CommandExecutor for EveryAdvancementExecutor {
             &context.source,
             &EntityArgumentType::get_players(context, ARG_TARGETS)?,
             action,
-            &Advancement::get_advancements_list(),
+            &Advancement::get_advancements_list()
+                .into_iter()
+                .chain(
+                    pumpkin_data::advancement_data::datapack_advancements()
+                        .iter()
+                        .copied(),
+                )
+                .collect::<Vec<_>>(),
             show_advancement,
         )
     }

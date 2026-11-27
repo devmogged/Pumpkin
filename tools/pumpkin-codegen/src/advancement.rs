@@ -796,6 +796,7 @@ impl ToTokens for AdvancementTree {
                     roots,
                     tasks,
                 }
+                .with_datapack_advancements()
             })
         })
     }
@@ -1991,7 +1992,7 @@ pub(crate) fn build() -> TokenStream {
             pub fn from_name(name: &str) -> Option<&'static Self> {
                     match name {
                         #name_to_type
-                        _ => None
+                        _ => datapack_advancement(name)
                     }
                 }
 
@@ -1999,7 +2000,7 @@ pub(crate) fn build() -> TokenStream {
             pub fn from_minecraft_name(name: &str) -> Option<&'static Self> {
                 match name {
                     #minecraft_name_to_type
-                    _ => None
+                    _ => datapack_advancement(name)
                 }
             }
 

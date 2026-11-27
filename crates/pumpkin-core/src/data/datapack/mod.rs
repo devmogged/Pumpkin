@@ -274,6 +274,10 @@ impl DatapackManager {
             .trade_registry
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = all_trade_registry;
+        let registered = advancement_loader::register_datapack_advancements(&all_advancements);
+        if registered > 0 {
+            tracing::info!("Added {registered} datapack advancements to the advancement tree");
+        }
         *self
             .advancements
             .write()

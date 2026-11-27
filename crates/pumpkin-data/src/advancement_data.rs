@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 #[derive(Clone)]
 pub struct AdvancementDisplay {
@@ -165,7 +166,71 @@ pub struct AdvancementTree {
     pub tasks: Vec<usize>,
 }
 
+static DATAPACK_ADVANCEMENTS: OnceLock<Vec<&'static Advancement>> = OnceLock::new();
+static TREE_BUILT: AtomicBool = AtomicBool::new(false);
+
+/// Adds datapack advancements to [`ADVANCEMENT_TREE`], as vanilla's `ServerAdvancementManager`
+/// builds its tree from every loaded pack. Returns false once the tree has been built or the
+/// advancements were already registered.
+pub fn register_datapack_advancements(advancements: Vec<&'static Advancement>) -> bool {
+    !TREE_BUILT.load(Ordering::Acquire) && DATAPACK_ADVANCEMENTS.set(advancements).is_ok()
+}
+
+/// The registered datapack advancement with the full id `name` (`namespace:path`).
+#[must_use]
+pub fn datapack_advancement(name: &str) -> Option<&'static Advancement> {
+    DATAPACK_ADVANCEMENTS
+        .get()?
+        .iter()
+        .copied()
+        .find(|advancement| advancement.id.to_string() == name)
+}
+
+/// Every registered datapack advancement.
+pub fn datapack_advancements() -> &'static [&'static Advancement] {
+    DATAPACK_ADVANCEMENTS.get().map_or(&[], Vec::as_slice)
+}
+
 impl AdvancementTree {
+    /// Inserts the datapack advancements after the generated ones; a child waits for its parent.
+    #[must_use]
+    pub fn with_datapack_advancements(mut self) -> Self {
+        TREE_BUILT.store(true, Ordering::Release);
+        let mut pending: Vec<&'static Advancement> = datapack_advancements().to_vec();
+        while !pending.is_empty() {
+            let before = pending.len();
+            pending.retain(|advancement| !self.try_insert(advancement));
+            if pending.len() == before {
+                break;
+            }
+        }
+        self
+    }
+
+    fn try_insert(&mut self, advancement: &'static Advancement) -> bool {
+        if self.nodes.contains_key(&advancement.id) {
+            return true;
+        }
+        let parent = match &advancement.parent {
+            Some(id) => match self.nodes.get(id) {
+                Some(&index) => Some(index),
+                None => return false,
+            },
+            None => None,
+        };
+        let index = self.nodes_vector.len();
+        self.nodes.insert(advancement.id.clone(), index);
+        if let Some(parent) = parent {
+            self.nodes_vector[parent].add_child(index);
+            self.tasks.push(index);
+        } else {
+            self.roots.push(index);
+        }
+        self.nodes_vector
+            .push(AdvancementNode::new(advancement, parent));
+        true
+    }
+
     pub fn get_node_from_id(&self, id: &Identifier) -> Option<&AdvancementNode> {
         if let Some(idx) = self.nodes.get(id) {
             self.nodes_vector.get(*idx)
