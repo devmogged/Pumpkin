@@ -401,7 +401,15 @@ impl EntitySelectorOption {
                 let mut advancements = std::collections::HashMap::new();
                 while parser.reader.can_read_char() && parser.reader.peek() != Some('}') {
                     parser.reader.skip_whitespace();
-                    let advancement_id = parser.reader.read_unquoted_string();
+                    // Vanilla `ResourceLocation.read`: a namespaced id such as `mymod:root`.
+                    let start = parser.reader.cursor();
+                    while parser.reader.peek().is_some_and(|c| {
+                        c.is_ascii_lowercase() || c.is_ascii_digit() || "_-.:/".contains(c)
+                    }) {
+                        parser.reader.skip();
+                    }
+                    let advancement_id = parser.reader.string()[start..parser.reader.cursor()]
+                        .to_owned();
                     parser.reader.skip_whitespace();
                     parser.reader.expect('=')?;
                     parser.reader.skip_whitespace();
