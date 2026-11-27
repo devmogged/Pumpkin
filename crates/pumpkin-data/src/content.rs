@@ -79,6 +79,7 @@ pub struct StateEntry {
     pub comparator_output: Option<u8>,
     pub block: &'static Block,
     pub carrier: BlockStateId,
+    pub block_display_carrier: Option<BlockStateId>,
     pub properties: BTreeMap<String, String>,
     pub entity: Option<&'static str>,
     pub shape: Vec<BoundingBox>,
@@ -222,16 +223,7 @@ impl Registry {
                     return Err(invalid("custom block carrier must be vanilla"));
                 }
                 if let Some(replacement) = state.carrier_replacement {
-                    if replacement.as_u16() >= BlockStateId::COUNT
-                        || replacement == state.carrier
-                        // States that look alike may share a carrier, never with two replacements.
-                        || registry
-                            .replacements
-                            .insert(state.carrier, replacement)
-                            .is_some_and(|previous| previous != replacement)
-                    {
-                        return Err(invalid("invalid or duplicate custom block carrier"));
-                    }
+                    Self::reserve_carrier(&mut registry.replacements, state.carrier, replacement)?;
                 }
                 let suffix = serde_json::to_string(&state.properties).map_err(io::Error::other)?;
                 let raw = state_ids.reserve(&format!("{}{suffix}", def.name))?;
@@ -334,6 +326,7 @@ impl Registry {
                         comparator_output,
                         block,
                         carrier: definition.carrier,
+                        block_display_carrier: None,
                         properties: definition.properties.clone(),
                         entity,
                         shape: definition.shape.clone(),
@@ -452,6 +445,41 @@ impl Registry {
     #[must_use]
     pub fn state(&self, id: u16) -> Option<&StateEntry> {
         self.states.get(&id)
+    }
+
+    /// Give a registered block state a separate baked carrier for block displays.
+    pub fn set_block_display_carrier(
+        &mut self,
+        id: BlockStateId,
+        carrier: BlockStateId,
+        replacement: BlockStateId,
+    ) -> io::Result<()> {
+        let entry = self
+            .states
+            .get_mut(&id.as_u16())
+            .filter(|entry| entry.block_display_carrier.is_none())
+            .ok_or_else(|| invalid("invalid or duplicate block display state"))?;
+        Self::reserve_carrier(&mut self.replacements, carrier, replacement)?;
+        entry.block_display_carrier = Some(carrier);
+        Ok(())
+    }
+
+    fn reserve_carrier(
+        replacements: &mut HashMap<BlockStateId, BlockStateId>,
+        carrier: BlockStateId,
+        replacement: BlockStateId,
+    ) -> io::Result<()> {
+        if carrier.as_u16() >= BlockStateId::COUNT
+            || replacement.as_u16() >= BlockStateId::COUNT
+            || replacement == carrier
+            || replacements
+                .get(&carrier)
+                .is_some_and(|&previous| previous != replacement)
+        {
+            return Err(invalid("invalid or duplicate custom block carrier"));
+        }
+        replacements.insert(carrier, replacement);
+        Ok(())
     }
 }
 

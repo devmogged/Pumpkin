@@ -374,6 +374,18 @@ impl BlockStateId {
         self
     }
 
+    /// Presentation of a stock block display, independent of its placed block's collision.
+    #[must_use]
+    pub fn block_display_view(self) -> Self {
+        #[cfg(feature = "item")]
+        if self.0 >= Self::COUNT {
+            return crate::content::state(self.0).map_or(Self::AIR, |entry| {
+                entry.block_display_carrier.unwrap_or(entry.carrier)
+            });
+        }
+        self.vanilla_view()
+    }
+
     #[inline(always)]
     #[must_use]
     pub const fn as_u16(self) -> u16 {
