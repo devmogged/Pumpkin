@@ -109,11 +109,12 @@ impl ItemRegistry {
 
     pub(crate) fn modify_content_melee_damage(
         item: &Item,
+        attacker: &Player,
         target: &dyn EntityBase,
         damage: f32,
     ) -> f32 {
         CONTENT_BEHAVIOUR.get().map_or(damage, |handler| {
-            handler.modify_melee_damage(item, target, damage)
+            handler.modify_melee_damage(item, attacker, target, damage)
         })
     }
 
