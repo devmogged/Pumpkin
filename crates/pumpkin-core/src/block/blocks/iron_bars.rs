@@ -3,34 +3,46 @@ use crate::block::{
     BlockBehaviour, GetStateForNeighborUpdateArgs, OnPlaceArgs, PathComputationType,
     RandomTickArgs, is_exception_for_connection,
 };
-use crate::world::World;
-use pumpkin_data::block_properties::HorizontalFacing;
+use pumpkin_data::block_properties::BlockProperties;
 use pumpkin_data::fluid::Fluid;
 use pumpkin_data::tag::Taggable;
 use pumpkin_data::{Block, BlockDirection, BlockState, BlockStateId, HorizontalFacingExt, tag};
 use pumpkin_macros::pumpkin_block_from_tag;
-use pumpkin_util::math::position::BlockPos;
 use pumpkin_world::tick::TickPriority;
 
-type IronBarsProperties = pumpkin_data::block_properties::OakFenceLikeProperties;
+type BarsProperties = pumpkin_data::block_properties::OakFenceLikeProperties;
 
 #[pumpkin_block_from_tag("minecraft:bars")]
 pub struct IronBarsBlock;
 
 impl BlockBehaviour for IronBarsBlock {
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let mut bars_props = IronBarsProperties::default(args.block);
-        bars_props.waterlogged = args.replacing.water_source();
-
-        compute_bars_state(bars_props, args.world, args.block, args.position)
+        let default = args.block.default_state.id;
+        let Some(mut props) = bars_properties(args.block, default) else {
+            return default;
+        };
+        props.waterlogged = args.replacing.water_source();
+        for direction in BlockDirection::horizontal() {
+            let position = args.position.offset(direction.to_offset());
+            let (neighbor, state) = args.world.get_block_and_state(&position);
+            let face = direction.to_block_direction();
+            set_side(
+                &mut props,
+                face,
+                attaches_to(args.block, state, neighbor, face),
+            );
+        }
+        bars_state(args.block, &props)
     }
 
     fn get_state_for_neighbor_update(
         &self,
         args: GetStateForNeighborUpdateArgs<'_>,
     ) -> BlockStateId {
-        let bars_props = IronBarsProperties::from_state_id(args.state_id);
-        if bars_props.waterlogged {
+        let Some(mut props) = bars_properties(args.block, args.state_id) else {
+            return args.state_id;
+        };
+        if props.waterlogged {
             args.world.schedule_fluid_tick(
                 &Fluid::WATER,
                 *args.position,
@@ -38,7 +50,20 @@ impl BlockBehaviour for IronBarsBlock {
                 TickPriority::Normal,
             );
         }
-        compute_bars_state(bars_props, args.world, args.block, args.position)
+        if !args.direction.is_horizontal() {
+            return args.state_id;
+        }
+        set_side(
+            &mut props,
+            args.direction,
+            attaches_to(
+                args.block,
+                args.neighbor_state_id.to_state(),
+                args.neighbor_state_id.to_block(),
+                args.direction,
+            ),
+        );
+        bars_state(args.block, &props)
     }
 
     fn random_tick(&self, args: RandomTickArgs<'_>) {
@@ -50,30 +75,36 @@ impl BlockBehaviour for IronBarsBlock {
     }
 }
 
-pub fn compute_bars_state(
-    mut bars_props: IronBarsProperties,
-    world: &World,
-    block: &Block,
-    block_pos: &BlockPos,
-) -> BlockStateId {
-    for direction in BlockDirection::horizontal() {
-        let other_block_pos = block_pos.offset(direction.to_offset());
-        let (other_block, other_block_state) = world.get_block_and_state(&other_block_pos);
+fn attaches_to(block: &Block, state: &BlockState, neighbor: &Block, side: BlockDirection) -> bool {
+    !is_exception_for_connection(neighbor) && state.is_side_solid(side.opposite())
+        || neighbor == block
+        || neighbor.has_tag(&tag::Block::MINECRAFT_BARS)
+        || neighbor.has_tag(&tag::Block::C_GLASS_PANES)
+        || neighbor.has_tag(&tag::Block::MINECRAFT_WALLS)
+}
 
-        let connected = other_block == block
-            || other_block.has_tag(&tag::Block::MINECRAFT_BARS)
-            || (!is_exception_for_connection(other_block)
-                && other_block_state.is_side_solid(direction.opposite().to_block_direction()))
-            || other_block.has_tag(&tag::Block::C_GLASS_PANES)
-            || other_block.has_tag(&tag::Block::MINECRAFT_WALLS);
-
-        match direction {
-            HorizontalFacing::North => bars_props.north = connected,
-            HorizontalFacing::South => bars_props.south = connected,
-            HorizontalFacing::West => bars_props.west = connected,
-            HorizontalFacing::East => bars_props.east = connected,
-        }
+fn set_side(props: &mut BarsProperties, face: BlockDirection, connected: bool) {
+    match face {
+        BlockDirection::North => props.north = connected,
+        BlockDirection::East => props.east = connected,
+        BlockDirection::South => props.south = connected,
+        BlockDirection::West => props.west = connected,
+        BlockDirection::Up | BlockDirection::Down => {}
     }
+}
 
-    bars_props.to_state_id(block)
+fn bars_properties(block: &Block, state: BlockStateId) -> Option<BarsProperties> {
+    if BarsProperties::handles_block_id(block.id) {
+        return Some(BarsProperties::from_state_id(state));
+    }
+    let raw = block.properties(state)?.to_props();
+    let decoded = BarsProperties::from_props(&raw, &Block::IRON_BARS);
+    (decoded.to_props() == raw).then_some(decoded)
+}
+
+fn bars_state(block: &Block, props: &BarsProperties) -> BlockStateId {
+    if BarsProperties::handles_block_id(block.id) {
+        return props.to_state_id(block);
+    }
+    block.from_properties(&props.to_props()).to_state_id(block)
 }
