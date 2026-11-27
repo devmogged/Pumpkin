@@ -19,6 +19,12 @@ impl PendingConnection {
             return Some(PacketHandlerResult::Stop);
         }
         self.connection_state.store(ConnectionState::Config);
+        if self.version.load() != CURRENT_MC_VERSION
+            && let Some(reason) = self.missing_extension_reason(server)
+        {
+            self.kick(TextComponent::text(reason)).await;
+            return Some(PacketHandlerResult::Stop);
+        }
         self.send_packet_now(&server.get_branding()).await;
 
         if server.advanced_config.server_links.enabled {

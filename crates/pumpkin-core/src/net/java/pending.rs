@@ -53,6 +53,8 @@ pub(super) const CONFIGURATION_EXTENSION_PING: i32 = i32::MIN;
 pub struct JavaConfigurationExtension {
     pub channel: &'static str,
     pub answer: fn(&[u8]) -> Option<Vec<u8>>,
+    /// Disconnect message when a successful exchange is required before play.
+    pub required: Option<&'static str>,
     /// Optional namespaced metadata for clients discovering this extension through status.
     pub status: Option<(&'static str, serde_json::Value)>,
 }
@@ -91,6 +93,7 @@ pub struct PendingConnection {
     pub login_success_sent: bool,
     pub(super) pending_pack: Option<uuid::Uuid>,
     pub(super) waiting_for_extension: bool,
+    extension_answered: bool,
     /// For the connection packet events.
     server: Weak<Server>,
 }
@@ -142,6 +145,7 @@ impl PendingConnection {
             login_success_sent: false,
             pending_pack: None,
             waiting_for_extension: false,
+            extension_answered: false,
             verify_token: None,
             vine_challenge: None,
             velocity_message_id: None,
@@ -596,6 +600,17 @@ impl PendingConnection {
         }
     }
 
+    pub(super) fn missing_extension_reason(&self, server: &Server) -> Option<&'static str> {
+        if self.extension_answered && !self.waiting_for_extension {
+            None
+        } else {
+            server
+                .java_configuration_extension
+                .get()
+                .and_then(|extension| extension.required)
+        }
+    }
+
     async fn handle_config_packet(
         &mut self,
         server: &Arc<Server>,
@@ -623,6 +638,7 @@ impl PendingConnection {
                     if let Some(answer) = (extension.answer)(message.data) {
                         self.send_packet_now(&CPluginMessage::new(extension.channel, &answer))
                             .await;
+                        self.extension_answered = true;
                     }
                 } else {
                     self.handle_plugin_message(message).await;
@@ -630,6 +646,10 @@ impl PendingConnection {
                 Ok(None)
             }
             id if id == SAcknowledgeFinishConfig::to_id(version) => {
+                if let Some(reason) = self.missing_extension_reason(server) {
+                    self.kick(TextComponent::text(reason)).await;
+                    return Ok(Some(PacketHandlerResult::Stop));
+                }
                 let Some(profile) = self.gameprofile.clone() else {
                     return Ok(Some(PacketHandlerResult::Stop));
                 };
@@ -669,6 +689,10 @@ impl PendingConnection {
                 let pong = SConfigPong::read(&mut payload, &version)?;
                 if pong.id == CONFIGURATION_EXTENSION_PING && self.waiting_for_extension {
                     self.waiting_for_extension = false;
+                    if let Some(reason) = self.missing_extension_reason(server) {
+                        self.kick(TextComponent::text(reason)).await;
+                        return Ok(Some(PacketHandlerResult::Stop));
+                    }
                     self.offer_initial_resource_pack(server).await;
                 }
                 Ok(None)
