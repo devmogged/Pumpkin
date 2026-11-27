@@ -13,7 +13,11 @@ use pumpkin_data::{item_stack::ItemStack, screen::WindowType};
 use crate::{
     SimpleInventory,
     crafting::{
-        crafting_screen_handler::match_crafting_recipe, recipe_provider::RecipeProvider,
+        crafting_inventory::CraftingInventory,
+        crafting_screen_handler::{
+            crafting_recipe_identity, for_each_matching_crafting_recipe, match_crafting_recipe,
+        },
+        recipe_provider::RecipeProvider,
         recipes::RecipeInputInventory,
     },
     inventory::Inventory,
@@ -149,13 +153,44 @@ struct CrafterScreenListener {
     container: Arc<dyn RecipeInputInventory>,
     result_inventory: Arc<SimpleInventory>,
     recipe_provider: Option<Arc<dyn RecipeProvider>>,
+    selected_recipe: Arc<std::sync::RwLock<Option<String>>>,
+}
+
+fn matching_crafter_preview(
+    container: &dyn RecipeInputInventory,
+    provider: Option<&dyn RecipeProvider>,
+    selected: Option<&str>,
+) -> ItemStack {
+    let Some(selected) = selected else {
+        return match_crafting_recipe(container, provider)
+            .map_or_else(|| ItemStack::EMPTY.clone(), |r| r.to_item_stack());
+    };
+    let grid = CraftingInventory::new(3, 3);
+    for slot in 0..CrafterScreenHandler::SLOT_COUNT {
+        grid.set_stack(slot, container.get_stack(slot));
+    }
+    let mut chosen = ItemStack::EMPTY.clone();
+    for_each_matching_crafting_recipe(&grid, provider, |recipe, result| {
+        if crafting_recipe_identity(recipe).as_deref() == Some(selected) {
+            chosen = result.to_item_stack();
+            return false;
+        }
+        true
+    });
+    chosen
 }
 
 impl CrafterScreenListener {
     fn refresh_recipe_result(&self) -> ItemStack {
-        let result =
-            match_crafting_recipe(self.container.as_ref(), self.recipe_provider.as_deref())
-                .map_or_else(|| ItemStack::EMPTY.clone(), |r| r.to_item_stack());
+        let selected = self
+            .selected_recipe
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let result = matching_crafter_preview(
+            self.container.as_ref(),
+            self.recipe_provider.as_deref(),
+            selected.as_deref(),
+        );
         self.result_inventory.set_stack(0, result.clone());
         result
     }
@@ -192,6 +227,7 @@ pub struct CrafterScreenHandler {
     pub result_inventory: Arc<SimpleInventory>,
     pub recipe_provider: Option<Arc<dyn RecipeProvider>>,
     pub is_spectator: bool,
+    selected_recipe: Arc<std::sync::RwLock<Option<String>>>,
     behaviour: ScreenHandlerBehaviour,
 }
 
@@ -228,6 +264,7 @@ impl CrafterScreenHandler {
             result_inventory: result_inventory.clone(),
             recipe_provider: recipe_provider.clone(),
             is_spectator,
+            selected_recipe: Arc::new(std::sync::RwLock::new(None)),
             behaviour,
         };
 
@@ -262,6 +299,7 @@ impl CrafterScreenHandler {
             container,
             result_inventory,
             recipe_provider,
+            selected_recipe: handler.selected_recipe.clone(),
         });
         listener.refresh_recipe_result();
         handler.add_listener(listener);
@@ -290,6 +328,30 @@ impl CrafterScreenHandler {
     #[must_use]
     pub fn is_powered(&self) -> bool {
         self.property_delegate.get_property(Self::DATA_TRIGGERED) == 1
+    }
+
+    /// Synchronize an explicitly selected machine recipe in the real Crafter
+    /// preview. Unlike the vanilla default first-match preview, this uses a
+    /// selected definition that must still match the current ingredient grid.
+    /// It never removes ingredients or authorizes crafting by itself.
+    pub fn refresh_selected_preview(&mut self, selected: Option<&str>) {
+        *self
+            .selected_recipe
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = selected.map(str::to_owned);
+        let result = matching_crafter_preview(
+            self.container.as_ref(),
+            self.recipe_provider.as_deref(),
+            selected,
+        );
+        self.result_inventory.set_stack(0, result);
+        self.send_content_updates();
+    }
+
+    /// Clear a stored selection whose machine recipe no longer matches.
+    /// The listener's pinned preview is reset to vanilla first-match behavior.
+    pub fn reset_machine_preview(&mut self) {
+        self.refresh_selected_preview(None);
     }
 }
 
@@ -520,5 +582,57 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn selected_machine_preview_rejects_stale_identity_without_consuming_inputs() {
+        let player_inventory = Arc::new(PlayerInventory::new(
+            Arc::new(Mutex::new(EntityEquipment::new())),
+            Arc::new(rustc_hash::FxHashMap::default()),
+        ));
+        let grid: Arc<dyn RecipeInputInventory> = Arc::new(CraftingInventory::new(3, 3));
+        let delegate: Arc<dyn PropertyDelegate> = Arc::new(DummyCrafterDelegate::new());
+        grid.set_stack(0, ItemStack::new(1, &Item::OAK_LOG));
+        let mut handler =
+            CrafterScreenHandler::new(2, &player_inventory, grid.clone(), delegate, None, false);
+        assert_eq!(
+            handler.result_inventory.get_stack(0).item.id,
+            Item::OAK_PLANKS.id
+        );
+
+        // Invalid old/foreign identity may not silently choose first match.
+        handler.refresh_selected_preview(Some("moddedmc:generated_crafting/0"));
+        assert!(handler.result_inventory.get_stack(0).is_empty());
+        assert_eq!(grid.get_stack(0).item_count, 1);
+
+        let mut identity = None;
+        for_each_matching_crafting_recipe(grid.as_ref(), None, |recipe, _| {
+            identity = crafting_recipe_identity(recipe);
+            false
+        });
+        let identity = identity.expect("oak planks has a genuine crafting recipe");
+        handler.refresh_selected_preview(Some(&identity));
+        assert_eq!(
+            handler.result_inventory.get_stack(0).item.id,
+            Item::OAK_PLANKS.id
+        );
+        assert_eq!(handler.result_inventory.get_stack(0).item_count, 4);
+
+        // The normal stock-menu slot update must not overwrite a deliberately
+        // selected recipe when ingredients remain unchanged.
+        handler.send_content_updates();
+        assert_eq!(
+            handler.result_inventory.get_stack(0).item.id,
+            Item::OAK_PLANKS.id
+        );
+
+        // A new ingredient no longer matches the pinned definition.
+        grid.set_stack(0, ItemStack::new(1, &Item::COBBLESTONE));
+        handler.refresh_selected_preview(Some(&identity));
+        assert!(handler.result_inventory.get_stack(0).is_empty());
+        assert_eq!(grid.get_stack(0).item.id, Item::COBBLESTONE.id);
+
+        handler.reset_machine_preview();
+        assert!(handler.result_inventory.get_stack(0).is_empty());
     }
 }
