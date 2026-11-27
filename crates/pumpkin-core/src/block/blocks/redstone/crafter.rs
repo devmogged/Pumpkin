@@ -21,12 +21,12 @@ use pumpkin_data::translation;
 use pumpkin_data::world::WorldEvent;
 use pumpkin_data::{Block, BlockDirection, BlockStateId, FacingExt};
 use pumpkin_inventory::crafter_screen_handler::CrafterScreenHandler;
+use pumpkin_inventory::crafting::crafting_inventory::CraftingInventory;
 use pumpkin_inventory::crafting::crafting_screen_handler::{
     crafting_recipe_identity, for_each_matching_crafting_recipe, match_crafting_recipe,
 };
 use pumpkin_inventory::crafting::recipe_provider::RecipeProvider;
 use pumpkin_inventory::crafting::recipes::RecipeInputInventory;
-use pumpkin_inventory::crafting::crafting_inventory::CraftingInventory;
 use pumpkin_inventory::player::player_inventory::PlayerInventory;
 use pumpkin_inventory::screen_handler::{
     InventoryPlayer, ScreenHandlerFactory, SharedScreenHandler,
@@ -140,6 +140,10 @@ impl CrafterBlock {
         let provider = server
             .as_deref()
             .map(|s| &*s.recipe_manager as &dyn RecipeProvider);
+        // Datapack reload may replace the recipe catalog while an activation
+        // is matching or a synchronous plugin is inspecting its result.
+        // A different catalog must not publish an obsolete selected recipe.
+        let recipe_revision = provider.and_then(RecipeProvider::recipe_revision);
         // Match against one immutable grid. The same snapshot must be the
         // one consumed after plugins have run: a concurrent menu/hopper edit
         // invalidates the entire craft, rather than changing its recipe.
@@ -181,15 +185,11 @@ impl CrafterBlock {
             let state = world.get_block_state(pos);
             let mut props = CrafterLikeProperties::from_state_id(state.id);
 
-            crafter.set_crafting_ticks_remaining(Self::MAX_CRAFTING_TICKS);
-            props.crafting = true;
-            world.set_block_state(pos, props.to_state_id(block), BlockFlags::NOTIFY_LISTENERS);
-
             let mut result_stack = recipe_result.to_item_stack();
             if let Some(server) = server.as_deref() {
                 crate::world::map::resolve_map_post_processing(&mut result_stack, server);
             }
-            if let Some(server) = server {
+            if let Some(server) = server.as_ref() {
                 let mut event =
                     crate::plugin::api::events::block::crafter_craft::CrafterCraftEvent::new(
                         *pos,
@@ -201,6 +201,10 @@ impl CrafterBlock {
                     return;
                 }
                 result_stack = event.result;
+            }
+            if provider.and_then(RecipeProvider::recipe_revision) != recipe_revision {
+                world.sync_world_event(WorldEvent::SoundCrafterFail, *pos, 0);
+                return;
             }
             // Do not publish output to another inventory (or to the world)
             // before consuming its inputs. Keep a consistent input snapshot
@@ -221,6 +225,14 @@ impl CrafterBlock {
                 world.sync_world_event(WorldEvent::SoundCrafterFail, *pos, 0);
                 return;
             }
+
+            // Only advertise a successful craft after the cancellation,
+            // catalog-revision and ingredient checks have all committed.
+            // An aborted callback must not leave the block animating or the
+            // machine's timed crafting state active with no output.
+            crafter.set_crafting_ticks_remaining(Self::MAX_CRAFTING_TICKS);
+            props.crafting = true;
+            world.set_block_state(pos, props.to_state_id(block), BlockFlags::NOTIFY_LISTENERS);
 
             Self::dispense_item(world, pos, crafter, &mut result_stack, props.orientation);
 
