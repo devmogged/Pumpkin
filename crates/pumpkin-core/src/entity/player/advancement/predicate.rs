@@ -1207,7 +1207,7 @@ pub enum CriterionConditions {
     RecipeUnlocked(RecipePredicate),
     PlayerGeneratesContainerLoot(String),
     EnchantedItem,
-    BrewedPotion,
+    BrewedPotion(Option<TagOrIdMatcher>),
     ItemDurabilityChanged {
         item: ItemPredicate,
         vehicle_type: Option<TagOrIdMatcher>,
@@ -1507,7 +1507,7 @@ impl From<pumpkin_data::advancement_data::AdvancementCondition> for CriterionCon
             AC::CuredZombieVillager => Self::CuredZombieVillager,
             AC::VillagerTrade => Self::VillagerTrade,
             AC::EnchantedItem => Self::EnchantedItem,
-            AC::BrewedPotion => Self::BrewedPotion,
+            AC::BrewedPotion => Self::BrewedPotion(None),
             AC::ItemDurabilityChanged { item, vehicle_type } => Self::ItemDurabilityChanged {
                 item: ItemPredicate {
                     items: (!item.items.is_empty() || item.tag.is_some()).then_some(
@@ -1789,6 +1789,17 @@ fn parse_item_pred(val: &Value) -> ItemPredicate {
 
 impl CriterionConditions {
     #[must_use]
+    pub fn matches_brewed_potion(&self, potion: Option<&str>) -> bool {
+        match self {
+            Self::BrewedPotion(None) => true,
+            Self::BrewedPotion(Some(expected)) => potion.is_some_and(|actual| {
+                !expected.patterns.is_empty() && expected.matches(RegistryKey::Potion, actual)
+            }),
+            _ => false,
+        }
+    }
+
+    #[must_use]
     #[expect(clippy::too_many_lines)]
     pub fn parse(trigger: &str, json_str: &str) -> Self {
         let val: Value = serde_json::from_str(json_str).unwrap_or(Value::Null);
@@ -1871,7 +1882,21 @@ impl CriterionConditions {
                     .to_string(),
             ),
             "minecraft:enchanted_item" => Self::EnchantedItem,
-            "minecraft:brewed_potion" => Self::BrewedPotion,
+            "minecraft:brewed_potion" => match val.get("potion") {
+                None => Self::BrewedPotion(None),
+                Some(potion) if potion.is_object() && potion.get("effects").is_none() => {
+                    // 26.3 uses a potion holder set; older datapacks use the holder directly.
+                    match potion.get("potions") {
+                        None => Self::BrewedPotion(None),
+                        Some(ids) => Self::BrewedPotion(Some(
+                            TagOrIdMatcher::from_value(ids).unwrap_or_default(),
+                        )),
+                    }
+                }
+                Some(potion) => {
+                    Self::BrewedPotion(Some(TagOrIdMatcher::from_value(potion).unwrap_or_default()))
+                }
+            },
             "minecraft:item_durability_changed" => {
                 let vehicle_type = val
                     .get("player")
@@ -2211,6 +2236,25 @@ mod tests {
         assert!(matches_id("stone", "minecraft:stone"));
         assert!(matches_id("minecraft:stone", "minecraft:stone"));
         assert!(!matches_id("minecraft:stone", "minecraft:dirt"));
+    }
+
+    #[test]
+    fn brewed_potion_matches_the_taken_holder() {
+        let trigger = "minecraft:brewed_potion";
+        let any = CriterionConditions::parse(trigger, "{}");
+        assert!(any.matches_brewed_potion(None));
+        let legacy = CriterionConditions::parse(trigger, r#"{"potion":"saintsdragons:tideguard"}"#);
+        assert!(legacy.matches_brewed_potion(Some("saintsdragons:tideguard")));
+        assert!(!legacy.matches_brewed_potion(Some("minecraft:awkward")));
+        assert!(!legacy.matches_brewed_potion(Some("saintsdragons:searing")));
+        assert!(!legacy.matches_brewed_potion(None));
+        let modern = CriterionConditions::parse(
+            trigger,
+            r#"{"potion":{"potions":["minecraft:water","minecraft:awkward"]}}"#,
+        );
+        assert!(modern.matches_brewed_potion(Some("minecraft:awkward")));
+        assert!(!modern.matches_brewed_potion(Some("minecraft:healing")));
+        assert!(!modern.matches_brewed_potion(None));
     }
 
     #[test]

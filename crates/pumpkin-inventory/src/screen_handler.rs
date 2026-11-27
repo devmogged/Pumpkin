@@ -254,7 +254,7 @@ pub trait InventoryPlayer: Send + Sync {
     fn on_recipe_crafted(&self, _item: &ItemStack) {}
 
     /// Called when the player takes a brewed potion from a brewing stand potion slot.
-    fn on_brewed_potion(&self) {}
+    fn on_brewed_potion(&self, _stack: &ItemStack) {}
 
     fn game_time(&self) -> i64 {
         0

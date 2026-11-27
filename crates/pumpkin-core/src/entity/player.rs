@@ -71,6 +71,14 @@ pub fn install_player_death_drop_hook(hook: PlayerDeathDropHook) -> bool {
     DEATH_DROP_HOOK.set(hook).is_ok()
 }
 
+type BrewedPotionHook = fn(&Player, &ItemStack);
+static BREWED_POTION_HOOK: OnceLock<BrewedPotionHook> = OnceLock::new();
+
+/// Observe a stack taken from a brewing stand bottle slot by a player.
+pub fn install_brewed_potion_hook(hook: BrewedPotionHook) -> bool {
+    BREWED_POTION_HOOK.set(hook).is_ok()
+}
+
 #[derive(Clone, Debug)]
 pub enum CustomScoreboard {
     Java(Scoreboard),
@@ -9656,10 +9664,24 @@ impl InventoryPlayer for Player {
         );
     }
 
-    fn on_brewed_potion(&self) {
-        self.trigger_advancement(
-            crate::entity::player::advancement::trigger::AdvancementTrigger::BrewedPotion,
-        );
+    fn on_brewed_potion(&self, stack: &ItemStack) {
+        if let Some(contents) =
+            stack.get_data_component::<pumpkin_data::data_component_impl::PotionContentsImpl>()
+        {
+            let potion = contents
+                .potion_id
+                .and_then(|id| u8::try_from(id).ok())
+                .and_then(pumpkin_data::potion::Potion::from_id)
+                .map(|potion| format!("minecraft:{}", potion.name));
+            self.trigger_advancement(
+                crate::entity::player::advancement::trigger::AdvancementTrigger::BrewedPotion {
+                    potion,
+                },
+            );
+        }
+        if let Some(hook) = BREWED_POTION_HOOK.get() {
+            hook(self, stack);
+        }
     }
 
     fn game_time(&self) -> i64 {
