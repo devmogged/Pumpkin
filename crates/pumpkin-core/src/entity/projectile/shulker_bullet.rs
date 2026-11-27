@@ -56,6 +56,11 @@ pub struct ShulkerBulletEntity {
 use std::sync::atomic::AtomicU8;
 
 impl ShulkerBulletEntity {
+    /// The current target's entity id, or -1 when no target is assigned.
+    pub fn target_id(&self) -> i32 {
+        self.target_id.load(Ordering::Relaxed)
+    }
+
     pub fn new(
         owner: &Entity,
         target_id: i32,
@@ -397,7 +402,7 @@ impl EntityBase for ShulkerBulletEntity {
         }
         self.owner.tick(entity);
 
-        let target_id = self.target_id.load(Ordering::Relaxed);
+        let target_id = self.target_id();
         let target_opt = if target_id >= 0 {
             world.get_entity_by_id(target_id)
         } else {

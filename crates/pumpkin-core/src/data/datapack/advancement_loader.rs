@@ -265,6 +265,15 @@ fn build(
         .and_then(Value::as_i64)
         .and_then(|xp| i32::try_from(xp).ok())
         .unwrap_or(0);
+    let recipes = leak_list(
+        json.get("rewards")
+            .and_then(|rewards| rewards.get("recipes"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(leak),
+    );
     Box::leak(Box::new(Advancement {
         id,
         parent: json
@@ -275,10 +284,9 @@ fn build(
         display: json
             .get("display")
             .map(|display| build_display(display, position)),
-        // shortcut: recipe rewards aren't granted, only experience; add them with the recipe book.
         reward: Box::leak(Box::new(AdvancementReward {
             experience,
-            recipes: &[],
+            recipes,
         })),
         requirements: Box::leak(requirements.into_boxed_slice()),
         criteria,
@@ -325,6 +333,28 @@ pub fn register_datapack_advancements<S: std::hash::BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn datapack_advancement_keeps_recipe_reward_ids() {
+        let json = serde_json::json!({
+            "rewards": {
+                "experience": 5,
+                "recipes": ["minecraft:oak_planks", "mod:dragon_sword"]
+            }
+        });
+        let id = Identifier::parse("mod:reward").unwrap();
+        let definition = DynamicAdvancementDefinition {
+            id: id.to_string(),
+            json: json.to_string(),
+            criteria: HashMap::new(),
+        };
+        let advancement = build(id, &json, &definition, None);
+        assert_eq!(advancement.reward.experience, 5);
+        assert_eq!(
+            advancement.reward.recipes,
+            ["minecraft:oak_planks", "mod:dragon_sword"]
+        );
+    }
 
     #[test]
     fn layout_puts_children_right_of_their_parent() {

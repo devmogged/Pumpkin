@@ -402,6 +402,8 @@ pub fn links_of(entity: &dyn EntityBase) -> Vec<i32> {
                 .map(|player| player.entity_id()),
         );
         links.extend(living.get_last_hurt_by_mob_id().filter(|id| *id != 0));
+        // Last damaged target is checked for death during the living tick.
+        links.extend(living.get_last_hurt_mob().map(|(id, _)| id));
     }
     links
 }

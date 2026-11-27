@@ -13,6 +13,12 @@ pub struct EntityDamageEvent {
 
     /// The damage type.
     pub damage_type: DamageType,
+
+    /// The entity responsible for the damage (for example, a projectile's owner).
+    pub causing_entity_id: Option<i32>,
+
+    /// The entity directly dealing the damage (for example, a projectile).
+    pub direct_entity_id: Option<i32>,
 }
 
 impl EntityDamageEvent {
@@ -22,7 +28,16 @@ impl EntityDamageEvent {
             entity_id,
             damage: damage_amount,
             damage_type,
+            causing_entity_id: None,
+            direct_entity_id: None,
             cancelled: false,
         }
+    }
+
+    #[must_use]
+    pub const fn with_source(mut self, causing: Option<i32>, direct: Option<i32>) -> Self {
+        self.causing_entity_id = causing;
+        self.direct_entity_id = direct;
+        self
     }
 }

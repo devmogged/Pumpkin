@@ -2,8 +2,8 @@ use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::packet::clientbound::play::RECIPE_BOOK_ADD;
 use pumpkin_data::recipes::{
-    CookingRecipeType, CraftingRecipeTypes, RECIPES_COOKING, RECIPES_CRAFTING, RecipeCategoryTypes,
-    RecipeIngredientTypes, RecipeResultStruct,
+    CRAFTING_RECIPE_IDS, CookingRecipeType, CraftingRecipeTypes, RECIPES_COOKING, RECIPES_CRAFTING,
+    RecipeCategoryTypes, RecipeIngredientTypes, RecipeResultStruct,
 };
 use pumpkin_macros::java_packet;
 use pumpkin_util::version::JavaMinecraftVersion;
@@ -58,6 +58,58 @@ impl<'a> CRecipeBookAdd<'a> {
             replace,
             dynamic_recipes,
         }
+    }
+}
+
+/// Adds only the requested recipe displays, retaining their registry-wide display and group IDs.
+pub struct CRecipeBookUnlock<'a> {
+    pub dynamic_recipes: &'a [DynamicRecipe],
+    pub recipe_ids: &'a [&'a str],
+}
+
+impl crate::MultiVersionJavaPacket for CRecipeBookUnlock<'_> {
+    fn to_id(version: JavaMinecraftVersion) -> i32 {
+        <CRecipeBookAdd<'_> as crate::MultiVersionJavaPacket>::to_id(version)
+    }
+}
+
+impl ClientPacket for CRecipeBookUnlock<'_> {
+    fn write_packet_data(
+        &self,
+        write: impl Write,
+        version: &JavaMinecraftVersion,
+    ) -> Result<(), WritingError> {
+        CRecipeBookAdd::new(false, self.dynamic_recipes).write_selected(
+            write,
+            version,
+            Some(self.recipe_ids),
+        )
+    }
+}
+
+fn recipe_selected(selection: Option<&[&str]>, id: Option<&str>) -> bool {
+    selection.is_none_or(|ids| {
+        id.is_some_and(|id| {
+            let id = id.strip_prefix("minecraft:").unwrap_or(id);
+            ids.iter()
+                .any(|candidate| candidate.strip_prefix("minecraft:").unwrap_or(candidate) == id)
+        })
+    })
+}
+
+fn crafting_displayable(recipe: &CraftingRecipeTypes) -> bool {
+    !matches!(
+        recipe,
+        CraftingRecipeTypes::CraftingSpecial(_) | CraftingRecipeTypes::CraftingDecoratedPot { .. }
+    )
+}
+
+fn cooking_recipe_id(recipe: &CookingRecipeType) -> &str {
+    match recipe {
+        CookingRecipeType::Smelting(r)
+        | CookingRecipeType::Blasting(r)
+        | CookingRecipeType::Smoking(r)
+        | CookingRecipeType::CampfireCooking(r) => r.recipe_id,
     }
 }
 
@@ -480,12 +532,23 @@ fn write_entry(
     Ok(false)
 }
 
-#[allow(clippy::too_many_lines)]
 impl ClientPacket for CRecipeBookAdd<'_> {
     fn write_packet_data(
         &self,
         write: impl Write,
         version: &JavaMinecraftVersion,
+    ) -> Result<(), WritingError> {
+        self.write_selected(write, version, None)
+    }
+}
+
+impl CRecipeBookAdd<'_> {
+    #[allow(clippy::too_many_lines)]
+    fn write_selected(
+        &self,
+        write: impl Write,
+        version: &JavaMinecraftVersion,
+        selection: Option<&[&str]>,
     ) -> Result<(), WritingError> {
         let mut write = write;
 
@@ -504,20 +567,24 @@ impl ClientPacket for CRecipeBookAdd<'_> {
         // First pass - count and skip CraftingSpecial and CraftingDecoratedPot entries.
         let crafting_count: usize = RECIPES_CRAFTING
             .iter()
-            .filter(|r| {
-                !matches!(
-                    r,
-                    CraftingRecipeTypes::CraftingSpecial(_)
-                        | CraftingRecipeTypes::CraftingDecoratedPot { .. }
-                )
+            .zip(CRAFTING_RECIPE_IDS)
+            .filter(|(recipe, id)| {
+                crafting_displayable(recipe) && recipe_selected(selection, Some(id))
             })
+            .count();
+        let cooking_count = RECIPES_COOKING
+            .iter()
+            .filter(|recipe| recipe_selected(selection, Some(cooking_recipe_id(recipe))))
             .count();
         let dynamic_count = self
             .dynamic_recipes
             .iter()
-            .filter(|r| matches!(r, DynamicRecipe::Crafting(_) | DynamicRecipe::Cooking(_)))
+            .filter(|r| {
+                matches!(r, DynamicRecipe::Crafting(_) | DynamicRecipe::Cooking(_))
+                    && recipe_selected(selection, r.recipe_id())
+            })
             .count();
-        let total = crafting_count + RECIPES_COOKING.len() + dynamic_count;
+        let total = crafting_count + cooking_count + dynamic_count;
 
         // Entry count (VarInt)
         write.write_var_int(&VarInt(total as i32))?;
@@ -528,7 +595,7 @@ impl ClientPacket for CRecipeBookAdd<'_> {
         let highlight = !self.replace;
 
         // Write crafting recipes
-        for recipe in RECIPES_CRAFTING {
+        for (recipe, id) in RECIPES_CRAFTING.iter().zip(CRAFTING_RECIPE_IDS) {
             let (group, notification) = match recipe {
                 CraftingRecipeTypes::CraftingShaped {
                     group,
@@ -543,6 +610,13 @@ impl ClientPacket for CRecipeBookAdd<'_> {
                 | CraftingRecipeTypes::CraftingSpecial(_) => (None, true),
             };
             let group_id = resolve_group_id_owned(&mut group_ids, &mut next_group_id, group);
+            if !crafting_displayable(recipe) {
+                continue;
+            }
+            if !recipe_selected(selection, Some(id)) {
+                display_id += 1;
+                continue;
+            }
             let flags = entry_flags(self.replace, notification, highlight);
             let written = write_entry(
                 &mut write,
@@ -589,6 +663,10 @@ impl ClientPacket for CRecipeBookAdd<'_> {
                 &mut next_group_id,
                 group.map(Cow::Borrowed),
             );
+            if !recipe_selected(selection, Some(cooking_recipe_id(recipe))) {
+                display_id += 1;
+                continue;
+            }
             let flags = entry_flags(self.replace, true, highlight);
             write_entry(
                 &mut write,
@@ -609,6 +687,7 @@ impl ClientPacket for CRecipeBookAdd<'_> {
 
         // Write dynamic recipes
         for recipe in self.dynamic_recipes {
+            let selected = recipe_selected(selection, recipe.recipe_id());
             match recipe {
                 DynamicRecipe::Crafting(crafting) => {
                     let (group, flags) = match crafting {
@@ -627,6 +706,10 @@ impl ClientPacket for CRecipeBookAdd<'_> {
                     };
                     let group_id =
                         resolve_group_id_owned(&mut group_ids, &mut next_group_id, group);
+                    if !selected {
+                        display_id += 1;
+                        continue;
+                    }
                     write_dynamic_crafting_entry(
                         &mut write,
                         display_id,
@@ -676,6 +759,10 @@ impl ClientPacket for CRecipeBookAdd<'_> {
 
                     let group_id =
                         resolve_group_id_owned(&mut group_ids, &mut next_group_id, group);
+                    if !selected {
+                        display_id += 1;
+                        continue;
+                    }
                     let flags = entry_flags(self.replace, true, highlight);
                     write_dynamic_cooking_entry(
                         &mut write,
@@ -961,6 +1048,8 @@ fn write_dynamic_cooking_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::recipe::{OwnedCraftingRecipe, OwnedRecipeIngredient, OwnedRecipeResult};
+    use crate::ser::NetworkReadExt;
 
     #[test]
     fn air_result_writes_the_empty_slot_display() {
@@ -982,5 +1071,52 @@ mod tests {
         for version in [JavaMinecraftVersion::V_1_21_2, JavaMinecraftVersion::V_26_3] {
             packet.write_packet_data(Vec::new(), &version).unwrap();
         }
+    }
+
+    #[test]
+    fn recipe_reward_only_sends_requested_display_with_original_id() {
+        let dynamic = |id: &str| {
+            DynamicRecipe::Crafting(OwnedCraftingRecipe::Shapeless {
+                recipe_id: Some(id.to_owned()),
+                category: RecipeCategoryTypes::Misc,
+                group: None,
+                ingredients: vec![OwnedRecipeIngredient::Simple("minecraft:stick".to_owned())],
+                result: OwnedRecipeResult {
+                    item_id: "minecraft:torch".to_owned(),
+                    count: 1,
+                },
+            })
+        };
+        let recipes = [dynamic("mod:first"), dynamic("mod:second")];
+        let packet = CRecipeBookUnlock {
+            dynamic_recipes: &recipes,
+            recipe_ids: &["mod:second", "mod:missing", "mod:second"],
+        };
+        let mut bytes = Vec::new();
+        packet
+            .write_packet_data(&mut bytes, &JavaMinecraftVersion::V_26_3)
+            .unwrap();
+        let mut data = bytes.as_slice();
+        assert_eq!(data.get_var_int().unwrap().0, 1);
+        let vanilla_count = RECIPES_CRAFTING
+            .iter()
+            .filter(|r| crafting_displayable(r))
+            .count()
+            + RECIPES_COOKING.len();
+        assert_eq!(data.get_var_int().unwrap().0, vanilla_count as i32 + 1);
+        assert_eq!(bytes.last(), Some(&0));
+    }
+
+    #[test]
+    fn recipe_reward_can_select_a_vanilla_recipe_by_id() {
+        let packet = CRecipeBookUnlock {
+            dynamic_recipes: &[],
+            recipe_ids: &["oak_planks"],
+        };
+        let mut bytes = Vec::new();
+        packet
+            .write_packet_data(&mut bytes, &JavaMinecraftVersion::V_26_3)
+            .unwrap();
+        assert_eq!(bytes.as_slice().get_var_int().unwrap().0, 1);
     }
 }

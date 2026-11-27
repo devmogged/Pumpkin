@@ -119,10 +119,18 @@ impl ToFromWasmEvent for EntityDamageEvent {
                 entity_id: data.entity_id,
                 damage: data.damage,
                 damage_type: from_wit_damage_type(data.damage_type),
+                causing_entity_id: None,
+                direct_entity_id: None,
                 cancelled: data.cancelled,
             },
             _ => panic!("unexpected event type"),
         }
+    }
+
+    fn apply_wasm_event(&mut self, event: Event, state: &mut PluginHostState) {
+        let causing = self.causing_entity_id;
+        let direct = self.direct_entity_id;
+        *self = Self::from_wasm_event(event, state).with_source(causing, direct);
     }
 }
 
