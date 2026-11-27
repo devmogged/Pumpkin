@@ -4038,6 +4038,10 @@ impl LivingEntity {
                 self.entity.entity_id,
                 damage_type,
                 amount,
+            )
+            .with_source(
+                cause.map(|entity| entity.get_entity().entity_id),
+                source.map(|entity| entity.get_entity().entity_id),
             );
         if let Some(server) = self.entity.world.load().server.upgrade() {
             server

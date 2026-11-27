@@ -333,7 +333,7 @@ impl EntityBase for ExperienceOrbEntity {
         amount: f32,
         damage_type: DamageType,
         _position: Option<Vector3<f64>>,
-        _source: Option<&dyn EntityBase>,
+        source: Option<&dyn EntityBase>,
         cause: Option<&dyn EntityBase>,
     ) -> bool {
         if self.entity.is_invulnerable_to(&damage_type, cause) {
@@ -344,6 +344,10 @@ impl EntityBase for ExperienceOrbEntity {
             self.entity.entity_id,
             damage_type,
             amount,
+        )
+        .with_source(
+            cause.map(|entity| entity.get_entity().entity_id),
+            source.map(|entity| entity.get_entity().entity_id),
         );
         if let Some(server) = self.entity.world.load().server.upgrade() {
             server.plugin_manager.fire_blocking(&server, &mut event);
