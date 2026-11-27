@@ -1751,6 +1751,7 @@ impl Player {
         if !is_spin_attack && item_stack.item.id >= pumpkin_data::item::Item::VANILLA_COUNT {
             primary_damage = crate::item::registry::ItemRegistry::modify_content_melee_damage(
                 item_stack.item,
+                self,
                 victim.as_ref(),
                 primary_damage,
             );

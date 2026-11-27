@@ -99,7 +99,13 @@ pub trait ItemBehaviour: Send + Sync {
     }
 
     /// Adjust the damage of a direct player melee hit before the target applies its defenses.
-    fn modify_melee_damage(&self, _item: &Item, _target: &dyn EntityBase, damage: f32) -> f32 {
+    fn modify_melee_damage(
+        &self,
+        _item: &Item,
+        _attacker: &Player,
+        _target: &dyn EntityBase,
+        damage: f32,
+    ) -> f32 {
         damage
     }
 
