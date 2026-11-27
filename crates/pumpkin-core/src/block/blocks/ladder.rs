@@ -3,7 +3,7 @@ use crate::block::{
 };
 use crate::entity::EntityBase;
 use pumpkin_data::BlockStateId;
-use pumpkin_data::block_properties::{Facing, LadderLikeProperties};
+use pumpkin_data::block_properties::{BlockProperties, Facing, LadderLikeProperties};
 use pumpkin_data::fluid::Fluid;
 use pumpkin_data::{Block, BlockDirection, FacingExt, HorizontalFacingExt};
 use pumpkin_macros::pumpkin_block;
@@ -22,14 +22,15 @@ impl BlockBehaviour for LadderBlock {
         {
             let behind_pos = args.position.offset(args.direction.to_offset());
             let (behind_block, behind_state_id) = args.world.get_block_and_state_id(&behind_pos);
-            if behind_block == &Block::LADDER {
-                let props = LadderLikeProperties::from_state_id(behind_state_id);
-                if props.facing.to_block_direction() == args.direction.opposite() {
-                    return Block::AIR.default_state.id;
-                }
+            if behind_block == args.block
+                && ladder_properties(behind_block, behind_state_id).is_some_and(|props| {
+                    props.facing.to_block_direction() == args.direction.opposite()
+                })
+            {
+                return BlockStateId::AIR;
             }
         }
-        let mut props = LadderLikeProperties::default(args.block);
+        let mut props = LadderLikeProperties::default(&Block::LADDER);
         props.waterlogged = args.replacing.water_source();
 
         let mut directions = args.player.get_entity().get_entity_facing_order();
@@ -49,12 +50,23 @@ impl BlockBehaviour for LadderBlock {
             if dir == Facing::Up || dir == Facing::Down {
                 continue;
             }
-            if !can_place_ladder_at(args.world, args.position, dir.to_block_direction()) {
+            if !can_place_ladder_at(
+                args.world,
+                args.position,
+                dir.to_block_direction(),
+                args.block,
+            ) {
                 continue;
             }
             if let Some(facing) = dir.opposite().to_horizontal_facing() {
                 props.facing = facing;
-                return props.to_state_id(args.block);
+                return if args.block == &Block::LADDER {
+                    props.to_state_id(args.block)
+                } else {
+                    args.block
+                        .from_properties(&props.to_props())
+                        .to_state_id(args.block)
+                };
             }
         }
         Block::AIR.default_state.id
@@ -62,25 +74,33 @@ impl BlockBehaviour for LadderBlock {
 
     fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {
         if args.player.is_none() {
-            let props = LadderLikeProperties::from_state_id(args.state.id);
+            let Some(props) = ladder_properties(args.block, args.state.id) else {
+                return false;
+            };
             return can_place_ladder_at(
                 args.block_accessor,
                 args.position,
                 props.facing.to_block_direction().opposite(),
+                args.block,
             );
         }
         if let Some(dir) = args.direction {
             let behind_pos = args.position.offset(dir.to_offset());
             let (behind_block, behind_state) = args.block_accessor.get_block_and_state(&behind_pos);
-            if behind_block == &Block::LADDER {
-                let props = LadderLikeProperties::from_state_id(behind_state.id);
-                if props.facing.to_block_direction() == dir.opposite() {
-                    return false;
-                }
+            if behind_block == args.block
+                && ladder_properties(behind_block, behind_state.id)
+                    .is_some_and(|props| props.facing.to_block_direction() == dir.opposite())
+            {
+                return false;
             }
         }
         for dir in BlockDirection::horizontal() {
-            if can_place_ladder_at(args.block_accessor, args.position, dir.to_block_direction()) {
+            if can_place_ladder_at(
+                args.block_accessor,
+                args.position,
+                dir.to_block_direction(),
+                args.block,
+            ) {
                 return true;
             }
         }
@@ -91,13 +111,12 @@ impl BlockBehaviour for LadderBlock {
         &self,
         args: GetStateForNeighborUpdateArgs<'_>,
     ) -> BlockStateId {
-        let props = LadderLikeProperties::from_state_id(args.state_id);
-        if props.facing.to_block_direction().opposite() == args.direction
-            && !can_place_ladder_at(
-                args.world,
-                args.position,
-                props.facing.to_block_direction().opposite(),
-            )
+        let Some(props) = ladder_properties(args.block, args.state_id) else {
+            return args.state_id;
+        };
+        let support = props.facing.to_block_direction().opposite();
+        if (support == args.direction || args.block != &Block::LADDER)
+            && !can_place_ladder_at(args.world, args.position, support, args.block)
         {
             return BlockStateId::AIR;
         }
@@ -127,9 +146,31 @@ pub const fn horizontal_facing_from_offset(offset: Vector3<i32>) -> Option<Block
 fn can_place_ladder_at(
     block_accessor: &dyn BlockAccessor,
     block_pos: &BlockPos,
-    facing: BlockDirection,
+    support: BlockDirection,
+    block: &Block,
 ) -> bool {
-    block_accessor
-        .get_block_state(&block_pos.offset(facing.to_offset()))
-        .is_side_solid(facing.opposite())
+    if block_accessor
+        .get_block_state(&block_pos.offset(support.to_offset()))
+        .is_side_solid(support.opposite())
+    {
+        return true;
+    }
+    if block == &Block::LADDER {
+        return false;
+    }
+    let (above, state) = block_accessor.get_block_and_state(&block_pos.up());
+    above == block
+        && ladder_properties(above, state.id)
+            .is_some_and(|props| props.facing.to_block_direction() == support.opposite())
+}
+
+/// Read the facing and waterlogging from a vanilla or registered ladder state.
+#[must_use]
+pub fn ladder_properties(block: &Block, state: BlockStateId) -> Option<LadderLikeProperties> {
+    if block == &Block::LADDER {
+        return Some(LadderLikeProperties::from_state_id(state));
+    }
+    let raw = block.properties(state)?.to_props();
+    let props = LadderLikeProperties::from_props(&raw, &Block::LADDER);
+    (raw == props.to_props()).then_some(props)
 }

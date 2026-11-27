@@ -1,6 +1,7 @@
+use crate::block::blocks::ladder::ladder_properties;
 use pumpkin_data::BlockState;
 use pumpkin_data::tag::Taggable;
-use pumpkin_data::{Block, fluid::Fluid, tag};
+use pumpkin_data::{Block, BlockId, fluid::Fluid, tag};
 
 /// Check if a specific block can be replaced by fluid (based on block properties)
 #[must_use]
@@ -45,6 +46,9 @@ pub fn can_be_replaced(block_state: &BlockState, block: &Block, fluid: &Fluid) -
         || id == Block::SEAGRASS.id
         || id == Block::TALL_SEAGRASS.id
         || id == Block::LADDER.id
+        || (id.as_u16() >= BlockId::COUNT
+            && block.has_tag(&tag::Block::MINECRAFT_CLIMBABLE)
+            && ladder_properties(block, block_state.id).is_some())
         || id == Block::POINTED_DRIPSTONE.id
         || id == Block::SCAFFOLDING.id
     {

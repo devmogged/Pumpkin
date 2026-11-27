@@ -20,8 +20,12 @@ impl PendingConnection {
             }
         }
         let item_tags = server.datapack_manager.network_item_tags();
-        self.send_packet_now(&CUpdateTags::new(&tags).with_item_tags(&item_tags))
-            .await;
+        self.send_packet_now(
+            &CUpdateTags::new(&tags)
+                .with_item_tags(&item_tags)
+                .with_climbable_carriers(pumpkin_data::content::client_climbable_carriers()),
+        )
+        .await;
         self.send_packet_now(&CFinishConfig).await;
     }
 }

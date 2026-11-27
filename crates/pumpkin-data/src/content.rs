@@ -103,6 +103,7 @@ pub struct Registry {
     item_names: HashMap<&'static str, &'static Item>,
     entity_names: HashMap<&'static str, &'static str>,
     copper: HashMap<BlockId, ([BlockId; 8], usize)>,
+    client_climbable: Vec<u16>,
     replacements: HashMap<BlockStateId, BlockStateId>,
 }
 
@@ -466,6 +467,23 @@ impl Registry {
         Ok(())
     }
 
+    /// Reserve a block's wire states for climbable content and project its stock states to a
+    /// block with matching properties.
+    pub fn reserve_climbable_carrier(
+        &mut self,
+        carrier: &Block,
+        replacement: &Block,
+    ) -> io::Result<()> {
+        for state in carrier.states {
+            let stock = replacement.with_properties_of(carrier, state.id);
+            Self::reserve_carrier(&mut self.replacements, state.id, stock)?;
+        }
+        if !self.client_climbable.contains(&carrier.id.as_u16()) {
+            self.client_climbable.push(carrier.id.as_u16());
+        }
+        Ok(())
+    }
+
     /// Give a registered block state a separate baked carrier for block displays.
     pub fn set_block_display_carrier(
         &mut self,
@@ -572,6 +590,14 @@ pub fn copper_family(id: BlockId) -> Option<(&'static [BlockId; 8], usize)> {
     }
     let (family, stage) = CONTENT.get()?.copper.get(&id)?;
     Some((family, *stage))
+}
+
+/// Additional vanilla block IDs used as climbable wire carriers.
+#[must_use]
+pub fn client_climbable_carriers() -> &'static [u16] {
+    CONTENT
+        .get()
+        .map_or(&[], |registry| &registry.client_climbable)
 }
 
 pub(crate) fn block_by_id(id: u16) -> Option<&'static Block> {
