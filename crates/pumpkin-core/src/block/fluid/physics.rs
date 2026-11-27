@@ -51,6 +51,9 @@ pub fn can_be_replaced(block_state: &BlockState, block: &Block, fluid: &Fluid) -
             && ladder_properties(block, block_state.id).is_some())
         || id == Block::POINTED_DRIPSTONE.id
         || id == Block::SCAFFOLDING.id
+        || (id.as_u16() >= BlockId::COUNT
+            && pumpkin_data::content::state(block_state.id.as_u16())
+                .is_some_and(|state| state.scaffolding.is_some()))
     {
         return false;
     }

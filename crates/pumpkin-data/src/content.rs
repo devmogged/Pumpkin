@@ -10,9 +10,12 @@ use pumpkin_util::math::boundingbox::BoundingBox;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Block, BlockId, BlockState, BlockStateId, Property, block_properties::BlockProperties,
-    block_state::HAS_ANALOG_OUTPUT_SIGNAL, data_component::DataComponent,
-    data_component_impl::DataComponentImpl, item::Item,
+    Block, BlockId, BlockState, BlockStateId, Property,
+    block_properties::{BlockProperties, ScaffoldingLikeProperties},
+    block_state::HAS_ANALOG_OUTPUT_SIGNAL,
+    data_component::DataComponent,
+    data_component_impl::DataComponentImpl,
+    item::Item,
 };
 
 /// A definition to freeze before opening the world's chunk storage.
@@ -80,6 +83,7 @@ pub struct StateEntry {
     pub block: &'static Block,
     pub carrier: BlockStateId,
     pub block_display_carrier: Option<BlockStateId>,
+    pub scaffolding: Option<ScaffoldingLikeProperties>,
     pub properties: BTreeMap<String, String>,
     pub entity: Option<&'static str>,
     pub shape: Vec<BoundingBox>,
@@ -329,6 +333,10 @@ impl Registry {
                         block,
                         carrier: definition.carrier,
                         block_display_carrier: None,
+                        scaffolding: (definition.physical.id.to_block() == &Block::SCAFFOLDING)
+                            .then(|| {
+                                ScaffoldingLikeProperties::from_state_id(definition.physical.id)
+                            }),
                         properties: definition.properties.clone(),
                         entity,
                         shape: definition.shape.clone(),

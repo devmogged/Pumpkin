@@ -15,18 +15,20 @@ use crate::entity::falling::FallingEntity;
 #[pumpkin_block("minecraft:scaffolding")]
 pub struct ScaffoldingBlock;
 
+pub const STABILITY_MAX_DISTANCE: u8 = 7;
+
 impl ScaffoldingBlock {
     #[must_use]
     pub fn get_distance(world: &dyn BlockAccessor, pos: &BlockPos) -> u8 {
         let below_pos = pos.down();
         let (below_block, below_state) = world.get_block_and_state(&below_pos);
+        let mut min_dist = STABILITY_MAX_DISTANCE;
         if below_block == &Block::SCAFFOLDING {
-            return ScaffoldingLikeProperties::from_state_id(below_state.id).distance;
+            min_dist = ScaffoldingLikeProperties::from_state_id(below_state.id).distance;
         } else if below_state.is_side_solid(BlockDirection::Up) {
             return 0;
         }
 
-        let mut min_dist = 7u8;
         for dir in BlockDirection::horizontal() {
             let neighbor_pos = pos.offset(dir.to_offset());
             let (neighbor_block, neighbor_state) = world.get_block_and_state(&neighbor_pos);
@@ -38,7 +40,7 @@ impl ScaffoldingBlock {
                 }
             }
         }
-        min_dist.min(7)
+        min_dist
     }
 
     #[must_use]
@@ -48,8 +50,12 @@ impl ScaffoldingBlock {
 }
 
 impl BlockBehaviour for ScaffoldingBlock {
+    fn extends_scaffolding(&self, _block: &Block) -> bool {
+        true
+    }
+
     fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {
-        Self::get_distance(args.block_accessor, args.position) < 7
+        Self::get_distance(args.block_accessor, args.position) < STABILITY_MAX_DISTANCE
     }
 
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
@@ -93,8 +99,8 @@ impl BlockBehaviour for ScaffoldingBlock {
         new_props.bottom = Self::is_bottom(args.world.as_ref(), args.position, distance);
         let new_state_id = new_props.to_state_id(args.block);
 
-        if new_props.distance == 7 {
-            if props.distance == 7 {
+        if new_props.distance == STABILITY_MAX_DISTANCE {
+            if props.distance == STABILITY_MAX_DISTANCE {
                 FallingEntity::replace_spawn(args.world, *args.position, new_state_id);
             } else {
                 args.world

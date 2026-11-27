@@ -141,7 +141,7 @@ use crate::block::blocks::redstone::sculk_sensor::SculkSensorBlock;
 use crate::block::blocks::redstone::target_block::TargetBlock;
 use crate::block::blocks::redstone::tripwire::TripwireBlock;
 use crate::block::blocks::redstone::tripwire_hook::TripwireHookBlock;
-use crate::block::blocks::scaffolding::ScaffoldingBlock;
+use crate::block::blocks::scaffolding::{STABILITY_MAX_DISTANCE, ScaffoldingBlock};
 use crate::block::blocks::sculk::sculk_catalyst::SculkCatalystBlock;
 use crate::block::blocks::sculk::sculk_shrieker::SculkShriekerBlock;
 use crate::block::blocks::sculk::sculk_vein::MultifaceBlock;
@@ -193,7 +193,7 @@ use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::sound::SoundCategory;
 use pumpkin_data::tag::{self, Taggable};
-use pumpkin_data::{Block, BlockDirection, BlockId, BlockState};
+use pumpkin_data::{Block, BlockDirection, BlockId, BlockState, HorizontalFacingExt};
 use pumpkin_inventory::screen_handler::ScreenHandlerFactory;
 use pumpkin_protocol::java::server::play::SUseItemOn;
 use pumpkin_util::math::boundingbox::BoundingBox;
@@ -638,6 +638,78 @@ impl BlockRegistry {
         })
     }
 
+    fn extends_scaffolding(&self, clicked: &Block, placed: &Block) -> bool {
+        clicked == placed
+            && self
+                .get_pumpkin_block(placed.id)
+                .is_some_and(|behaviour| behaviour.extends_scaffolding(placed))
+    }
+
+    fn send_build_limit(player: &Player, max_y: i32) {
+        player.send_system_message_raw(
+            &pumpkin_util::text::TextComponent::translate_cross(
+                pumpkin_data::translation::java::BUILD_TOOHIGH,
+                pumpkin_data::translation::bedrock::BUILD_TOOHIGH,
+                vec![pumpkin_util::text::TextComponent::text(max_y.to_string())],
+            )
+            .color_named(pumpkin_util::text::color::NamedColor::Red),
+            true,
+        );
+    }
+
+    /// `ScaffoldingBlockItem.updatePlacementContext` scans from the clicked scaffold.
+    fn scaffolding_target(
+        world: &World,
+        player: &Player,
+        block: &Block,
+        hit: &SUseItemOn,
+        clicked: BlockPos,
+        face: BlockDirection,
+    ) -> Option<(BlockPos, BlockDirection, BlockIsReplacing)> {
+        let entity = player.get_entity();
+        let direction = if entity.is_sneaking() {
+            if hit.inside_block {
+                face.opposite()
+            } else {
+                face
+            }
+        } else if face == BlockDirection::Up {
+            entity.get_horizontal_facing().to_block_direction()
+        } else {
+            BlockDirection::Up
+        };
+
+        let step = direction.to_offset();
+        let mut target = clicked.offset(step);
+        let mut horizontal_distance = 0;
+        while horizontal_distance < STABILITY_MAX_DISTANCE {
+            if !world.is_in_build_limit(target) {
+                if target.0.y > world.get_top_y() {
+                    Self::send_build_limit(player, world.get_top_y());
+                }
+                return None;
+            }
+            let (candidate, state) = world.get_block_and_state(&target);
+            if candidate != block {
+                if !can_replace_with_other_block(candidate, state) {
+                    return None;
+                }
+                let replacing = if candidate == &Block::WATER {
+                    let water = pumpkin_data::block_properties::WaterLikeProperties::from_state_id(
+                        state.id,
+                    );
+                    BlockIsReplacing::Water(water.level)
+                } else {
+                    BlockIsReplacing::Other
+                };
+                return Some((target, direction, replacing));
+            }
+            target = target.offset(step);
+            horizontal_distance += u8::from(direction.is_horizontal());
+        }
+        None
+    }
+
     /// Mirrors vanilla `BlockPlaceContext`: where the placed block would go, or `None` when `canPlace()` is false.
     pub fn placement_target(
         &self,
@@ -650,6 +722,16 @@ impl BlockRegistry {
     ) -> Option<(BlockPos, BlockDirection, BlockIsReplacing)> {
         let clicked_block_pos = BlockPos(location.0);
         let (clicked_block, clicked_block_state) = world.get_block_and_state(&clicked_block_pos);
+        if self.extends_scaffolding(clicked_block, placed_block) {
+            return Self::scaffolding_target(
+                world,
+                player,
+                placed_block,
+                use_item_on,
+                clicked_block_pos,
+                face,
+            );
+        }
 
         let replace_clicked_block = if clicked_block == placed_block {
             self.can_update_at(
@@ -743,23 +825,16 @@ impl BlockRegistry {
             _ => {}
         }
 
-        if location.0.y + face.to_offset().y < world.get_bottom_y() {
-            return Err(BlockPlacingError::BlockOutOfWorld);
-        }
-
-        if location.0.y + face.to_offset().y > world.get_top_y() {
-            player.send_system_message_raw(
-                &pumpkin_util::text::TextComponent::translate_cross(
-                    pumpkin_data::translation::java::BUILD_TOOHIGH,
-                    pumpkin_data::translation::bedrock::BUILD_TOOHIGH,
-                    vec![pumpkin_util::text::TextComponent::text(
-                        (world.get_top_y()).to_string(),
-                    )],
-                )
-                .color_named(pumpkin_util::text::color::NamedColor::Red),
-                true,
-            );
-            return Err(BlockPlacingError::BlockOutOfWorld);
+        let extends_scaffolding = self.extends_scaffolding(clicked_block, placed_block);
+        if !extends_scaffolding {
+            let target_y = location.0.y + face.to_offset().y;
+            if target_y < world.get_bottom_y() {
+                return Err(BlockPlacingError::BlockOutOfWorld);
+            }
+            if target_y > world.get_top_y() {
+                Self::send_build_limit(player, world.get_top_y());
+                return Err(BlockPlacingError::BlockOutOfWorld);
+            }
         }
 
         let Some((final_block_pos, final_face, replacing)) =
@@ -779,17 +854,21 @@ impl BlockRegistry {
             return Ok(None);
         }
 
-        if !self.can_place_at(
-            Some(server),
-            Some(&*world),
-            &*world,
-            Some(player),
-            placed_block,
-            placed_block.default_state,
-            &final_block_pos,
-            Some(final_face),
-            Some(use_item_on),
-        ) {
+        // ScaffoldingBlockItem checks stability for ordinary placement only. An extended
+        // bamboo scaffold may be placed beyond its support and fall on its scheduled tick.
+        if !extends_scaffolding
+            && !self.can_place_at(
+                Some(server),
+                Some(&*world),
+                &*world,
+                Some(player),
+                placed_block,
+                placed_block.default_state,
+                &final_block_pos,
+                Some(final_face),
+                Some(use_item_on),
+            )
+        {
             return Ok(None);
         }
 
@@ -836,7 +915,15 @@ impl BlockRegistry {
         // placement. (e.g. arrows/xp orbs/displays/markers should not)
         let state = BlockState::from_id(new_state);
         let mut buildable = true;
-        for shape in state.get_block_collision_shapes_at(&final_block_pos) {
+        let collision = placed_block != &Block::SCAFFOLDING
+            && (new_state.as_u16() < BlockStateId::COUNT
+                || pumpkin_data::content::state(new_state.as_u16())
+                    .and_then(|state| state.scaffolding.as_ref())
+                    .is_none_or(|props| props.bottom));
+        for shape in state
+            .get_block_collision_shapes_at(&final_block_pos)
+            .filter(|_| collision)
+        {
             let placed_box = shape.at_pos(final_block_pos);
 
             if Self::has_blocking_entity_in_box(world.as_ref(), &placed_box) {

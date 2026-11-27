@@ -2726,7 +2726,18 @@ impl World {
                         collisions.push(shape);
                     }
                 }
-            } else {
+            } else if state.id.as_u16() < BlockStateId::COUNT
+                || pumpkin_data::content::state(state.id.as_u16())
+                    .and_then(|state| state.scaffolding.as_ref())
+                    .is_none_or(|props| {
+                        // A permanent bottom scaffold always collides. The other
+                        // states inherit scaffolding's standing and descending checks.
+                        props.bottom
+                            || (!entity.get_entity().is_sneaking()
+                                && entity.get_entity().pos.load().y
+                                    > f64::from(pos.0.y) + 1.0 - 1.0e-5)
+                    })
+            {
                 for shape in state.get_block_collision_shapes_at(&pos) {
                     let shape = shape.at_pos(pos);
                     if shape.intersects(&bounding_box) {

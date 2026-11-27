@@ -155,6 +155,11 @@ pub trait BlockBehaviour: Send + Sync {
         false
     }
 
+    /// Whether the block item extends a run of matching scaffolding.
+    fn extends_scaffolding(&self, _block: &Block) -> bool {
+        false
+    }
+
     /// onBlockAdded in source code
     fn placed(&self, _args: PlacedArgs<'_>) {}
 
