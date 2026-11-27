@@ -544,6 +544,8 @@ pub mod entity_variant;
 #[cfg(feature = "block_transformer")]
 #[rustfmt::skip]
 #[path = "generated/block_transformer.rs"]
+mod generated_block_transformer;
+#[cfg(feature = "block_transformer")]
 pub mod block_transformer;
 
 #[cfg(all(test, feature = "block_transformer"))]

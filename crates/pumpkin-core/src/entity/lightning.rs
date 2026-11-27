@@ -83,7 +83,7 @@ impl LightningBoltEntity {
 
     fn get_strike_position(&self) -> BlockPos {
         let pos = self.entity.pos.load();
-        Vector3::new(pos.x, pos.y - 1.0e-6, pos.z).to_block_pos()
+        BlockPos::floored(pos.x, pos.y - 1.0e-6, pos.z)
     }
 
     fn power_lightning_rod(&self, world: &Arc<World>) {
@@ -311,18 +311,18 @@ fn random_in_cube(count: usize, center: &BlockPos, radius: i32) -> Vec<BlockPos>
 }
 
 #[must_use]
-pub const fn is_waxed_copper(id: BlockId) -> bool {
+pub fn is_waxed_copper(id: BlockId) -> bool {
     pumpkin_data::block_transformer::get_unwaxed(id).is_some()
 }
 
 #[must_use]
-pub const fn is_weathering_copper(id: BlockId) -> bool {
+pub fn is_weathering_copper(id: BlockId) -> bool {
     pumpkin_data::block_transformer::get_previous_weathering(id).is_some()
         || pumpkin_data::block_transformer::get_next_weathering(id).is_some()
 }
 
 #[must_use]
-pub const fn get_first_stage_copper(id: BlockId) -> Option<BlockId> {
+pub fn get_first_stage_copper(id: BlockId) -> Option<BlockId> {
     if !is_weathering_copper(id) {
         return None;
     }
@@ -334,6 +334,6 @@ pub const fn get_first_stage_copper(id: BlockId) -> Option<BlockId> {
 }
 
 #[must_use]
-pub const fn get_previous_stage_copper(id: BlockId) -> Option<BlockId> {
+pub fn get_previous_stage_copper(id: BlockId) -> Option<BlockId> {
     pumpkin_data::block_transformer::get_previous_weathering(id)
 }

@@ -5,6 +5,7 @@ use crate::server::Server;
 use pumpkin_data::block_properties::{
     ChestLikeProperties, ChestType, DoubleBlockHalf, OakDoorLikeProperties,
 };
+use pumpkin_data::block_transformer::content_axe_transform;
 use pumpkin_data::data_component_impl::BlockTransformerImpl;
 use pumpkin_data::game_event::GameEvent;
 use pumpkin_data::item_stack::ItemStack;
@@ -50,7 +51,10 @@ impl ItemBehaviour for AxeItem {
 
         let current_state_id = world.get_block_state_id(&location);
 
-        if let Some(result) = transformer.transform(block, current_state_id, face, &get_block) {
+        if let Some(result) = transformer
+            .transform(block, current_state_id, face, &get_block)
+            .or_else(|| content_axe_transform(transformer, block, current_state_id))
+        {
             if let Some(sound) = result.entry.sound {
                 world.play_sound(sound, SoundCategory::Blocks, &location.to_f64());
             }

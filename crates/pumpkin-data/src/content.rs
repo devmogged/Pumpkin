@@ -102,6 +102,7 @@ pub struct Registry {
     items: HashMap<u16, ItemEntry>,
     item_names: HashMap<&'static str, &'static Item>,
     entity_names: HashMap<&'static str, &'static str>,
+    copper: HashMap<BlockId, ([BlockId; 8], usize)>,
     replacements: HashMap<BlockStateId, BlockStateId>,
 }
 
@@ -447,6 +448,24 @@ impl Registry {
         self.states.get(&id)
     }
 
+    /// Register four oxidation stages followed by the matching four waxed stages.
+    pub fn add_copper_family(&mut self, names: [&str; 8]) -> io::Result<()> {
+        let mut family = [BlockId::AIR; 8];
+        for (index, name) in names.into_iter().enumerate() {
+            let block = self
+                .block(name)
+                .ok_or_else(|| invalid("unknown copper family block"))?;
+            if family[..index].contains(&block.id) || self.copper.contains_key(&block.id) {
+                return Err(invalid("duplicate copper family block"));
+            }
+            family[index] = block.id;
+        }
+        for (index, id) in family.into_iter().enumerate() {
+            self.copper.insert(id, (family, index));
+        }
+        Ok(())
+    }
+
     /// Give a registered block state a separate baked carrier for block displays.
     pub fn set_block_display_carrier(
         &mut self,
@@ -543,6 +562,16 @@ pub fn state(id: u16) -> Option<&'static StateEntry> {
 #[must_use]
 pub fn item(id: u16) -> Option<&'static ItemEntry> {
     CONTENT.get()?.items.get(&id)
+}
+
+/// Look up a custom copper block as a member of an installed family.
+#[must_use]
+pub fn copper_family(id: BlockId) -> Option<(&'static [BlockId; 8], usize)> {
+    if id.as_u16() < BlockId::COUNT {
+        return None;
+    }
+    let (family, stage) = CONTENT.get()?.copper.get(&id)?;
+    Some((family, *stage))
 }
 
 pub(crate) fn block_by_id(id: u16) -> Option<&'static Block> {
