@@ -1633,8 +1633,10 @@ pub struct Entity {
     pub fire_ticks: AtomicI32,
     pub has_visual_fire: AtomicBool,
     /// The number of ticks the entity has been frozen (in powder snow)
-    /// Max is 140 ticks (7 seconds). Increases by 1/tick in powder snow, decreases by 2/tick outside.
+    /// Full freezing starts at 140 ticks. Explicitly applied frost can exceed that threshold.
     pub frozen_ticks: AtomicI32,
+    /// Nonnegative while a host controls this projectile's motion; -1 is vanilla.
+    pub controlled_projectile_lease: AtomicI32,
     /// Set during block-collision processing when the entity is touching powder snow.
     pub is_in_powder_snow: AtomicBool,
     /// True if the entity was in powder snow during the previous tick.
@@ -1937,6 +1939,7 @@ impl Entity {
             fire_ticks: AtomicI32::new(-1),
             has_visual_fire: AtomicBool::new(false),
             frozen_ticks: AtomicI32::new(0),
+            controlled_projectile_lease: AtomicI32::new(-1),
             is_in_powder_snow: AtomicBool::new(false),
             was_in_powder_snow: AtomicBool::new(false),
             removal_reason: AtomicCell::new(None),
@@ -3891,7 +3894,7 @@ impl Entity {
         self.fire_ticks.store(0, Ordering::Relaxed);
     }
 
-    /// Maximum freeze ticks (7 seconds at 20 tps)
+    /// Ticks required for full freezing (7 seconds at 20 tps).
     pub const MAX_FROZEN_TICKS: i32 = 140;
 
     /// Freeze damage is dealt every 40 ticks when fully frozen
@@ -3955,7 +3958,9 @@ impl Entity {
 
         let new_frozen_ticks = if in_powder_snow && can_freeze {
             // Increase frozen ticks when in powder snow
-            (old_frozen_ticks + 1).min(Self::MAX_FROZEN_TICKS)
+            old_frozen_ticks
+                .saturating_add(1)
+                .min(Self::MAX_FROZEN_TICKS)
         } else {
             // Vanilla: thaw whenever not in powder snow OR when freezing is prevented
             (old_frozen_ticks - 2).max(0)
@@ -3992,7 +3997,7 @@ impl Entity {
 
     /// Sets the number of ticks the entity has been frozen.
     pub fn set_frozen_ticks(&self, ticks: i32) {
-        let new_frozen_ticks = ticks.clamp(0, Self::MAX_FROZEN_TICKS);
+        let new_frozen_ticks = ticks.max(0);
         self.frozen_ticks.store(new_frozen_ticks, Ordering::Relaxed);
         let mut bedrock_meta = SyncedActorDataList::new();
         bedrock_meta.set(
@@ -6287,6 +6292,9 @@ impl Entity {
         if frozen_ticks > 0 {
             nbt.put_int("TicksFrozen", frozen_ticks);
         }
+        if self.controlled_projectile_lease.load(Relaxed) >= 0 {
+            nbt.put_bool("PumpkinControlledProjectile", true);
+        }
         if self.has_visual_fire.load(Relaxed) {
             nbt.put_bool("HasVisualFire", true);
         }
@@ -6411,6 +6419,9 @@ impl Entity {
         self.set_glowing(nbt.get_bool("Glowing").unwrap_or(false));
         self.frozen_ticks
             .store(nbt.get_int("TicksFrozen").unwrap_or(0), Relaxed);
+        if nbt.get_bool("PumpkinControlledProjectile").unwrap_or(false) {
+            self.controlled_projectile_lease.store(3, Relaxed);
+        }
         self.has_visual_fire
             .store(nbt.get_bool("HasVisualFire").unwrap_or(false), Relaxed);
 
