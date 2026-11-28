@@ -194,6 +194,13 @@ pub fn can_hit_entity<A: AbstractArrow + ?Sized>(arrow: &A, other: &dyn EntityBa
 /// One tick of an arrow or trident.
 pub fn tick<A: AbstractArrow + ?Sized>(arrow: &A, caller: &dyn EntityBase, server: &Server) {
     let entity = arrow.get_entity();
+    if entity.controlled_projectile_lease.load(Ordering::Relaxed) >= 0 {
+        entity.tick(caller, server);
+        if !entity.is_removed() {
+            super::tick_controlled_projectile(entity);
+        }
+        return;
+    }
     let flight = arrow.flight();
     let world = entity.world.load();
     let physics = !entity.no_physics.load(Ordering::Relaxed);
