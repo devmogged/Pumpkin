@@ -142,6 +142,10 @@ impl BreedGoal {
             );
             player.trigger_advancement(AdvancementTrigger::BredAnimal {
                 parent_type: format!("minecraft:{}", entity.entity_type.resource_name),
+                partner_type: format!("minecraft:{}", mate.get_entity().entity_type.resource_name),
+                child_type: baby.as_ref().map(|baby| {
+                    format!("minecraft:{}", baby.get_entity().entity_type.resource_name)
+                }),
             });
         }
 
