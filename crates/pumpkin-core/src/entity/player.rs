@@ -1766,6 +1766,15 @@ impl Player {
         }
 
         let old_movement = victim_entity.velocity.load();
+        let content_melee =
+            !is_spin_attack && item_stack.item.id >= pumpkin_data::item::Item::VANILLA_COUNT;
+        let before = if content_melee {
+            victim
+                .get_living_entity()
+                .map(|living| living.health.load() + living.get_absorption())
+        } else {
+            None
+        };
         if !victim.damage_with_context(
             victim.as_ref(),
             primary_damage,
@@ -1786,6 +1795,18 @@ impl Player {
                 &self.living_entity.entity.pos.load(),
             );
             return;
+        }
+
+        if let Some(before) = before
+            && let Some(living) = victim.get_living_entity()
+        {
+            let dealt = (before - living.health.load() - living.get_absorption()).max(0.0);
+            crate::item::registry::ItemRegistry::successful_content_melee_hit(
+                item_stack.item,
+                self,
+                victim.as_ref(),
+                dealt,
+            );
         }
 
         if is_mace_smash && damage >= 100.0 {

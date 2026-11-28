@@ -118,6 +118,17 @@ impl ItemRegistry {
         })
     }
 
+    pub(crate) fn successful_content_melee_hit(
+        item: &Item,
+        attacker: &Player,
+        target: &dyn EntityBase,
+        damage: f32,
+    ) {
+        if let Some(handler) = CONTENT_BEHAVIOUR.get() {
+            handler.on_successful_melee_hit(item, attacker, target, damage);
+        }
+    }
+
     pub(crate) fn content_use(
         stack: &ItemStack,
         player: &Player,
