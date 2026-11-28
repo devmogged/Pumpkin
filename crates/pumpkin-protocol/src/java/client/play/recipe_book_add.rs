@@ -81,7 +81,7 @@ impl ClientPacket for CRecipeBookUnlock<'_> {
     ) -> Result<(), WritingError> {
         CRecipeBookAdd::new(false, self.dynamic_recipes).write_selected(
             write,
-            version,
+            *version,
             Some(self.recipe_ids),
         )
     }
@@ -97,14 +97,14 @@ fn recipe_selected(selection: Option<&[&str]>, id: Option<&str>) -> bool {
     })
 }
 
-fn crafting_displayable(recipe: &CraftingRecipeTypes) -> bool {
+const fn crafting_displayable(recipe: &CraftingRecipeTypes) -> bool {
     !matches!(
         recipe,
         CraftingRecipeTypes::CraftingSpecial(_) | CraftingRecipeTypes::CraftingDecoratedPot { .. }
     )
 }
 
-fn cooking_recipe_id(recipe: &CookingRecipeType) -> &str {
+const fn cooking_recipe_id(recipe: &CookingRecipeType) -> &str {
     match recipe {
         CookingRecipeType::Smelting(r)
         | CookingRecipeType::Blasting(r)
@@ -538,7 +538,7 @@ impl ClientPacket for CRecipeBookAdd<'_> {
         write: impl Write,
         version: &JavaMinecraftVersion,
     ) -> Result<(), WritingError> {
-        self.write_selected(write, version, None)
+        self.write_selected(write, *version, None)
     }
 }
 
@@ -547,7 +547,7 @@ impl CRecipeBookAdd<'_> {
     fn write_selected(
         &self,
         write: impl Write,
-        version: &JavaMinecraftVersion,
+        version: JavaMinecraftVersion,
         selection: Option<&[&str]>,
     ) -> Result<(), WritingError> {
         let mut write = write;
@@ -621,7 +621,7 @@ impl CRecipeBookAdd<'_> {
             let written = write_entry(
                 &mut write,
                 display_id,
-                *version,
+                version,
                 group_id,
                 flags,
                 crafting_table,
@@ -671,7 +671,7 @@ impl CRecipeBookAdd<'_> {
             write_entry(
                 &mut write,
                 display_id,
-                *version,
+                version,
                 group_id,
                 flags,
                 crafting_table,
@@ -713,7 +713,7 @@ impl CRecipeBookAdd<'_> {
                     write_dynamic_crafting_entry(
                         &mut write,
                         display_id,
-                        *version,
+                        version,
                         group_id,
                         flags,
                         crafting_table,
@@ -767,7 +767,7 @@ impl CRecipeBookAdd<'_> {
                     write_dynamic_cooking_entry(
                         &mut write,
                         display_id,
-                        *version,
+                        version,
                         group_id,
                         flags,
                         station,

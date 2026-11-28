@@ -331,16 +331,12 @@ impl VanillaGenerator {
             })
             .collect();
 
-        let default_rings = if dimension == Dimension::OVERWORLD {
-            let pumpkin_data::structures::StructurePlacementType::ConcentricRings(rings) =
-                &StructureSet::STRONGHOLDS.placement.placement_type
-            else {
-                unreachable!()
-            };
-            Some(rings)
-        } else {
-            None
-        };
+        let default_rings = (dimension == Dimension::OVERWORLD).then(|| {
+            match &StructureSet::STRONGHOLDS.placement.placement_type {
+                pumpkin_data::structures::StructurePlacementType::ConcentricRings(rings) => rings,
+                _ => unreachable!(),
+            }
+        });
         let global_structure_cache =
             crate::generation::structure::placement::GlobalStructureCache::for_generator(
                 seed.0 as i64,

@@ -21,7 +21,7 @@ pub struct FoundStructure {
 
 /// The exact placement-defined map location (vanilla StructurePlacement.getLocatePos).
 #[must_use]
-pub fn locate_pos(placement: &StructurePlacement, chunk_x: i32, chunk_z: i32) -> BlockPos {
+pub const fn locate_pos(placement: &StructurePlacement, chunk_x: i32, chunk_z: i32) -> BlockPos {
     let [x, y, z] = placement.locate_offset;
     BlockPos::new((chunk_x << 4) + x, y, (chunk_z << 4) + z)
 }

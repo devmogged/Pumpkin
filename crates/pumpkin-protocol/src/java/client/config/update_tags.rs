@@ -34,7 +34,7 @@ impl<'a> CUpdateTags<'a> {
     }
 
     #[must_use]
-    pub fn with_item_tags(mut self, tags: &'a BTreeMap<String, Vec<u16>>) -> Self {
+    pub const fn with_item_tags(mut self, tags: &'a BTreeMap<String, Vec<u16>>) -> Self {
         self.item_tags = Some(tags);
         self
     }

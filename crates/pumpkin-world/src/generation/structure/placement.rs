@@ -55,7 +55,7 @@ pub struct GlobalStructureCache {
     stronghold_bounds: OnceLock<StrongholdRingBounds>,
     /// Other concentric placements must not reuse the default stronghold layout.
     ring_source: Option<(Arc<ProtoMultiNoiseRouter>, ActiveBiomeSupplier)>,
-    ring_variants: DashMap<(i64, RingKey), Arc<GlobalStructureCache>>,
+    ring_variants: DashMap<(i64, RingKey), Arc<Self>>,
     /// Memoized structure starts, keyed by (structure, start chunk x, start chunk z).
     ///
     /// A jigsaw structure's placement is fully determined by its start chunk and the
@@ -91,7 +91,7 @@ impl From<&ConcentricRingsStructurePlacement> for RingKey {
 }
 
 impl RingKey {
-    fn placement(self) -> ConcentricRingsStructurePlacement {
+    const fn placement(self) -> ConcentricRingsStructurePlacement {
         ConcentricRingsStructurePlacement {
             spread: self.spread,
             distance: self.distance,
@@ -208,7 +208,7 @@ impl GlobalStructureCache {
     }
 
     /// Nonblocking layout query for an individual placement.
-    /// The returned layout is owned so a DashMap guard never escapes the cache.
+    /// The returned layout is owned so a `DashMap` guard never escapes the cache.
     pub fn try_get_ring_chunks(
         &self,
         seed: i64,
