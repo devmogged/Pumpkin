@@ -6203,11 +6203,10 @@ impl Entity {
                 Vector3::new(self.pos.load().x, vehicle_box.max.y, self.pos.load().z);
 
             let custom_pos = self.custom_dismount_position(passenger_entity, &world);
-            let dismount_pos = if let Some(position) = custom_pos {
-                position
-            } else if is_water {
-                fallback_pos
-            } else {
+            let dismount_pos = custom_pos.unwrap_or_else(|| {
+                if is_water {
+                    return fallback_pos;
+                }
                 // Vanilla checks Standing, Crouching, Swimming poses and their respective height checks
                 let poses_and_heights = [
                     (EntityPose::Standing, vec![0, 1, -1]),
@@ -6295,7 +6294,7 @@ impl Entity {
                         fallback_pos
                     }
                 }
-            };
+            });
 
             // Clean up any remaining reference to the dismounted passenger.
             passenger_entity.set_pos(dismount_pos);

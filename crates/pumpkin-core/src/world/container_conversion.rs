@@ -40,7 +40,9 @@ fn supported(state: BlockStateId, nbt: &NbtCompound) -> bool {
         && nbt.get("Lock").is_none()
         && nbt.get("lock").is_none()
         && (nbt.get("Items").is_none()
-            || nbt.get_list("Items").is_some_and(|items| items.is_empty()))
+            || nbt
+                .get_list("Items")
+                .is_some_and(<[pumpkin_nbt::tag::NbtTag]>::is_empty))
 }
 
 #[cfg(test)]
@@ -136,11 +138,13 @@ pub(super) fn pending(world: &World, pos: BlockPos, commit: bool) -> Outcome {
     else {
         return Outcome::Pass;
     };
-    replace(world, pos, state, source, None, *hook, commit)
+    replace(world, pos, state, &source, None, *hook, commit)
 }
 
 /// Called before loot unpack, and when a live entity with newly assigned
-/// deferred loot is discovered by migration. An already exposed vanilla
+/// deferred loot is discovered by migration.
+///
+/// An already exposed vanilla
 /// inventory stays vanilla rather than invalidating another owner's handle.
 pub fn live(world: &World, entity: &Arc<dyn BlockEntity>, commit: bool) -> Outcome {
     let Some(hook) = HOOK.get() else {
@@ -165,7 +169,7 @@ pub fn live(world: &World, entity: &Arc<dyn BlockEntity>, commit: bool) -> Outco
     if !supported(state, &source) {
         return Outcome::Pass;
     }
-    let outcome = replace(world, pos, state, source, Some(entity), *hook, commit);
+    let outcome = replace(world, pos, state, &source, Some(entity), *hook, commit);
     if outcome == Outcome::Deferred {
         world
             .pending_block_entity_migrations
@@ -174,29 +178,31 @@ pub fn live(world: &World, entity: &Arc<dyn BlockEntity>, commit: bool) -> Outco
     outcome
 }
 
+// Keep the compare-and-swap transaction and lock ordering visible together.
+#[allow(clippy::too_many_lines)]
 fn replace(
     world: &World,
     pos: BlockPos,
     state: BlockStateId,
-    source: NbtCompound,
+    source: &NbtCompound,
     previous: Option<&Arc<dyn BlockEntity>>,
     hook: Hook,
     commit: bool,
 ) -> Outcome {
-    let chunk_pos = pos.chunk_position();
-    let relative = pos.chunk_relative_position();
-    if IN_PROPOSAL.replace(true) {
-        return Outcome::Deferred;
-    }
     struct Guard;
     impl Drop for Guard {
         fn drop(&mut self) {
             IN_PROPOSAL.set(false);
         }
     }
+    let chunk_pos = pos.chunk_position();
+    let relative = pos.chunk_relative_position();
+    if IN_PROPOSAL.replace(true) {
+        return Outcome::Deferred;
+    }
     let proposal = {
         let _guard = Guard;
-        hook(world, pos, state, &source)
+        hook(world, pos, state, source)
     };
     let (destination, mut data) = match proposal {
         Proposal::Pass => return Outcome::Pass,
@@ -285,7 +291,7 @@ fn replace(
                 };
                 // The pending copy can include metadata that vanilla does not
                 // understand. Do not replace a live record if that differs.
-                if pending.get(&pos) != Some(&source) {
+                if pending.get(&pos) != Some(source) {
                     return false;
                 }
                 let mut loot = chest
@@ -312,10 +318,8 @@ fn replace(
                 }
                 // No stale Arc can obtain a vanilla inventory or unpack this key.
                 *loot = None;
-            } else {
-                if pending.get(&pos) != Some(&source) || entities.contains_key(&pos) || !write() {
-                    return false;
-                }
+            } else if pending.get(&pos) != Some(source) || entities.contains_key(&pos) || !write() {
+                return false;
             }
             // State CAS rejects changed blocks. Pending and entity-map locks prevent
             // a lazy materialization or snapshot from observing the intermediate.

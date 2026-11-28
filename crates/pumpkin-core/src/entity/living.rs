@@ -3897,6 +3897,8 @@ impl LivingEntity {
         }
     }
 
+    // Restore related fields in their existing load order.
+    #[allow(clippy::too_many_lines)]
     pub fn read_living_nbt_non_mut(&self, nbt: &NbtCompound) {
         // Load fall distance, but if this entity is currently marked dead ensure we don't restore
         // a lethal fall distance that would immediately re-kill on spawn.
@@ -4446,6 +4448,7 @@ impl LivingEntity {
 
     /// Vanilla `LivingEntity.actuallyHurt`: armor, enchantments and effects, then absorption and
     /// health. A mob that overrides it through `Mob::actually_hurt` calls this first.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn actually_hurt(
         &self,
         caller: &dyn EntityBase,

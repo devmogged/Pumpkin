@@ -48,6 +48,9 @@ pub struct EmbedderSpawn {
     pub carrier_rules: bool,
 }
 
+pub type EmbedderSpawnFactory =
+    fn(&Arc<World>, &'static EmbedderSpawn, Vector3<f64>) -> Option<Arc<dyn EntityBase>>;
+
 /// Hooks that let an embedder add mobs to the natural spawner.
 pub struct EmbedderSpawns {
     /// Extra entries for a biome's pool of one category.
@@ -55,8 +58,7 @@ pub struct EmbedderSpawns {
     /// The mob's own spawn rule at a position (vanilla `SpawnPlacements` predicate).
     pub check: fn(&Arc<World>, &'static EmbedderSpawn, &BlockPos, EntitySpawnReason) -> bool,
     /// Create the mob at a position without adding it to the world.
-    pub create:
-        fn(&Arc<World>, &'static EmbedderSpawn, Vector3<f64>) -> Option<Arc<dyn EntityBase>>,
+    pub create: EmbedderSpawnFactory,
 }
 
 static EMBEDDER_SPAWNS: OnceLock<EmbedderSpawns> = OnceLock::new();
@@ -241,7 +243,7 @@ fn choose_weighted(
 
 /// A biome's vanilla spawn pool of one category.
 #[must_use]
-pub fn pool(biome: &'static Biome, category: &'static MobCategory) -> &'static [Spawner] {
+pub const fn pool(biome: &'static Biome, category: &'static MobCategory) -> &'static [Spawner] {
     match category.id {
         id if id == MobCategory::MONSTER.id => biome.spawners.monster,
         id if id == MobCategory::CREATURE.id => biome.spawners.creature,

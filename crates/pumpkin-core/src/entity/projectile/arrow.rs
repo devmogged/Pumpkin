@@ -63,6 +63,8 @@ pub struct CustomArrowAmmo {
 
 static CUSTOM_AMMO: OnceLock<HashMap<u16, CustomArrowAmmo>> = OnceLock::new();
 
+// The process-lifetime registry stores this exact map type.
+#[allow(clippy::implicit_hasher)]
 pub fn install_custom_arrow_ammo(ammo: HashMap<u16, CustomArrowAmmo>) -> bool {
     CUSTOM_AMMO.set(ammo).is_ok()
 }

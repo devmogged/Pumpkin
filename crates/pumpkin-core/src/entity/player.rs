@@ -6030,7 +6030,8 @@ impl Player {
         let mut collect = |slot: usize, stack: ItemStack| {
             if !stack.is_empty() && !super::living::prevents_equipment_drop(&stack) {
                 drops.push(PlayerInventoryDrop {
-                    slot: u32::try_from(slot).expect("player slot fits u32"),
+                    // All callers enumerate the fixed player inventory slots.
+                    slot: slot as u32,
                     stack,
                 });
             }

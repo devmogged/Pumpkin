@@ -1015,7 +1015,7 @@ impl BlockRegistry {
 
         let sound = world.get_block_state(&final_block_pos).get_sound_type();
         let position = final_block_pos.to_centered_f64();
-        let volume = (sound.volume + 1.0) * 0.5;
+        let volume = f32::midpoint(sound.volume, 1.0);
         let pitch = sound.pitch * 0.8;
         if placed_block.id.as_u16() >= BlockId::COUNT {
             // The stock client cannot predict placement from a custom item's paper carrier.

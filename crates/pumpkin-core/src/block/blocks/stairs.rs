@@ -47,7 +47,7 @@ impl BlockBehaviour for StairBlock {
             stair_props.half,
         );
 
-        stair_state(args.block, &stair_props)
+        stair_state(args.block, stair_props)
     }
 
     fn get_state_for_neighbor_update(
@@ -73,7 +73,7 @@ impl BlockBehaviour for StairBlock {
                 stair_props.facing,
                 stair_props.half,
             );
-            return stair_state(args.block, &stair_props);
+            return stair_state(args.block, stair_props);
         }
 
         args.state_id
@@ -89,7 +89,7 @@ impl BlockBehaviour for StairBlock {
             return BlockState::from_id(state_id);
         };
         stair_props.facing = rotation.rotate_horizontal(stair_props.facing);
-        BlockState::from_id(stair_state(block, &stair_props))
+        BlockState::from_id(stair_state(block, stair_props))
     }
 
     fn mirror(&self, block: &Block, state_id: BlockStateId, mirror: Mirror) -> &'static BlockState {
@@ -110,7 +110,7 @@ impl BlockBehaviour for StairBlock {
                         StairsShape::InnerLeft => StairsShape::InnerRight,
                         StairsShape::OuterRight => StairsShape::OuterLeft,
                     };
-                    return BlockState::from_id(stair_state(block, &stair_props));
+                    return BlockState::from_id(stair_state(block, stair_props));
                 }
             }
             Mirror::FrontBack => {
@@ -123,7 +123,7 @@ impl BlockBehaviour for StairBlock {
                         StairsShape::InnerLeft => StairsShape::InnerLeft,
                         StairsShape::OuterRight => StairsShape::OuterLeft,
                     };
-                    return BlockState::from_id(stair_state(block, &stair_props));
+                    return BlockState::from_id(stair_state(block, stair_props));
                 }
             }
             Mirror::None => {}
@@ -225,7 +225,7 @@ fn stair_properties(block: &Block, state: BlockStateId) -> Option<StairsProperti
     })
 }
 
-fn stair_state(block: &Block, props: &StairsProperties) -> BlockStateId {
+fn stair_state(block: &Block, props: StairsProperties) -> BlockStateId {
     if StairsProperties::handles_block_id(block.id) {
         return props.to_state_id(block);
     }

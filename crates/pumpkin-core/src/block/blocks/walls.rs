@@ -85,16 +85,14 @@ impl BlockBehaviour for WallBlock {
             props.west != WestWall::None,
         ];
         let above = args.position.up();
-        let top_state = if let Some(index) = side {
+        let top_state = side.map_or(neighbor_state, |index| {
             connections[index] = connects_to(
                 DIRECTIONS[index],
                 args.neighbor_state_id.to_block(),
                 neighbor_state,
             );
             args.world.get_block_state(&above)
-        } else {
-            neighbor_state
-        };
+        });
         update_shape(props, args.block, connections, top_state, &above)
     }
 

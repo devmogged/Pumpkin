@@ -2227,12 +2227,14 @@ impl CriterionConditions {
                 None => Self::BrewedPotion(None),
                 Some(potion) if potion.is_object() && potion.get("effects").is_none() => {
                     // 26.3 uses a potion holder set; older datapacks use the holder directly.
-                    match potion.get("potions") {
-                        None => Self::BrewedPotion(None),
-                        Some(ids) => Self::BrewedPotion(Some(
-                            TagOrIdMatcher::from_value(ids).unwrap_or_default(),
-                        )),
-                    }
+                    potion.get("potions").map_or_else(
+                        || Self::BrewedPotion(None),
+                        |ids| {
+                            Self::BrewedPotion(Some(
+                                TagOrIdMatcher::from_value(ids).unwrap_or_default(),
+                            ))
+                        },
+                    )
                 }
                 Some(potion) => {
                     Self::BrewedPotion(Some(TagOrIdMatcher::from_value(potion).unwrap_or_default()))

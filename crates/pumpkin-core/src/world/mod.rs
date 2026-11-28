@@ -6168,6 +6168,8 @@ impl World {
         }
     }
 
+    // Preserve vanilla callback, neighbor, POI and lighting update order.
+    #[allow(clippy::too_many_lines)]
     fn on_block_state_set(
         self: &Arc<Self>,
         position: &BlockPos,
@@ -7872,6 +7874,9 @@ impl World {
             .collect()
     }
 
+    // The caller transfers an owned entity; keep a reference for notifications
+    // after the conditional insertion.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn add_block_entity(&self, block_entity: Arc<dyn BlockEntity>) {
         if let Some(weak) = self.weak_self() {
             block_entity.set_world(weak);
@@ -8013,6 +8018,7 @@ impl World {
     }
 
     fn migrate_pending_block_entities(&self, chunk_pos: Vector2<i32>) {
+        const MAX_MIGRATIONS_PER_CHUNK_TICK: usize = 16;
         let positions: Vec<BlockPos> = self
             .level
             .read_chunk_sync(&chunk_pos, |chunk| {
@@ -8030,7 +8036,6 @@ impl World {
         // randomized hash map would starve any pending record after those keys
         // whenever the earlier records defer. Process a deterministic rotating
         // window of 16 positions and retain a retry while this chunk has more.
-        const MAX_MIGRATIONS_PER_CHUNK_TICK: usize = 16;
         let mut positions = positions;
         positions.sort_unstable_by_key(|pos| (pos.0.y, pos.0.x, pos.0.z));
         let count = positions.len();
@@ -8056,7 +8061,7 @@ impl World {
             } else {
                 match container_conversion::pending(self, pos, true) {
                     container_conversion::Outcome::Deferred => {
-                        self.pending_block_entity_migrations.push(chunk_pos)
+                        self.pending_block_entity_migrations.push(chunk_pos);
                     }
                     container_conversion::Outcome::Converted => {}
                     container_conversion::Outcome::Pass => {
