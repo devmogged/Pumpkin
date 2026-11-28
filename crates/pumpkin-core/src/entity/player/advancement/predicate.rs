@@ -1091,23 +1091,19 @@ pub struct BredAnimalsPredicate {
 
 impl BredAnimalsPredicate {
     #[must_use]
-    pub fn matches(&self, entity_type: &str) -> bool {
-        if let Some(p) = &self.parent
-            && p.matches(entity_type, None, None)
-        {
-            return true;
-        }
-        if let Some(p) = &self.partner
-            && p.matches(entity_type, None, None)
-        {
-            return true;
-        }
-        if let Some(c) = &self.child
-            && c.matches(entity_type, None, None)
-        {
-            return true;
-        }
-        self.parent.is_none() && self.partner.is_none() && self.child.is_none()
+    pub fn matches(&self, parent: &str, partner: &str, child: Option<&str>) -> bool {
+        let matches_adult = |predicate: &Option<EntityPredicate>, kind: &str| {
+            predicate
+                .as_ref()
+                .is_none_or(|p| p.matches(kind, None, Some(false)))
+        };
+        let matches_parents = |first, second| {
+            matches_adult(&self.parent, first) && matches_adult(&self.partner, second)
+        };
+        self.child
+            .as_ref()
+            .is_none_or(|p| child.is_some_and(|kind| p.matches(kind, None, Some(true))))
+            && (matches_parents(parent, partner) || matches_parents(partner, parent))
     }
 
     #[must_use]
@@ -2236,6 +2232,41 @@ mod tests {
         assert!(matches_id("stone", "minecraft:stone"));
         assert!(matches_id("minecraft:stone", "minecraft:stone"));
         assert!(!matches_id("minecraft:stone", "minecraft:dirt"));
+    }
+
+    #[test]
+    fn breeding_predicates_distinguish_parents_and_require_a_child() {
+        let pred = BredAnimalsPredicate::from_value(&json!({
+            "parent": {"type": "saintsdragons:nulljaw"},
+            "partner": {"type": "minecraft:cow"},
+            "child": {"type": "saintsdragons:nulljaw"}
+        }));
+        assert!(pred.matches(
+            "saintsdragons:nulljaw",
+            "minecraft:cow",
+            Some("saintsdragons:nulljaw")
+        ));
+        assert!(pred.matches(
+            "minecraft:cow",
+            "saintsdragons:nulljaw",
+            Some("saintsdragons:nulljaw")
+        ));
+        assert!(!pred.matches("saintsdragons:nulljaw", "minecraft:cow", None));
+        assert!(!pred.matches(
+            "saintsdragons:nulljaw",
+            "saintsdragons:nulljaw",
+            Some("saintsdragons:nulljaw")
+        ));
+        assert!(!pred.matches(
+            "saintsdragons:nulljaw",
+            "minecraft:cow",
+            Some("minecraft:cow")
+        ));
+        assert!(BredAnimalsPredicate::default().matches(
+            "saintsdragons:raevyx",
+            "saintsdragons:raevyx",
+            None
+        ));
     }
 
     #[test]

@@ -32,6 +32,8 @@ pub enum AdvancementTrigger {
     PlayerKilled,
     BredAnimal {
         parent_type: String,
+        partner_type: String,
+        child_type: Option<String>,
     },
     LaunchedEyeOfEnder,
     GlowedSign,
@@ -405,9 +407,15 @@ impl Player {
                 self.trigger_criterion_event("minecraft:entity_killed_player", |_cond| true);
             }
 
-            AdvancementTrigger::BredAnimal { parent_type } => {
+            AdvancementTrigger::BredAnimal {
+                parent_type,
+                partner_type,
+                child_type,
+            } => {
                 self.trigger_criterion_event("minecraft:bred_animals", |cond| match cond {
-                    CriterionConditions::BredAnimals(pred) => pred.matches(&parent_type),
+                    CriterionConditions::BredAnimals(pred) => {
+                        pred.matches(&parent_type, &partner_type, child_type.as_deref())
+                    }
                     CriterionConditions::Custom { .. } => true,
                     _ => false,
                 });
