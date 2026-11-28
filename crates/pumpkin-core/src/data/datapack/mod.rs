@@ -619,12 +619,12 @@ impl DatapackManager {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if let Some(table) = guard.get(&full_key).or_else(|| guard.get(key)) {
-            return Some(LootTableHandle::Dynamic(table.clone()));
+            return Some(LootTableHandle::Dynamic(table.clone()).named(full_key));
         }
 
         pumpkin_data::loot_table::get_loot_table(key)
             .or_else(|| pumpkin_data::loot_table::get_loot_table(&full_key))
-            .map(LootTableHandle::Static)
+            .map(|table| LootTableHandle::Static(table).named(full_key))
     }
 
     #[must_use]

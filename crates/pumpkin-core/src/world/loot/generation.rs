@@ -4,8 +4,8 @@ use super::{
     DynamicLootCondition, DynamicLootEntry, DynamicLootEntryKind, DynamicLootFunction,
     DynamicLootPool, DynamicLootTable, Item, ItemStack, LootCondition, LootContextParameters,
     LootEntry, LootEntryKind, LootFunction, LootFunctionKind, LootNumberProvider, LootPool,
-    LootTable, LootTableHandle, RandomImpl, Taggable, Xoroshiro, add_stew_effect,
-    apply_bonus_formula, check_condition, check_dynamic_condition, get_loot_table, smelt,
+    LootTable, RandomImpl, Taggable, Xoroshiro, add_stew_effect, apply_bonus_formula,
+    check_condition, check_dynamic_condition, get_loot_table, smelt,
 };
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_impl::DataComponentImpl;
@@ -213,6 +213,7 @@ struct Stack {
 
 pub(super) fn generate(
     table: Table<'_>,
+    key: Option<&str>,
     seed: i64,
     params: &LootContextParameters<'_>,
 ) -> Vec<ItemStack> {
@@ -232,7 +233,7 @@ pub(super) fn generate(
         has_shears,
     };
     let mut stacks = Vec::new();
-    generator.table(table, &[], &mut stacks);
+    generator.table(table, key, &[], &mut stacks);
     let mut result = Vec::new();
     for stack in stacks {
         let max_count = i32::from(ItemStack::new(1, stack.item).get_max_stack_size());
@@ -319,7 +320,13 @@ impl Generator<'_, '_> {
             LootNumberProvider::Binomial { .. } => self.number_int(provider) as f32,
         }
     }
-    fn table(&mut self, table: Table<'_>, outer: &[Functions<'_>], output: &mut Vec<Stack>) {
+    fn table(
+        &mut self,
+        table: Table<'_>,
+        key: Option<&str>,
+        outer: &[Functions<'_>],
+        output: &mut Vec<Stack>,
+    ) {
         let identity = table.identity();
         if !self.visited.insert(identity) {
             tracing::warn!("Detected recursive loot table");
@@ -328,6 +335,21 @@ impl Generator<'_, '_> {
         let chain = chain(table.functions(), outer);
         for pool in table.pools() {
             self.pool(pool, &chain, output);
+        }
+        if let (Some(key), Some(hook)) = (key, super::LOOT_APPEND.get()) {
+            for pool in hook(key) {
+                if pool.chance > 0.0 && self.rng.next_f64() < pool.chance {
+                    self.emit(
+                        Stack {
+                            item: pool.item,
+                            count: pool.count,
+                            patch: Vec::new(),
+                        },
+                        &chain,
+                        output,
+                    );
+                }
+            }
         }
         self.visited.remove(&identity);
     }
@@ -527,19 +549,13 @@ impl Generator<'_, '_> {
                     .world
                     .map_or_else(|| get_loot_table(key), |world| world.get_loot_table(key));
                 if let Some(handle) = handle {
-                    match &handle {
-                        LootTableHandle::Static(table) => {
-                            self.table(Table::Static(table), functions, output);
-                        }
-                        LootTableHandle::Dynamic(table) => {
-                            self.table(Table::Dynamic(table), functions, output);
-                        }
-                    }
+                    let (table, key) = handle.table_and_key();
+                    self.table(table, key, functions, output);
                 } else {
                     tracing::warn!("Unknown loot table {key}");
                 }
             }
-            Kind::InlineTable(table) => self.table(table, functions, output),
+            Kind::InlineTable(table) => self.table(table, None, functions, output),
             Kind::Empty | Kind::Alternatives(_) | Kind::Group(_) | Kind::Sequence(_) => {}
         }
     }
