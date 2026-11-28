@@ -25,7 +25,7 @@ use pumpkin_world::chunk::{ChunkData, ChunkHeightmapType};
 use pumpkin_world::generation::proto_chunk::GenerationCache;
 use rand::{RngExt, rng};
 use std::fmt;
-use std::sync::atomic::{AtomicI32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use uuid::Uuid;
 
@@ -59,7 +59,18 @@ pub struct EmbedderSpawns {
     /// Create the mob at a position without adding it to the world.
     pub create:
         fn(&Arc<World>, &'static EmbedderSpawn, Vector3<f64>) -> Option<Arc<dyn EntityBase>>,
+    /// Called after insertion; returning true marks the group as claimed for later members.
+    pub spawned: fn(
+        &Arc<World>,
+        &'static EmbedderSpawn,
+        &dyn EntityBase,
+        EntitySpawnReason,
+        u64,
+        bool,
+    ) -> bool,
 }
+
+static NEXT_SPAWN_GROUP: AtomicU64 = AtomicU64::new(1);
 
 static EMBEDDER_SPAWNS: OnceLock<EmbedderSpawns> = OnceLock::new();
 
@@ -140,6 +151,21 @@ impl SpawnEntry {
         }
     }
 
+    fn spawned(
+        self,
+        world: &Arc<World>,
+        entity: &dyn EntityBase,
+        reason: EntitySpawnReason,
+        group: u64,
+        claimed: &mut bool,
+    ) {
+        if let Self::Embedder(spawn) = self
+            && let Some(hooks) = EMBEDDER_SPAWNS.get()
+        {
+            *claimed |= (hooks.spawned)(world, spawn, entity, reason, group, *claimed);
+        }
+    }
+
     /// Vanilla `SpawnPlacements.checkSpawnRules`, or the carrier's and the embedder's.
     fn check_rules(
         self,
@@ -168,6 +194,7 @@ impl SpawnEntry {
 struct PendingGenerationSpawn {
     world: Weak<World>,
     entry: SpawnEntry,
+    group: u64,
     chunk: Vector2<i32>,
     /// The positions vanilla would try in order; the first that passes spawns.
     candidates: Vec<(Vector3<f64>, BlockPos)>,
@@ -198,14 +225,19 @@ pub fn spawn_pending_generation(world: &Arc<World>) {
                 return true;
             }
             if world.level.is_chunk_loaded(&spawn.chunk) {
-                ready.push((spawn.entry, std::mem::take(&mut spawn.candidates)));
+                ready.push((
+                    spawn.entry,
+                    spawn.group,
+                    std::mem::take(&mut spawn.candidates),
+                ));
                 return false;
             }
             now - spawn.queued < PENDING_GENERATION_TICKS
         });
         ready
     };
-    for (entry, candidates) in ready {
+    let mut groups = std::collections::HashMap::<u64, bool>::new();
+    for (entry, group, candidates) in ready {
         for (position, check_pos) in candidates {
             if world.is_space_empty(entry.spawn_bounds(position))
                 && entry.check_rules(world, &check_pos, false, EntitySpawnReason::ChunkGeneration)
@@ -217,7 +249,14 @@ pub fn spawn_pending_generation(world: &Arc<World>) {
                 if matches!(entry, SpawnEntry::Vanilla(..)) {
                     finalize_spawn(&entity, world, EntitySpawnReason::ChunkGeneration, None);
                 }
-                world.spawn_entity_non_save(entity);
+                world.spawn_entity_non_save(entity.clone());
+                entry.spawned(
+                    world,
+                    entity.as_ref(),
+                    EntitySpawnReason::ChunkGeneration,
+                    group,
+                    groups.entry(group).or_default(),
+                );
                 break;
             }
         }
@@ -847,6 +886,7 @@ pub fn spawn_mobs_for_chunk_generation(
         let mut z = zo + rand::random_range(0..16);
         let start_x = x;
         let start_z = z;
+        let group = NEXT_SPAWN_GROUP.fetch_add(1, Relaxed);
 
         for _ in 0..count {
             let mut candidates = Vec::new();
@@ -883,6 +923,7 @@ pub fn spawn_mobs_for_chunk_generation(
                     .push(PendingGenerationSpawn {
                         world: Arc::downgrade(world),
                         entry,
+                        group,
                         chunk: Vector2::new(chunk_x, chunk_z),
                         candidates,
                         queued: world.get_world_age(),
@@ -998,6 +1039,8 @@ pub fn spawn_category_for_position(
         let mut max = (rng().random::<f32>() * 4.0).ceil() as i32;
         let mut group_size = 0;
         let mut group_data = None;
+        let group = NEXT_SPAWN_GROUP.fetch_add(1, Relaxed);
+        let mut group_claimed = false;
         let mut ll = 0;
 
         while ll < max {
@@ -1068,7 +1111,14 @@ pub fn spawn_category_for_position(
                         let max_group_size_reached = entity
                             .get_mob()
                             .is_some_and(|mob| mob.is_max_group_size_reached(group_size));
-                        world.spawn_entity_non_save(entity);
+                        world.spawn_entity_non_save(entity.clone());
+                        entry.spawned(
+                            world,
+                            entity.as_ref(),
+                            EntitySpawnReason::Natural,
+                            group,
+                            &mut group_claimed,
+                        );
                         if cluster_size >= entity_type.limit_per_chunk {
                             return;
                         }
