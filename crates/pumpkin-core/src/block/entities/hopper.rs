@@ -521,7 +521,7 @@ impl HopperBlockEntity {
 
     fn pull_content(
         &self,
-        world: &World,
+        world: &Arc<World>,
         pos: BlockPos,
         state: BlockStateId,
         behaviour: &dyn BlockBehaviour,
