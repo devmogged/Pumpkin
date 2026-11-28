@@ -486,8 +486,13 @@ impl PlayerInventory {
                 break;
             }
 
-            let items_fit =
-                stack.get_max_stack_size() - self.get_stack(room_for_stack as usize).item_count;
+            // Air stacks can have a nonzero count (e.g. /item replace ... with air).
+            let existing = self.get_stack(room_for_stack as usize);
+            let items_fit = if existing.is_empty() {
+                stack.get_max_stack_size()
+            } else {
+                stack.get_max_stack_size() - existing.item_count
+            };
             if self.insert_stack(room_for_stack, &mut stack.split(items_fit)) && notify_client {
                 player.enqueue_slot_set_packet(&CSetPlayerInventory::new(
                     i32::from(room_for_stack).into(),

@@ -378,6 +378,18 @@ mod tests {
     }
 
     #[test]
+    fn offer_unstackable_item_to_air_slot() {
+        let (_, player) = make_handler(false);
+        player.inventory.set_slot(0, ItemStack::new(1, &Item::AIR));
+        player
+            .inventory
+            .offer_or_drop_stack(ItemStack::new(1, &Item::DIAMOND_SWORD), &player);
+        let stack = player.inventory.get_slot(0);
+        assert_eq!(stack.item.id, Item::DIAMOND_SWORD.id);
+        assert_eq!(stack.item_count, 1);
+    }
+
+    #[test]
     fn binding_curse_blocks_non_creative_unequip_and_ctrl_q_hang() {
         let (mut handler, survival_player) = make_handler(false);
         let mut cursed_helmet = ItemStack::new(1, &Item::DIAMOND_HELMET);
