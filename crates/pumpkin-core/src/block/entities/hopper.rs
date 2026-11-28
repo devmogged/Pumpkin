@@ -519,14 +519,22 @@ impl HopperBlockEntity {
             .all(|item| !item.is_empty() && item.item_count == item.get_max_stack_size())
     }
 
-    fn pull_content(
-        &self,
+    pub(crate) fn pull_content(
+        into: &dyn Inventory,
         world: &Arc<World>,
         pos: BlockPos,
+        destination: BlockPos,
+        block: &Block,
         state: BlockStateId,
-        behaviour: &dyn BlockBehaviour,
-        slots: u32,
-    ) -> bool {
+    ) -> Option<bool> {
+        if block.id.as_u16() < BlockId::COUNT {
+            return None;
+        }
+        let behaviour = world.block_registry.get_pumpkin_block(block.id)?;
+        let slots = behaviour.item_output_slots(block);
+        if slots == 0 {
+            return None;
+        }
         for slot in 0..slots {
             let args = |expected| ItemOutputArgs {
                 world,
@@ -543,20 +551,17 @@ impl HopperBlockEntity {
                 continue;
             }
             if world.cancelled_by_plugin(|| {
-                InventoryMoveItemEvent::new(
-                    pos,
-                    self.position,
-                    item.item.registry_key.to_string(),
-                    1,
-                )
+                InventoryMoveItemEvent::new(pos, destination, item.item.registry_key.to_string(), 1)
             }) {
                 continue;
             }
             // A hopper slot must fit the exact candidate before the source is mutated.
-            let fits = self.read_items().iter().any(|dst| {
-                dst.is_empty()
-                    || (dst.are_items_and_components_equal(&item)
-                        && dst.item_count < item.get_max_stack_size())
+            let fits = (0..into.size()).any(|slot| {
+                let dst = into.get_stack(slot);
+                Self::can_place_item_in_container(into, &item, slot, None)
+                    && (dst.is_empty()
+                        || (dst.are_items_and_components_equal(&item)
+                            && dst.item_count < item.get_max_stack_size()))
             });
             if !fits {
                 continue;
@@ -564,15 +569,15 @@ impl HopperBlockEntity {
             let Some(taken) = behaviour.extract_item(args(Some(&item))) else {
                 continue;
             };
-            let leftover = Self::add_item(None, self, taken, None);
+            let leftover = Self::add_item(None, into, taken, None);
             if !leftover.is_empty() {
                 // A concurrent insertion filled the hopper. Never void the extracted item.
                 let center = pos.to_centered_f64();
                 world.scatter_stack(center.x, center.y, center.z, leftover);
             }
-            return true;
+            return Some(true);
         }
-        false
+        Some(false)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -583,13 +588,10 @@ impl HopperBlockEntity {
         }
 
         let (block, state) = world.get_block_and_state(pos_up);
-        if block.id.as_u16() >= BlockId::COUNT
-            && let Some(behaviour) = world.block_registry.get_pumpkin_block(block.id)
+        if let Some(pulled) =
+            Self::pull_content(self, world, *pos_up, self.position, block, state.id)
         {
-            let slots = behaviour.item_output_slots(block);
-            if slots != 0 {
-                return self.pull_content(world, *pos_up, state.id, behaviour.as_ref(), slots);
-            }
+            return pulled;
         }
         let center = pos_up.to_centered_f64();
         if let Some(container) = Self::block_container(world, pos_up, block, state)

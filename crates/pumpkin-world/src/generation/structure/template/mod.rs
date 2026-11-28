@@ -291,6 +291,7 @@ pub(crate) fn place_template_entities(
             ]),
         );
         nbt.child_tags.remove("UUID");
+        rotate_painting_facing(&mut nbt, rotation);
 
         if let Some(rotation_nbt) = nbt.get_list("Rotation")
             && rotation_nbt.len() == 2
@@ -308,6 +309,30 @@ pub(crate) fn place_template_entities(
 
         chunk.add_structure_entity(nbt);
     }
+}
+
+fn rotate_painting_facing(nbt: &mut NbtCompound, rotation: Rotation) {
+    if !matches!(
+        nbt.get_string("id"),
+        Some("minecraft:painting" | "painting")
+    ) {
+        return;
+    }
+    let turns = match rotation {
+        Rotation::None => 0,
+        Rotation::Clockwise90 => 1,
+        Rotation::Rotate180 => 2,
+        Rotation::CounterClockwise90 => 3,
+    };
+    let facing = nbt
+        .get_byte("facing")
+        .or_else(|| nbt.get_byte("Facing"))
+        .unwrap_or(0);
+    nbt.put(
+        "facing",
+        NbtTag::Byte((facing.rem_euclid(4) + turns).rem_euclid(4)),
+    );
+    nbt.child_tags.remove("Facing");
 }
 
 /// Returns the block entity ID for blocks that require one, or None if not needed.
@@ -377,6 +402,25 @@ pub(crate) fn get_block_entity_id(block_name: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
     use pumpkin_data::Block;
+
+    #[test]
+    fn structure_painting_facing_rotates_with_the_template() {
+        for (rotation, turns) in [
+            (Rotation::None, 0),
+            (Rotation::Clockwise90, 1),
+            (Rotation::Rotate180, 2),
+            (Rotation::CounterClockwise90, 3),
+        ] {
+            for facing in 0..4 {
+                let mut nbt = NbtCompound::new();
+                nbt.put("id", NbtTag::String("minecraft:painting".into()));
+                nbt.put("Facing", NbtTag::Byte(facing));
+                rotate_painting_facing(&mut nbt, rotation);
+                assert_eq!(nbt.get_byte("facing"), Some((facing + turns) % 4));
+                assert_eq!(nbt.get_byte("Facing"), None);
+            }
+        }
+    }
 
     struct CollectingPlacer(Vec<BlockStateId>);
 

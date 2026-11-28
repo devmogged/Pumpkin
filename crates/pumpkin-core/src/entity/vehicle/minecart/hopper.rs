@@ -45,7 +45,19 @@ impl HopperMinecart {
         let inventory = &self.inventory;
         let cart_box = entity.bounding_box.load().expand(0.25, 0.0, 0.25);
 
-        if let Some(source) = HopperBlockEntity::get_container_at_coords(
+        let (block, state) = world.get_block_and_state(&source_pos);
+        if let Some(pulled) = HopperBlockEntity::pull_content(
+            inventory.as_ref(),
+            &world,
+            source_pos,
+            BlockPos::floored(pos.x, pos.y, pos.z),
+            block,
+            state.id,
+        ) {
+            if pulled {
+                return;
+            }
+        } else if let Some(source) = HopperBlockEntity::get_container_at_coords(
             &world,
             &source_pos,
             pos.x,
