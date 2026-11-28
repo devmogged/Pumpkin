@@ -9,6 +9,16 @@ use pumpkin_world::generation::section_coords::section_to_block;
 use super::{World, entity_islands};
 use crate::entity::EntityBase;
 
+/// Observe a dispatched vanilla game event, including its original source.
+pub type GameEventObserver = fn(&World, GameEvent, Vector3<f64>, &GameEventContext<'_>);
+
+static OBSERVER: std::sync::OnceLock<GameEventObserver> = std::sync::OnceLock::new();
+
+/// Install an embedder's event observer. Only the first registration succeeds.
+pub fn install_game_event_observer(observer: GameEventObserver) -> bool {
+    OBSERVER.set(observer).is_ok()
+}
+
 pub struct GameEventContext<'a> {
     pub source_entity: Option<&'a dyn EntityBase>,
 }
@@ -60,6 +70,9 @@ impl World {
         position: Vector3<f64>,
         context: &GameEventContext<'_>,
     ) {
+        if let Some(observer) = OBSERVER.get() {
+            observer(self, event, position, context);
+        }
         let radius = event.notification_radius();
         let center = BlockPos::floored_v(position);
         let (section_min, section_max) = notified_sections(center, radius);
