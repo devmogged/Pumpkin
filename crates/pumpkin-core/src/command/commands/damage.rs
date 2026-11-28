@@ -94,7 +94,8 @@ impl CommandExecutor for DamageEntityExecutor {
             EntityMode::WithSourceAndCause => {
                 Some(EntityArgumentType::get_entity(context, "cause")?)
             }
-            EntityMode::Basic | EntityMode::WithType | EntityMode::WithSource => None,
+            EntityMode::WithSource => source.clone(),
+            EntityMode::Basic | EntityMode::WithType => None,
         };
 
         let success = target.damage_with_context(

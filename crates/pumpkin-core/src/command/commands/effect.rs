@@ -53,7 +53,7 @@ struct GiveExecutor {
 
 impl CommandExecutor for GiveExecutor {
     fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
-        let targets = EntityArgumentType::get_players(context, "targets")?;
+        let targets = EntityArgumentType::get_entities(context, "targets")?;
         let effect = ResourceArgument::get_mob_effect(context, "effect")?;
 
         let duration_ticks = match self.duration {
@@ -77,13 +77,18 @@ impl CommandExecutor for GiveExecutor {
         let mut successes = 0;
 
         for target in &targets {
-            let should_skip = target
-                .living_entity
-                .get_effect(effect)
-                .is_some_and(|existing| existing.amplifier >= amplifier);
+            let Some(living) = target.get_living_entity() else {
+                continue;
+            };
+            let should_skip = living.get_effect(effect).is_some_and(|existing| {
+                existing.amplifier > amplifier
+                    || (existing.amplifier == amplifier
+                        && (existing.duration == -1
+                            || (duration_ticks != -1 && existing.duration >= duration_ticks)))
+            });
 
             if !should_skip {
-                target.add_effect(Effect {
+                let instance = Effect {
                     effect_type: effect,
                     duration: duration_ticks,
                     amplifier,
@@ -91,7 +96,12 @@ impl CommandExecutor for GiveExecutor {
                     show_particles: !hide_particles,
                     show_icon: true,
                     blend: false,
-                });
+                };
+                if let Some(player) = target.get_player() {
+                    player.add_effect(instance);
+                } else {
+                    living.add_effect(instance);
+                }
                 successes += 1;
             }
         }
@@ -303,7 +313,7 @@ pub fn register(dispatcher: &mut CommandDispatcher, registry: &PermissionRegistr
         );
 
     let give_node = literal("give").then(
-        argument("targets", EntityArgumentType::Players).then(
+        argument("targets", EntityArgumentType::Entities).then(
             argument("effect", MOB_EFFECT_ARGUMENT.clone())
                 .executes(GiveExecutor {
                     duration: Duration::Default,
