@@ -9,3 +9,9 @@ pub struct EntityDamageAcceptedEvent {
     pub health_damage: f32,
     pub absorbed_damage: f32,
 }
+
+/// Notification when native living damage returns false, including early immunity.
+#[derive(Event, Clone)]
+pub struct EntityDamageRejectedEvent {
+    pub hit: EntityDamageEvent,
+}

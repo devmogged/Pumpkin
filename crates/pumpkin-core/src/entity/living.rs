@@ -4083,8 +4083,35 @@ impl LivingEntity {
         damage
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn damage_with_context(
+        &self,
+        caller: &dyn EntityBase,
+        amount: f32,
+        damage_type: DamageType,
+        position: Option<Vector3<f64>>,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
+    ) -> bool {
+        let accepted = self.apply_damage_with_context(caller, amount, damage_type, position, source, cause);
+        if !accepted
+            && let Some(server) = self.entity.world.load().server.upgrade()
+            && server.plugin_manager.has_handlers::<crate::plugin::api::events::entity::EntityDamageRejectedEvent>()
+        {
+            let mut event = crate::plugin::api::events::entity::EntityDamageRejectedEvent {
+                hit: crate::plugin::api::events::entity::EntityDamageEvent::new(
+                    self.entity.entity_id, damage_type, amount,
+                ).with_source(
+                    cause.map(|entity| entity.get_entity().entity_id),
+                    source.map(|entity| entity.get_entity().entity_id),
+                ),
+            };
+            server.plugin_manager.fire_blocking(&server, &mut event);
+        }
+        accepted
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn apply_damage_with_context(
         &self,
         caller: &dyn EntityBase,
         amount: f32,
