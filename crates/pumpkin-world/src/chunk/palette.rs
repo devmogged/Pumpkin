@@ -1462,7 +1462,7 @@ mod tests {
         let file = dir.path().join("registry.dat");
         std::fs::write(
             &file,
-            r#"{"blocks":{},"states":{"test:removed{}":65535},"items":{}}"#,
+            r#"{"blocks":{},"states":{"test:removed{}":425981},"items":{}}"#,
         )?;
         let carrier = Block::STONE.default_state.id;
         Registry::open(
@@ -1485,7 +1485,8 @@ mod tests {
             &[],
         )?
         .install()?;
-        let wide = BlockStateId::from_runtime_id(65536).ok_or("wide registry state missing")?;
+        let wide = BlockStateId::from_runtime_id(425982).ok_or("wide registry state missing")?;
+        crate::generation::proto_chunk::GenerationBlockMap::verify_wide_promotion(wide);
         assert_eq!(wide.vanilla_view(), carrier);
         let homogeneous = BlockPalette::Homogeneous(wide);
         let indexed = BlockPalette::from_fn(|x, _, _| if x == 0 { wide } else { carrier });

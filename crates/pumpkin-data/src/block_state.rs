@@ -46,6 +46,32 @@ pub struct BlockState {
 #[repr(transparent)]
 pub struct BlockStateId(u32);
 
+/// A validated runtime state whose identity fits in two bytes. This is a
+/// storage representation, not a vanilla/client ID: low custom IDs are valid.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct CompactBlockStateId(u16);
+
+impl CompactBlockStateId {
+    pub const AIR: Self = Self(BlockStateId::AIR.as_u16());
+
+    #[inline]
+    #[must_use]
+    pub const fn try_from_state(state: BlockStateId) -> Option<Self> {
+        if state.as_u32() <= u16::MAX as u32 {
+            Some(Self(state.as_u32() as u16))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn widen(self) -> BlockStateId {
+        BlockStateId(self.0 as u32)
+    }
+}
+
 /// Vanilla `SoundType`: the sounds a block makes when broken, stepped on, placed, hit or fallen on.
 #[derive(Debug)]
 pub struct SoundType {

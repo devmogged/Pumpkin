@@ -2,6 +2,7 @@ use crate::generation::structure::placement::GlobalStructureCache;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use pumpkin_data::block_properties::is_air;
+use pumpkin_data::block_state::CompactBlockStateId;
 use pumpkin_data::chunk::DoublePerlinNoiseParameters;
 use pumpkin_data::fluid::{Fluid, FluidState};
 use pumpkin_data::structures::{
@@ -158,13 +159,101 @@ impl FluidLevelSamplerImpl for StandardChunkFluidLevelSampler {
     }
 }
 
+/// Ordinary terrain has only low IDs. Preserve its original two-byte cells,
+/// promoting once when imported or generated content requires a wide ID.
+pub(crate) enum GenerationBlockMap {
+    Compact(Vec<CompactBlockStateId>),
+    Wide(Vec<BlockStateId>),
+}
+
+impl GenerationBlockMap {
+    fn new() -> Self {
+        Self::Compact(Vec::new())
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Compact(cells) => cells.len(),
+            Self::Wide(cells) => cells.len(),
+        }
+    }
+
+    #[inline]
+    fn get(&self, index: usize) -> Option<BlockStateId> {
+        match self {
+            Self::Compact(cells) => cells.get(index).map(|cell| cell.widen()),
+            Self::Wide(cells) => cells.get(index).copied(),
+        }
+    }
+
+    #[inline]
+    fn set(&mut self, index: usize, state: BlockStateId) {
+        match self {
+            Self::Compact(cells) => {
+                if let Some(compact) = CompactBlockStateId::try_from_state(state) {
+                    cells[index] = compact;
+                } else {
+                    let mut wide = Vec::with_capacity(cells.capacity());
+                    wide.extend(cells.iter().map(|cell| cell.widen()));
+                    wide[index] = state;
+                    *self = Self::Wide(wide);
+                }
+            }
+            Self::Wide(cells) => cells[index] = state,
+        }
+    }
+
+    fn grow_with_air(&mut self, len: usize) {
+        match self {
+            Self::Compact(cells) => {
+                cells.reserve_exact(len - cells.len());
+                cells.resize(len, CompactBlockStateId::AIR);
+            }
+            Self::Wide(cells) => {
+                cells.reserve_exact(len - cells.len());
+                cells.resize(len, BlockStateId::AIR);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_states(self) -> Vec<BlockStateId> {
+        match self {
+            Self::Compact(cells) => cells.into_iter().map(CompactBlockStateId::widen).collect(),
+            Self::Wide(cells) => cells,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn verify_wide_promotion(wide: BlockStateId) {
+        let mut map = Self::new();
+        map.grow_with_air(4096);
+        let stone = Block::STONE.default_state.id;
+        map.set(5, stone);
+        assert!(
+            matches!(&map, Self::Compact(cells) if std::mem::size_of_val(cells.as_slice()) == 8192)
+        );
+        assert_eq!(map.get(5), Some(stone));
+        map.set(6, wide);
+        assert!(matches!(&map, Self::Wide(_)));
+        map.grow_with_air(8192);
+        assert_eq!(map.get(5), Some(stone));
+        assert_eq!(map.get(6), Some(wide));
+        assert_eq!(map.get(8191), Some(BlockStateId::AIR));
+        assert_eq!(map.get(8192), None);
+        map.set(6, stone);
+        assert_eq!(map.get(6), Some(stone));
+    }
+}
+
 pub struct ProtoChunk {
     pub x: i32,
     pub z: i32,
     pub default_block: &'static BlockState,
     biome_mixer_seed: i64,
     pub(crate) world_seed: u64,
-    pub(crate) flat_block_map: Vec<BlockStateId>,
+    pub(crate) flat_block_map: GenerationBlockMap,
     pub flat_biome_map: Box<[u8]>,
     pub flat_surface_height_map: [i16; CHUNK_AREA],
     pub flat_ocean_floor_height_map: [i16; CHUNK_AREA],
@@ -299,7 +388,7 @@ impl ProtoChunk {
             default_block,
             biome_mixer_seed,
             world_seed: generator.seed(),
-            flat_block_map: Vec::new(),
+            flat_block_map: GenerationBlockMap::new(),
             flat_biome_map: vec![
                 Biome::PLAINS.id;
                 biome_coords::from_block(CHUNK_DIM as i32) as usize
@@ -416,7 +505,7 @@ impl ProtoChunk {
                                 if index >= proto_chunk.flat_block_map.len() {
                                     proto_chunk.reserve_block_section(local_y);
                                 }
-                                proto_chunk.flat_block_map[index] = block_state_id;
+                                proto_chunk.flat_block_map.set(index, block_state_id);
                             }
                         }
                     }
@@ -473,8 +562,10 @@ impl ProtoChunk {
                 // The ocean floor heightmap is not saved, so take the highest block that
                 // blocks movement.
                 let ocean_floor = (0..populated_height).rev().find(|&local_y| {
-                    let state_id =
-                        proto_chunk.flat_block_map[Self::local_pos_to_block_index(x, local_y, z)];
+                    let state_id = proto_chunk
+                        .flat_block_map
+                        .get(Self::local_pos_to_block_index(x, local_y, z))
+                        .unwrap();
                     if state_id == BlockStateId::AIR {
                         return false;
                     }
@@ -636,7 +727,7 @@ impl ProtoChunk {
 
             for scan_local_y in (0..local_y).rev() {
                 let idx = Self::local_pos_to_block_index(local_x, scan_local_y, local_z);
-                let Some(&state_id) = self.flat_block_map.get(idx) else {
+                let Some(state_id) = self.flat_block_map.get(idx) else {
                     continue;
                 };
                 if state_id == BlockStateId::AIR {
@@ -714,7 +805,7 @@ impl ProtoChunk {
 
                 for y in (bottom_y..=col_top_y).rev() {
                     let block_index = Self::local_pos_to_block_index(lx, y - bottom_y, lz);
-                    let Some(&state_id) = self.flat_block_map.get(block_index) else {
+                    let Some(state_id) = self.flat_block_map.get(block_index) else {
                         continue;
                     };
                     if state_id == BlockStateId::AIR {
@@ -837,7 +928,6 @@ impl ProtoChunk {
         debug_assert!((0..i32::from(self.height())).contains(&y));
         self.flat_block_map
             .get(Self::local_pos_to_block_index(x, y, z))
-            .copied()
             .unwrap_or(BlockStateId::AIR)
     }
 
@@ -858,9 +948,7 @@ impl ProtoChunk {
     fn reserve_block_section(&mut self, local_y: i32) {
         let section_end = ((local_y as usize >> 4) + 1) * BlockPalette::VOLUME;
         if section_end > self.flat_block_map.len() {
-            self.flat_block_map
-                .reserve_exact(section_end - self.flat_block_map.len());
-            self.flat_block_map.resize(section_end, BlockStateId::AIR);
+            self.flat_block_map.grow_with_air(section_end);
         }
     }
 
@@ -879,10 +967,10 @@ impl ProtoChunk {
                 return;
             }
             self.reserve_block_section(local_y);
-        } else if self.flat_block_map[index] == block_state.id {
+        } else if self.flat_block_map.get(index) == Some(block_state.id) {
             return;
         }
-        self.flat_block_map[index] = block_state.id;
+        self.flat_block_map.set(index, block_state.id);
 
         let hm_index = Self::local_position_to_height_map_index(local_x, local_z);
         self.update_height_map_column(hm_index, local_x, local_y, local_z, y as i16, block_state);
