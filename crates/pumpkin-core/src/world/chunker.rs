@@ -20,6 +20,7 @@ pub fn get_view_distance(player: &Player) -> NonZero<u8> {
     let max_view_distance = match player.client.as_ref() {
         ClientPlatform::Java(_) => server.advanced_config.networking.java.view_distance,
         ClientPlatform::Bedrock(_) => server.advanced_config.networking.bedrock.view_distance,
+        ClientPlatform::SimulatedPlayer(_) => fallback,
     };
     player
         .config
@@ -41,6 +42,9 @@ pub fn is_within_chebyshev_distance(
 
 #[allow(clippy::too_many_lines)]
 pub fn update_position(player: &Arc<Player>) {
+    if matches!(player.client.as_ref(), ClientPlatform::SimulatedPlayer(_)) {
+        return;
+    }
     let entity = &player.get_entity();
     let new_chunk_center = entity.chunk_pos.load();
     let old_cylindrical = player.watched_section.load();
@@ -76,6 +80,7 @@ pub fn update_position(player: &Arc<Player>) {
                 bedrock_client.try_enqueue_packet(data);
             }
         }
+        ClientPlatform::SimulatedPlayer(_) => {}
     }
     let (loading_iter, unloading_iter) =
         Cylindrical::changed_chunks(old_cylindrical, new_cylindrical);
@@ -102,7 +107,7 @@ pub fn update_position(player: &Arc<Player>) {
     });
 
     let new_sim_level = (!is_spectator || spectators_generate_chunks).then(|| {
-        let sim_dist = world.server.upgrade().map_or(10, |s| {
+        let sim_dist = world.server.upgrade().map_or(16, |s| {
             s.advanced_config.networking.java.simulation_distance.get()
         });
         pumpkin_world::chunk_system::ChunkLoading::get_level_from_simulation_distance(sim_dist)

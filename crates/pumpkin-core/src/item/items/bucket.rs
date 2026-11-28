@@ -344,11 +344,20 @@ pub(crate) fn try_pickup_fluid_at(
     None
 }
 
-const fn should_evaporate_in_nether(item: &Item, world: &World) -> bool {
-    item.id != Item::LAVA_BUCKET.id
-        && item.id != Item::POWDER_SNOW_BUCKET.id
-        && item.id != Item::SULFUR_CUBE_BUCKET.id
-        && world.dimension.water_evaporates
+/// `BucketItem.content`; mob buckets hold water except the sulfur cube.
+fn bucket_content(item: &Item) -> &'static Fluid {
+    match item.id {
+        id if id == Item::LAVA_BUCKET.id => &Fluid::LAVA,
+        id if id == Item::SULFUR_CUBE_BUCKET.id => &Fluid::EMPTY,
+        id if id == Item::WATER_BUCKET.id => &Fluid::WATER,
+        _ if get_mob_for_bucket(item).is_some() || is_custom_fish_bucket(item) => &Fluid::WATER,
+        _ => &Fluid::EMPTY,
+    }
+}
+
+/// `BucketItem.emptyContents`: water evaporates at `pos`.
+fn bucket_evaporates(item: &Item, world: &World, pos: &BlockPos) -> bool {
+    bucket_content(item).has_tag(&tag::Fluid::MINECRAFT_WATER) && world.water_evaporates(pos)
 }
 
 fn play_bucket_evaporation(world: &Arc<World>, position: &Vector3<f64>) {
@@ -427,7 +436,7 @@ fn try_place_liquid(
     }
 
     let (block, state) = world.get_block_and_state(&pos);
-    let is_water = item.id != Item::LAVA_BUCKET.id;
+    let is_water = *bucket_content(item) == Fluid::WATER;
     let can_waterlog_clicked = is_water && !is_sneaking && can_waterlog(block, state);
 
     let place_pos = if can_waterlog_clicked {
@@ -446,7 +455,7 @@ fn try_place_liquid(
         return None;
     }
 
-    if should_evaporate_in_nether(item, world) {
+    if bucket_evaporates(item, world, &place_pos) {
         play_bucket_evaporation(world, &place_pos.to_f64());
         return Some(place_pos);
     }
@@ -517,13 +526,14 @@ fn finish_empty_filled_bucket(
     let vanilla_mob = get_mob_for_bucket(item);
     let custom_fish = is_custom_fish_bucket(item);
     let has_mob = custom_fish || vanilla_mob.is_some();
+    let evaporated = bucket_evaporates(item, world, &place_pos);
     if item.id == Item::SULFUR_CUBE_BUCKET.id {
         world.play_sound(
             get_empty_sound(item),
             SoundCategory::Neutral,
             &place_pos.to_f64(),
         );
-    } else if item.id != Item::POWDER_SNOW_BUCKET.id && !should_evaporate_in_nether(item, world) {
+    } else if item.id != Item::POWDER_SNOW_BUCKET.id && !evaporated {
         let sound_category = if has_mob {
             SoundCategory::Neutral
         } else {
@@ -532,7 +542,7 @@ fn finish_empty_filled_bucket(
 
         world.play_sound(get_empty_sound(item), sound_category, &place_pos.to_f64());
         world.emit_game_event(GameEvent::FluidPlace.name(), place_pos.to_f64());
-    } else if has_mob && should_evaporate_in_nether(item, world) {
+    } else if has_mob && evaporated {
         world.play_sound(
             get_empty_sound(item),
             SoundCategory::Neutral,
@@ -635,7 +645,7 @@ impl ItemBehaviour for EmptyBucketItem {
                     block_pos,
                     filled_item.registry_key.to_string(),
                 );
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return;
             }
@@ -719,13 +729,13 @@ impl ItemBehaviour for FilledBucketItem {
         if let Some(server) = world.server.upgrade()
             && let Some(player_arc) = world.get_player_by_uuid(player.gameprofile.id)
         {
-            let mut event =
+            let event =
                 crate::plugin::api::events::player::player_bucket::PlayerBucketEmptyEvent::new(
                     player_arc,
                     pos,
                     item.registry_key.to_string(),
                 );
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
 
         let bucket_stack = player.inventory.get_stack_in_hand(hand);

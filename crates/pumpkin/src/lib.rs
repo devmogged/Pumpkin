@@ -6,44 +6,51 @@
 #[cfg(target_os = "wasi")]
 compile_error!("Compiling for WASI targets is not supported!");
 
-use pumpkin_data::packet::CURRENT_MC_VERSION;
-use pumpkin_world::{CURRENT_BEDROCK_MC_PROTOCOL, CURRENT_BEDROCK_MC_VERSION};
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
-    io::{self},
+    io,
     panic::PanicHookInfo,
     process::exit,
     sync::{OnceLock, atomic::Ordering},
     thread::{self, ThreadId},
 };
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 use tokio::signal::ctrl_c;
 #[cfg(unix)]
-use tokio::signal::unix::{SignalKind, signal};
+use tokio::signal::unix::{Signal, SignalKind, signal};
+#[cfg(windows)]
+use tokio::signal::windows;
 
 use pumpkin_core::{
-    CRASH_REPORT, SERVER_EXIT_CODE, SERVER_IS_STOPPING,
+    CRASH_REPORT, SERVER_IS_STOPPING, SHOULD_STOP,
     crash::{CrashReport, FullBacktrace},
-    data::VanillaData,
-    stop_or_exit_server,
+    stop_or_exit_server, stop_server,
 };
-use pumpkin_core::{PumpkinServer, server::Server, stop_server};
 
-use pumpkin_config::{LoadConfiguration, PumpkinConfig};
-use pumpkin_core::plugin::{Plugin, PluginMetadata, loader::PluginLoader};
+use std::sync::Arc;
+use pumpkin_core::{server::Server, plugin::{Plugin, PluginMetadata}};
 use pumpkin_util::text::{
     TextComponent,
     color::{Color, NamedColor},
 };
-use pumpkin_wasm_host::WasmPluginLoader;
-use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::warn;
 
-const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+mod dedicated_server;
+mod game_test_server;
 
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
 
+#[expect(
+    clippy::print_stderr,
+    reason = "startup arguments are parsed before logging is initialized"
+)]
+fn warn_unknown_startup_arg(arg: &str) {
+    eprintln!("Warning: ignoring unknown startup argument {arg:?}");
+}
+
+// WARNING: All rayon calls from the tokio runtime must be non-blocking! This includes things
+// like `par_iter`. These should be spawned in the the rayon pool and then passed to the tokio
+// runtime with a channel! See `Level::fetch_chunks` as an example!
 /// A hook that runs once the server exists, before plugins load.
 pub type ServerHook = Box<dyn FnOnce(&Arc<Server>) + Send>;
 
@@ -102,9 +109,8 @@ impl Launch {
     }
 }
 
-/// Starts the server and runs it until it stops, then exits the process.
+/// Starts the selected server mode, with embedding hooks for dedicated startup.
 pub fn run(launch: Launch) -> ! {
-    let _ = MAIN_THREAD.set(thread::current().id());
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -113,14 +119,34 @@ pub fn run(launch: Launch) -> ! {
             exit(1);
         });
     runtime.block_on(run_server(launch));
-    exit(SERVER_EXIT_CODE.load(Ordering::Acquire));
+    exit(pumpkin_core::SERVER_EXIT_CODE.load(Ordering::Acquire));
 }
 
-// WARNING: All rayon calls from the tokio runtime must be non-blocking! This includes things
-// like `par_iter`. These should be spawned in the the rayon pool and then passed to the tokio
-// runtime with a channel! See `Level::fetch_chunks` as an example!
-#[allow(clippy::too_many_lines)]
 async fn run_server(launch: Launch) {
+    let command = match parse_startup_command(std::env::args().skip(1), warn_unknown_startup_arg) {
+        Ok(command) => command,
+        Err(error) => error.exit(),
+    };
+
+    initialize_runtime();
+    if let Err(err) = setup_sighandler() {
+        tracing::error!("Unable to setup signal handlers: {err}");
+    }
+
+    match command {
+        StartupCommand::DedicatedServer(options) => dedicated_server::run(options, launch).await,
+        StartupCommand::GameTestServer(options) => {
+            if let Err(error) = game_test_server::run(options).await {
+                tracing::error!("{error}");
+                exit(1);
+            }
+        }
+    }
+}
+
+fn initialize_runtime() {
+    let _ = MAIN_THREAD.set(thread::current().id());
+
     // reqwest is built with `rustls-no-provider`, so pick the ring provider (the one
     // wasmtime-wasi-http/rtc already force) before any client can be constructed.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -135,246 +161,48 @@ async fn run_server(launch: Launch) {
 
     #[cfg(feature = "console-subscriber")]
     console_subscriber::init();
-    let time = Instant::now();
+}
 
-    let exec_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+#[derive(Clone, Copy)]
+enum SignalAction {
+    Interrupt,
+    #[cfg(any(unix, windows))]
+    Shutdown,
+}
 
-    let config = PumpkinConfig::load(&exec_dir);
+fn handle_signal(action: SignalAction) {
+    let already_stopping =
+        SHOULD_STOP.load(Ordering::Acquire) || SERVER_IS_STOPPING.load(Ordering::Acquire);
 
-    if has_init_settings_arg(std::env::args().skip(1)) {
-        exit(0);
-    }
-
-    let vanilla_data = VanillaData::load();
-
-    pumpkin_core::init_logger(&config.advanced);
-
-    if let Some(target_arg) = parse_convert_world_arg(std::env::args().skip(1)) {
-        let anvil_default = match &config.advanced.world.chunk {
-            pumpkin_config::chunk::ChunkConfig::Anvil(cfg) => cfg.clone(),
-            _ => pumpkin_config::chunk::AnvilChunkConfig::default(),
-        };
-        let Some(target_config) =
-            pumpkin_world::chunk::io::converter::parse_chunk_config(&target_arg, anvil_default)
-        else {
-            tracing::error!(
-                "Unknown chunk format '{target_arg}'. Expected 'pump', 'anvil', or 'linear'."
-            );
-            exit(1);
-        };
-        let target_format =
-            pumpkin_world::chunk::io::converter::RegionFormat::from_config(&target_config);
-        let world_dir = exec_dir.join(config.basic.get_world_path());
-        info!(
-            "Converting world at {} to {} format...",
-            world_dir.display(),
-            target_format.name()
-        );
-        match pumpkin_world::chunk::io::converter::convert_world(&world_dir, &target_config, true) {
-            Ok(stats) => {
-                info!(
-                    "Converted {} region(s) ({} chunk(s)) to {} format in {}ms",
-                    stats.regions_converted,
-                    stats.chunks_converted,
-                    target_format.name(),
-                    time.elapsed().as_millis()
-                );
-                exit(0);
-            }
-            Err(err) => {
-                tracing::error!("World conversion failed: {err}");
-                exit(1);
-            }
-        }
-    }
-
-    info!(
-        "{}",
-        TextComponent::text(format!(
-            "Starting {} {} Java Minecraft (Protocol {}) | {} Bedrock (Protocol {})",
-            TextComponent::text("Pumpkin")
-                .color_named(NamedColor::Gold)
-                .to_pretty_console(),
-            TextComponent::text(CARGO_PKG_VERSION.to_string())
-                .color_named(NamedColor::Green)
-                .to_pretty_console(),
-            TextComponent::text(CURRENT_MC_VERSION.protocol_version().to_string())
-                .color_named(NamedColor::DarkBlue)
-                .to_pretty_console(),
-            TextComponent::text(CURRENT_BEDROCK_MC_VERSION)
-                .color_named(NamedColor::Gold)
-                .to_pretty_console(),
-            TextComponent::text(CURRENT_BEDROCK_MC_PROTOCOL.to_string())
-                .color_named(NamedColor::DarkBlue)
-                .to_pretty_console()
-        ))
-        .to_pretty_console(),
-    );
-
-    debug!(
-        "Build info: FAMILY: \"{}\", OS: \"{}\", ARCH: \"{}\", BUILD: \"{}\"",
-        std::env::consts::FAMILY,
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        if cfg!(debug_assertions) {
-            "Debug"
-        } else {
-            "Release"
-        }
-    );
-    if cfg!(debug_assertions) {
-        warn!(
-            "Pumpkin is running an unoptimized debug build. Do not use this build for performance testing; run `cargo run --release` or use a release binary."
-        );
-    }
-    print_support_links_and_warning();
-
-    tokio::spawn(async {
-        if let Err(err) = setup_sighandler().await {
-            tracing::error!("Unable to setup signal handlers: {err}");
-        }
-    });
-
-    let plugin_loaders: Vec<Arc<dyn PluginLoader>> = vec![Arc::new(WasmPluginLoader::new(
-        config.advanced.plugins.verify_signatures,
-    ))];
-
-    for hook in launch.before_worlds_loaded {
-        hook();
-    }
-    let mut advanced_config = config.advanced;
-    for hook in launch.before_world_open {
-        if let Err(err) = hook(&config.basic.get_world_path(), &mut advanced_config) {
-            tracing::error!("Could not open world content: {err}");
-            exit(1);
-        }
-    }
-    let pumpkin_server = PumpkinServer::new(
-        config.basic,
-        advanced_config,
-        config.telemetry,
-        vanilla_data,
-        plugin_loaders,
-        true,
-    )
-    .await
-    .unwrap_or_else(|error| {
-        tracing::error!("{error}");
-        exit(1);
-    });
-    for hook in launch.on_server_created {
-        hook(&pumpkin_server.server);
-    }
-    let server = &pumpkin_server.server;
-    for (metadata, plugin) in launch.builtin_plugins {
-        let name = metadata.name.clone();
-        if let Err(error) = server
-            .plugin_manager
-            .load_builtin_plugin(server, metadata, plugin)
-            .await
-        {
-            tracing::error!("Built-in plugin \"{name}\" failed to load: {error}");
-        }
-    }
-    let plugin_wait_time = pumpkin_server.init_plugins().await;
-
-    let time_elapsed = time.elapsed().saturating_sub(plugin_wait_time);
-
-    info!(
-        "Started server; took {}",
-        TextComponent::text(format!("{}ms", time_elapsed.as_millis()))
-            .color_named(NamedColor::Gold)
-            .to_pretty_console()
-    );
-    let advanced_config = &pumpkin_server.server.advanced_config;
-    info!(
-        "Server is now running. Connect using port: {}{}{}",
-        if advanced_config.networking.java.enabled {
-            format!(
-                "{} {}",
-                TextComponent::text("Java Edition:")
-                    .color_named(NamedColor::Yellow)
-                    .to_pretty_console(),
-                TextComponent::text(format!("{}", advanced_config.networking.java.address))
-                    .color_named(NamedColor::DarkBlue)
+    match action {
+        SignalAction::Interrupt => {
+            let message = if already_stopping {
+                "Received interrupt signal while already stopping; forcing exit..."
+            } else {
+                "Received interrupt signal; stopping server..."
+            };
+            warn!(
+                "{}",
+                TextComponent::text(message)
+                    .color_named(NamedColor::Red)
                     .to_pretty_console()
-            )
-        } else {
-            TextComponent::text(String::new()).to_pretty_console()
-        },
-        if advanced_config.networking.java.enabled && advanced_config.networking.bedrock.enabled {
-            " | " // Separator if both are enabled
-        } else {
-            ""
-        },
-        if advanced_config.networking.bedrock.enabled {
-            format!(
-                "{} {}",
-                TextComponent::text("Bedrock Edition:")
-                    .color_named(NamedColor::Gold)
-                    .to_pretty_console(),
-                TextComponent::text(format!(
-                    "{}",
-                    advanced_config.networking.bedrock.nethernet.address
-                ))
-                .color_named(NamedColor::DarkBlue)
-                .to_pretty_console()
-            )
-        } else {
-            TextComponent::text(String::new()).to_pretty_console()
+            );
+            stop_or_exit_server();
         }
-    );
-
-    pumpkin_server.start().await;
-
-    info!(
-        "{}",
-        TextComponent::text("The server has stopped.")
-            .color_named(NamedColor::Red)
-            .to_pretty_console()
-    );
-}
-fn print_support_links_and_warning() {
-    warn!(
-        "{}",
-        TextComponent::text("Pumpkin is currently under heavy development!")
-            .color_named(NamedColor::DarkRed)
-            .to_pretty_console(),
-    );
-    info!(
-        "Report issues on {}",
-        TextComponent::text("https://github.com/Pumpkin-MC/Pumpkin/issues")
-            .color_named(NamedColor::DarkAqua)
-            .to_pretty_console()
-    );
-    info!(
-        "Join our {} for community support: {}",
-        TextComponent::text("Discord")
-            .color_named(NamedColor::DarkBlue)
-            .to_pretty_console(),
-        TextComponent::text("https://discord.gg/wT8XjrjKkf")
-            .color_named(NamedColor::Aqua)
-            .to_pretty_console()
-    );
-    info!(
-        "Consider {} to {}",
-        TextComponent::text("Donating")
-            .color_named(NamedColor::DarkPurple)
-            .to_pretty_console(),
-        TextComponent::text("https://pumpkinmc.org/donate/")
-            .color_named(NamedColor::Gold)
-            .to_pretty_console()
-    );
-}
-
-fn handle_interrupt() {
-    warn!(
-        "{}",
-        TextComponent::text("Received interrupt signal; stopping server...")
-            .color_named(NamedColor::Red)
-            .to_pretty_console()
-    );
-    stop_or_exit_server();
+        #[cfg(any(unix, windows))]
+        SignalAction::Shutdown => {
+            if already_stopping {
+                return;
+            }
+            warn!(
+                "{}",
+                TextComponent::text("Received termination signal; stopping server...")
+                    .color_named(NamedColor::Red)
+                    .to_pretty_console()
+            );
+            stop_server();
+        }
+    }
 }
 
 fn handle_panic(panic_info: &PanicHookInfo<'_>) {
@@ -467,48 +295,242 @@ fn try_set_crash_report(crash_report: CrashReport) -> Option<&'static CrashRepor
     }
 }
 
-// Non-UNIX Ctrl-C handling
-#[cfg(not(unix))]
-async fn setup_sighandler() -> io::Result<()> {
-    if ctrl_c().await.is_ok() {
-        handle_interrupt();
-    }
+// CTRL_LOGOFF_EVENT is intentionally omitted: Windows sends it to background console services
+// whenever any interactive/RDP user logs off.
+#[cfg(windows)]
+fn setup_sighandler() -> io::Result<()> {
+    let mut ctrl_c = windows::ctrl_c()?;
+    let mut ctrl_break = windows::ctrl_break()?;
+    let mut ctrl_close = windows::ctrl_close()?;
+    let mut ctrl_shutdown = windows::ctrl_shutdown()?;
+
+    tokio::spawn(async move {
+        loop {
+            let action = tokio::select! {
+                Some(()) = ctrl_c.recv() => SignalAction::Interrupt,
+                Some(()) = ctrl_break.recv() => SignalAction::Interrupt,
+                Some(()) = ctrl_close.recv() => SignalAction::Shutdown,
+                Some(()) = ctrl_shutdown.recv() => SignalAction::Shutdown,
+                else => break,
+            };
+            handle_signal(action);
+        }
+    });
 
     Ok(())
 }
 
-// Unix signal handling
+#[cfg(not(any(unix, windows)))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches unix and windows setup_sighandler signature"
+)]
+fn setup_sighandler() -> io::Result<()> {
+    tokio::spawn(async {
+        while ctrl_c().await.is_ok() {
+            handle_signal(SignalAction::Interrupt);
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg(unix)]
-async fn setup_sighandler() -> io::Result<()> {
+async fn recv_optional_signal(signal: Option<&mut Signal>) -> Option<()> {
+    if let Some(sig) = signal {
+        sig.recv().await
+    } else {
+        std::future::pending().await
+    }
+}
+
+#[cfg(unix)]
+fn setup_sighandler() -> io::Result<()> {
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut hangup = signal(SignalKind::hangup())?;
     let mut terminate = signal(SignalKind::terminate())?;
+    // LXC/Proxmox (`pct stop` / `lxc-stop`) and UPS daemons send SIGPWR for graceful shutdown.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let mut power = Some(signal(SignalKind::from_raw(libc::SIGPWR))?);
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let mut power: Option<Signal> = None;
 
-    let received = tokio::select! {
-        received = interrupt.recv() => received,
-        received = hangup.recv() => received,
-        received = terminate.recv() => received,
-    };
-
-    if received.is_some() {
-        handle_interrupt();
-    }
+    tokio::spawn(async move {
+        loop {
+            let action = tokio::select! {
+                Some(()) = interrupt.recv() => SignalAction::Interrupt,
+                Some(()) = hangup.recv() => SignalAction::Shutdown,
+                Some(()) = terminate.recv() => SignalAction::Shutdown,
+                Some(()) = recv_optional_signal(power.as_mut()) => SignalAction::Shutdown,
+                else => break,
+            };
+            handle_signal(action);
+        }
+    });
 
     Ok(())
 }
 
-fn has_init_settings_arg(mut args: impl Iterator<Item = String>) -> bool {
-    args.any(|arg| arg == "--init-settings" || arg == "--initSettings")
+
+use std::path::PathBuf;
+
+use clap::Parser;
+
+/// Selects the server startup path.
+#[derive(Debug, Eq, PartialEq)]
+pub enum StartupCommand {
+    DedicatedServer(DedicatedServerOptions),
+    GameTestServer(GameTestOptions),
 }
 
-fn parse_convert_world_arg(mut args: impl Iterator<Item = String>) -> Option<String> {
+/// Holds the options for a `GameTest` server run.
+#[derive(Debug, Eq, PartialEq)]
+pub struct GameTestOptions {
+    pub universe: PathBuf,
+    pub report: Option<PathBuf>,
+    pub tests: Option<String>,
+    pub verify: bool,
+    pub repeat_count: i32,
+    pub packs: Option<PathBuf>,
+}
+
+#[derive(Parser)]
+#[command(name = "pumpkin")]
+struct GameTestArgs {
+    /// The path to the test server world. Only empty or marked `GameTest` folders are replaced.
+    #[arg(long, default_value = "gametestserver")]
+    universe: PathBuf,
+    /// Exports results in a JUnit-like XML report (default: report.xml).
+    #[arg(long, num_args = 0..=1, default_missing_value = "report.xml")]
+    report: Option<PathBuf>,
+    /// Which test(s) to run (namespaced ID selector using wildcards). Empty means run all.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    tests: Option<String>,
+    /// Runs the tests specified with `test` or `testNamespace` 100 times for each 90 degree rotation step.
+    #[arg(long)]
+    verify: bool,
+    /// Runs each of the specified tests this many times.
+    #[arg(
+        long = "repeatCount",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(i32).range(1..)
+    )]
+    repeat_count: i32,
+    /// A folder of datapacks to include in the world.
+    #[arg(long)]
+    packs: Option<PathBuf>,
+}
+
+/// Holds the recognised options for dedicated startup.
+#[derive(Debug, Eq, Parser, PartialEq)]
+#[command(name = "pumpkin")]
+pub struct DedicatedServerOptions {
+    #[arg(long = "convert-world")]
+    pub convert_world: Option<String>,
+    #[arg(long = "init-settings", alias = "initSettings")]
+    pub init_settings: bool,
+}
+
+fn parse_dedicated_args(
+    args: Vec<String>,
+    mut warn_unknown: impl FnMut(&str),
+) -> Result<DedicatedServerOptions, clap::Error> {
+    let mut known = vec!["pumpkin".to_string()];
+    let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
-        if arg == "--convert-world" {
-            return Some(args.next().unwrap_or_default());
-        }
-        if let Some(value) = arg.strip_prefix("--convert-world=") {
-            return Some(value.to_string());
+        let (flag, inline_value) = arg
+            .split_once('=')
+            .map_or((arg.as_str(), false), |(flag, _)| (flag, true));
+        match flag {
+            "--convert-world" => {
+                known.push(arg);
+                if !inline_value {
+                    known.extend(args.next_if(|value| !value.starts_with('-')));
+                }
+            }
+            "--init-settings" | "--initSettings" => known.push(arg),
+            _ => warn_unknown(&arg),
         }
     }
-    None
+    DedicatedServerOptions::try_parse_from(known)
+}
+
+/// Selects `GameTest` mode when `--tests` is present and parses its options.
+/// Unknown dedicated server arguments are reported through `warn_unknown`.
+pub fn parse_startup_command(
+    args: impl IntoIterator<Item = String>,
+    warn_unknown: impl FnMut(&str),
+) -> Result<StartupCommand, clap::Error> {
+    let args: Vec<String> = args.into_iter().collect();
+    if !args.iter().any(|arg| {
+        arg == "--tests" || arg.starts_with("--tests=") || matches!(arg.as_str(), "-h" | "--help")
+    }) {
+        return parse_dedicated_args(args, warn_unknown).map(StartupCommand::DedicatedServer);
+    }
+
+    let options = GameTestArgs::try_parse_from(std::iter::once("pumpkin".to_string()).chain(args))?;
+    Ok(StartupCommand::GameTestServer(GameTestOptions {
+        universe: options.universe,
+        report: options.report,
+        tests: options.tests,
+        verify: options.verify,
+        repeat_count: options.repeat_count,
+        packs: options.packs,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{GameTestOptions, StartupCommand, parse_startup_command};
+
+    #[test]
+    fn dedicated_startup_ignores_unknown_arguments() {
+        let args = [
+            "nogui",
+            "--convert-world",
+            "anvil",
+            "--unknown-option",
+            "--initSettings",
+        ];
+        let mut reported = Vec::new();
+        let command = parse_startup_command(args.into_iter().map(str::to_owned), |arg| {
+            reported.push(arg.to_owned());
+        });
+        assert!(matches!(
+            command,
+            Ok(StartupCommand::DedicatedServer(options))
+                if options.convert_world.as_deref() == Some("anvil")
+                    && options.init_settings
+        ));
+        assert_eq!(reported, ["nogui", "--unknown-option"]);
+    }
+
+    #[test]
+    fn startup_still_rejects_invalid_known_options() {
+        for args in [
+            ["nogui", "--convert-world"],
+            ["--tests", "--unknown-option"],
+        ] {
+            assert!(parse_startup_command(args.into_iter().map(str::to_owned), |_| {}).is_err());
+        }
+    }
+
+    #[test]
+    fn report_flag_uses_default_or_explicit_path() {
+        for (args, expected) in [
+            (vec!["--tests", "--report"], "report.xml"),
+            (vec!["--tests", "--report", "custom.xml"], "custom.xml"),
+        ] {
+            let command = parse_startup_command(args.into_iter().map(str::to_owned), |_| {});
+            assert!(matches!(
+                command,
+                Ok(StartupCommand::GameTestServer(GameTestOptions {
+                    report: Some(path),
+                    ..
+                })) if path == Path::new(expected)
+            ));
+        }
+    }
 }

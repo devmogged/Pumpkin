@@ -217,6 +217,16 @@ impl MobEntity {
             .store(Vector3::new(input.x, input.y, f64::from(speed)));
     }
 
+    /// Vanilla `Mob.stopInPlace`.
+    pub fn stop_in_place(&self) {
+        self.steered().navigator().stop();
+        // Sideways and upward input; `set_speed` clears the forward input.
+        self.living_entity.movement_input.store(Vector3::default());
+        self.set_speed(0.0);
+        self.living_entity.entity.velocity.store(Vector3::default());
+        self.living_entity.entity.reset_angular_leash_momentum();
+    }
+
     const CONTROL_FLAGS_UPDATE_INTERVAL: i32 = 5;
     const AI_DISABLED_FLAG: u8 = 1;
     const LEFT_HANDED_FLAG: u8 = 2;
@@ -335,12 +345,12 @@ impl MobEntity {
             LeashTick::NotLeashed => {}
             LeashTick::Snapped => self.goals_selector.disable_control(Controls::MOVE),
             LeashTick::Elastic(holder) => {
-                self.when_leashed_to(&*holder);
+                self.when_leashed_to(mob, &*holder);
                 entity.check_fall_distance_accumulation(&self.living_entity);
                 mob.on_elastic_leash_pull();
             }
             LeashTick::CloseRange(holder) => {
-                self.when_leashed_to(&*holder);
+                self.when_leashed_to(mob, &*holder);
                 self.close_range_leash_behaviour(mob, &*holder);
             }
         }
@@ -349,11 +359,11 @@ impl MobEntity {
         }
     }
 
-    fn when_leashed_to(&self, holder: &dyn EntityBase) {
+    fn when_leashed_to(&self, mob: &dyn Mob, holder: &dyn EntityBase) {
         self.was_leashed.store(true, Relaxed);
         self.set_home_to(
             holder.get_entity().block_pos.load(),
-            Entity::LEASH_ELASTIC_DISTANCE as i32 - 1,
+            mob.mob_leash_elastic_distance() as i32 - 1,
         );
     }
 
@@ -495,7 +505,11 @@ impl MobEntity {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.apply_navigation_updates(&mut navigator);
-            navigator.tick(&self.living_entity)
+            if mob.ticks_navigation() {
+                navigator.tick(&self.living_entity)
+            } else {
+                None
+            }
         };
 
         // Vanilla PathNavigation.tick hands its waypoint to `mob.getMoveControl()`.
@@ -591,6 +605,23 @@ impl MobEntity {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(slot.clone(), Self::GUARANTEED_DROP_CHANCE);
+    }
+
+    pub fn drop_preserved_equipment(&self) {
+        let preserved_slots: Vec<EquipmentSlot> = self
+            .living_entity
+            .equipment_drop_chances
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(_, chance)| **chance > 1.0)
+            .map(|(slot, _)| slot.clone())
+            .collect();
+
+        for slot in preserved_slots {
+            let item = self.set_item_slot(&slot, ItemStack::EMPTY.clone());
+            self.living_entity.entity.spawn_at_location(item);
+        }
     }
 
     /// Equips `stack` and tells tracking clients, returning what was in the slot.
@@ -1106,53 +1137,105 @@ impl MobEntity {
             >= DAYLIGHT_BRIGHTNESS
     }
 
-    pub fn mob_interact(
+    fn transfer_player_leashes(&self, player: &Arc<Player>, can_be_leashed: bool) -> bool {
+        let entity = &self.living_entity.entity;
+        let player_entity = player.get_entity();
+        if !player_entity.is_sneaking() || !can_be_leashed || self.living_entity.is_baby() {
+            return false;
+        }
+        let world = entity.world.load();
+        let Some(this) = world.get_entity_by_id(entity.entity_id) else {
+            return false;
+        };
+        let mut any_leashed = false;
+        for mob in crate::entity::leashable_in_area(
+            &world,
+            entity.bounding_box.load().get_center(),
+            player_entity.entity_id,
+        ) {
+            if crate::entity::can_have_a_leash_attached_to(mob.as_ref(), this.as_ref())
+                && mob
+                    .get_entity()
+                    .leash_to_if_held_by(player_entity.entity_id, &this)
+            {
+                any_leashed = true;
+            }
+        }
+        if any_leashed {
+            world.emit_game_event(GameEvent::EntityAction.name(), entity.pos.load());
+            world.play_sound(
+                Sound::ItemLeadTied,
+                SoundCategory::Neutral,
+                &entity.pos.load(),
+            );
+        }
+        any_leashed
+    }
+
+    fn interact_leash(
         &self,
         player: &Arc<Player>,
         item_stack: &mut ItemStack,
         can_be_leashed: bool,
-    ) -> bool {
+    ) -> Option<bool> {
         let entity = &self.living_entity.entity;
 
-        if item_stack.item.id == pumpkin_data::item::Item::SHEARS.id
-            && entity.shear_off_all_leash_connections(true)
+        let holder = entity.get_leash_holder();
+        if holder
+            .as_ref()
+            .is_some_and(|holder| holder.get_entity().entity_id == player.entity_id())
         {
-            let _ = player.damage_item_stack(item_stack, 1);
-            return true;
+            if !entity.unleash() {
+                return Some(false);
+            }
+            if player.gamemode.load() != pumpkin_util::GameMode::Creative {
+                entity.spawn_at_location(ItemStack::new(1, &Item::LEAD));
+            }
+            emit_entity_interact(entity, player);
+            entity.world.load().play_sound(
+                Sound::ItemLeadUntied,
+                SoundCategory::Neutral,
+                &entity.pos.load(),
+            );
+            return Some(true);
         }
 
-        // If already leashed to player, right-clicking unleashes the mob
-        let currently_leashed = entity.is_leashed();
-
-        if currently_leashed {
-            entity.unleash();
-            let lead_item =
-                pumpkin_data::item_stack::ItemStack::new(1, &pumpkin_data::item::Item::LEAD);
-            entity
-                .world
-                .load()
-                .drop_stack(&entity.block_pos.load(), lead_item);
-            return true;
-        }
-
-        // If holding a lead, leash the mob to the player
-        if (item_stack.item.registry_key == "lead"
-            || item_stack.item.registry_key == "minecraft:lead")
+        if item_stack.get_item() == &Item::LEAD
             && can_be_leashed
+            && holder
+                .as_ref()
+                .is_none_or(|holder| holder.get_player().is_none())
         {
-            let diff = entity.pos.load() - player.get_entity().pos.load();
-            let dist_sq = diff.length_squared();
-            if dist_sq <= Entity::LEASH_SNAP_DISTANCE * Entity::LEASH_SNAP_DISTANCE {
-                if entity.leash_to(player.clone() as Arc<dyn EntityBase>)
-                    && player.gamemode.load() != pumpkin_util::GameMode::Creative
-                {
+            let world = entity.world.load();
+            if world
+                .get_entity_by_id(entity.entity_id)
+                .is_some_and(|this| {
+                    crate::entity::can_have_a_leash_attached_to(this.as_ref(), player.as_ref())
+                })
+            {
+                let new_holder: Arc<dyn EntityBase> = player.clone();
+                if !entity.fire_leash_event(&new_holder) {
+                    return Some(false);
+                }
+                if entity.has_leash_data() && !entity.drop_leash() {
+                    return Some(false);
+                }
+                if !entity.attach_leash_if_free(&new_holder) {
+                    return Some(false);
+                }
+                if player.gamemode.load() != pumpkin_util::GameMode::Creative {
                     item_stack.decrement(1);
                 }
-                return true;
+                entity.world.load().play_sound(
+                    Sound::ItemLeadTied,
+                    SoundCategory::Neutral,
+                    &entity.pos.load(),
+                );
+                return Some(true);
             }
         }
 
-        false
+        None
     }
 
     pub fn check_despawn(&self, mob: &dyn Mob) {
@@ -1300,9 +1383,7 @@ pub(crate) fn drop_from_gift_loot_table(
                 stack.item_count,
             );
         if let Some(server) = world.server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut drop_event);
+            drop_event = server.plugin_manager.fire_blocking(&server, drop_event);
         }
         if drop_event.cancelled {
             continue;
@@ -1569,7 +1650,7 @@ pub trait Mob: EntityBase + Send + Sync {
     }
 
     fn can_be_leashed(&self) -> bool {
-        true
+        !crate::entity::ai::target_match::TargetMatch::Enemy.matches(self.get_entity().entity_type)
     }
 
     fn should_stay_close_to_leash_holder(&self) -> bool {
@@ -1582,6 +1663,14 @@ pub trait Mob: EntityBase + Send + Sync {
 
     fn mob_support_quad_leash_as_holder(&self) -> bool {
         false
+    }
+
+    fn mob_leash_snap_distance(&self) -> f64 {
+        Entity::LEASH_SNAP_DISTANCE
+    }
+
+    fn mob_leash_elastic_distance(&self) -> f64 {
+        Entity::LEASH_ELASTIC_DISTANCE
     }
 
     fn on_elastic_leash_pull(&self) {}
@@ -1759,6 +1848,10 @@ pub trait Mob: EntityBase + Send + Sync {
         None
     }
 
+    fn can_use_non_melee_weapon(&self, _stack: &ItemStack) -> bool {
+        false
+    }
+
     fn can_use_slot(&self, _slot: &EquipmentSlot) -> bool {
         true
     }
@@ -1789,7 +1882,13 @@ pub trait Mob: EntityBase + Send + Sync {
         !self.get_entity().has_passengers()
     }
 
-    fn attempt_to_shear_equipment(&self, player: &Arc<Player>, shears: &mut ItemStack) -> bool {
+    /// Returns `None` without shearable equipment and `Some(false)` when plugins cancel.
+    fn attempt_to_shear_equipment(
+        &self,
+        player: &Arc<Player>,
+        shears: &mut ItemStack,
+        hand: pumpkin_util::Hand,
+    ) -> Option<bool> {
         let mob_entity = self.get_mob_entity();
         let living = &mob_entity.living_entity;
         let creative = player.gamemode.load() == pumpkin_util::GameMode::Creative;
@@ -1820,9 +1919,7 @@ pub trait Mob: EntityBase + Send + Sync {
                     .then(|| (slot, stack.clone(), shearing_sound))
             })
         };
-        let Some((slot, stack, shearing_sound)) = sheared else {
-            return false;
-        };
+        let (slot, stack, shearing_sound) = sheared?;
 
         let entity = &living.entity;
         let world = entity.world.load();
@@ -1830,22 +1927,35 @@ pub trait Mob: EntityBase + Send + Sync {
             let mut event = PlayerShearEntityEvent {
                 player: player.clone(),
                 entity_id: entity.entity_id,
-                hand: 0,
+                hand: hand.packet_id(),
                 cancelled: false,
             };
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
-                return false;
+                return Some(false);
             }
         }
 
-        let _ = player.damage_item_stack(shears, 1);
+        let _ = player.damage_held_stack(shears, 1, hand);
         mob_entity.set_item_slot(&slot, ItemStack::EMPTY.clone());
         world.emit_game_event(GameEvent::Unequip.name(), entity.pos.load());
-        world.emit_game_event(GameEvent::Shear.name(), entity.pos.load());
-        entity.spawn_at_location(stack);
+        world.emit_game_event_with_context(
+            GameEvent::Shear.name(),
+            entity.pos.load(),
+            &crate::world::game_event::GameEventContext {
+                source_entity: Some(player.as_ref()),
+            },
+        );
+        let item_id = stack.item.registry_key.to_string();
+        entity.spawn_at_location_with_offset(stack, super::average_passenger_attachment(self));
+        player.trigger_advancement(
+            crate::entity::player::advancement::trigger::AdvancementTrigger::PlayerShearedEquipment {
+                entity_type: format!("minecraft:{}", entity.entity_type.resource_name),
+                item_id,
+            },
+        );
         world.play_sound_event(&shearing_sound, SoundCategory::Neutral, &entity.pos.load());
-        true
+        Some(true)
     }
 
     fn check_spawn_obstruction(&self, world: &World) -> bool {
@@ -1928,6 +2038,18 @@ pub trait Mob: EntityBase + Send + Sync {
     fn before_mob_ai_step(&self) {}
 
     fn mob_ai_step(&self) {}
+
+    fn ticks_navigation(&self) -> bool {
+        true
+    }
+
+    fn conservative_block_read_radius(&self) -> f64 {
+        0.0
+    }
+
+    fn fluid_jump_velocity(&self) -> f64 {
+        0.04
+    }
 
     fn tick_jump_control(&self, jump: bool) {
         self.get_mob_entity()
@@ -2084,6 +2206,10 @@ pub trait Mob: EntityBase + Send + Sync {
         self.pre_damage(damage_type, source)
     }
 
+    fn mob_can_be_seen_as_enemy(&self) -> bool {
+        true
+    }
+
     fn on_damage(&self, _damage_type: DamageType, _source: Option<&dyn EntityBase>) {}
 
     fn on_damage_with_context(
@@ -2094,6 +2220,29 @@ pub trait Mob: EntityBase + Send + Sync {
     ) -> bool {
         self.on_damage(damage_type, source);
         true
+    }
+
+    /// Vanilla `LivingEntity.actuallyHurt`: armor, absorption and health. A mob that overrides it
+    /// calls `LivingEntity::actually_hurt` first, like `super.actuallyHurt` in vanilla. Animals lose
+    /// their love mode first, as in vanilla `Animal.actuallyHurt`.
+    fn actually_hurt(
+        &self,
+        caller: &dyn EntityBase,
+        damage_type: DamageType,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
+        damage: f32,
+    ) {
+        if self.as_animal().is_some() {
+            self.get_mob_entity().reset_love_ticks();
+        }
+        self.get_mob_entity().living_entity.actually_hurt(
+            caller,
+            damage_type,
+            source,
+            cause,
+            damage,
+        );
     }
 
     /// Called after the base damage attempt, whether or not it applied damage.
@@ -2240,6 +2389,10 @@ pub trait Mob: EntityBase + Send + Sync {
     }
 
     fn as_animal(&self) -> Option<&dyn crate::entity::passive::animal::Animal> {
+        None
+    }
+
+    fn as_shearable(&self) -> Option<&dyn crate::entity::shearable::Shearable> {
         None
     }
 
@@ -2509,7 +2662,7 @@ pub trait Mob: EntityBase + Send + Sync {
         if let Some(server) = world.server.upgrade() {
             let mut event =
                 EntityTargetEvent::new(mob.living_entity.entity.entity_id, target_id, reason);
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return false;
             }
@@ -2529,9 +2682,8 @@ pub trait Mob: EntityBase + Send + Sync {
         self.get_mob_entity().set_target(target);
     }
 
-    fn mob_interact(&self, player: &Arc<Player>, item_stack: &mut ItemStack) -> bool {
-        self.get_mob_entity()
-            .mob_interact(player, item_stack, self.can_be_leashed())
+    fn mob_interact(&self, _player: &Arc<Player>, _item_stack: &mut ItemStack) -> bool {
+        false
     }
 
     fn mob_interact_with_hand(
@@ -2553,7 +2705,7 @@ pub trait Mob: EntityBase + Send + Sync {
             mob.living_entity.entity.entity_id,
             player.clone(),
         );
-        server.plugin_manager.fire_blocking(&server, &mut event);
+        event = server.plugin_manager.fire_blocking(&server, event);
         !event.cancelled
     }
 
@@ -2573,7 +2725,7 @@ pub trait Mob: EntityBase + Send + Sync {
             child_id,
             experience,
         );
-        server.plugin_manager.fire_blocking(&server, &mut event);
+        event = server.plugin_manager.fire_blocking(&server, event);
         (!event.cancelled).then_some(event.experience)
     }
 
@@ -2583,13 +2735,13 @@ pub trait Mob: EntityBase + Send + Sync {
         player: Option<&Arc<Player>>,
     ) {
         let mob = self.get_mob_entity();
-        let mut event = crate::plugin::api::events::entity::entity_dye::EntityDyeEvent::new(
+        let event = crate::plugin::api::events::entity::entity_dye::EntityDyeEvent::new(
             mob.living_entity.entity.entity_id,
             color,
             player.cloned(),
         );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
@@ -2604,68 +2756,66 @@ pub trait Mob: EntityBase + Send + Sync {
             human_entity_id,
             ticks_in_love,
         );
-        server.plugin_manager.fire_blocking(&server, &mut event);
+        event = server.plugin_manager.fire_blocking(&server, event);
         (!event.cancelled).then_some(event.ticks_in_love)
     }
 
     fn transform(&self, new_entity_id: i32, transform_reason: String) {
         let mob = self.get_mob_entity();
-        let mut event =
-            crate::plugin::api::events::entity::entity_transform::EntityTransformEvent::new(
-                mob.living_entity.entity.entity_id,
-                new_entity_id,
-                transform_reason,
-            );
+        let event = crate::plugin::api::events::entity::entity_transform::EntityTransformEvent::new(
+            mob.living_entity.entity.entity_id,
+            new_entity_id,
+            transform_reason,
+        );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
     fn break_door(&self, block_pos: BlockPos) {
         let mob = self.get_mob_entity();
-        let mut event =
+        let event =
             crate::plugin::api::events::entity::entity_break_door::EntityBreakDoorEvent::new(
                 mob.living_entity.entity.entity_id,
                 block_pos,
             );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
     fn enter_block(&self, block_pos: BlockPos) {
         let mob = self.get_mob_entity();
-        let mut event =
+        let event =
             crate::plugin::api::events::entity::entity_enter_block::EntityEnterBlockEvent::new(
                 mob.living_entity.entity.entity_id,
                 block_pos,
             );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
     fn interact(&self, block_pos: BlockPos) {
         let mob = self.get_mob_entity();
-        let mut event =
-            crate::plugin::api::events::entity::entity_interact::EntityInteractEvent::new(
-                mob.living_entity.entity.entity_id,
-                block_pos,
-            );
+        let event = crate::plugin::api::events::entity::entity_interact::EntityInteractEvent::new(
+            mob.living_entity.entity.entity_id,
+            block_pos,
+        );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
     fn place_block(&self, block_pos: BlockPos, block_name: String) {
         let mob = self.get_mob_entity();
-        let mut event = crate::plugin::api::events::entity::entity_place::EntityPlaceEvent::new(
+        let event = crate::plugin::api::events::entity::entity_place::EntityPlaceEvent::new(
             mob.living_entity.entity.entity_id,
             block_pos,
             block_name,
         );
         if let Some(server) = mob.living_entity.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            server.plugin_manager.fire_blocking(&server, event);
         }
     }
 
@@ -2820,6 +2970,10 @@ impl<T: Mob + Send + 'static> EntityBase for T {
         self.mob_is_pushed_by_fluids()
     }
 
+    fn can_be_seen_as_enemy(&self) -> bool {
+        self.mob_can_be_seen_as_enemy() && self.is_visible_and_vulnerable()
+    }
+
     fn sound_source(&self) -> SoundCategory {
         self.mob_sound_source()
     }
@@ -2866,6 +3020,14 @@ impl<T: Mob + Send + 'static> EntityBase for T {
 
     fn support_quad_leash_as_holder(&self) -> bool {
         self.mob_support_quad_leash_as_holder()
+    }
+
+    fn leash_snap_distance(&self) -> f64 {
+        self.mob_leash_snap_distance()
+    }
+
+    fn leash_elastic_distance(&self) -> f64 {
+        self.mob_leash_elastic_distance()
     }
 
     fn on_lightning_strike(
@@ -3008,17 +3170,14 @@ impl<T: Mob + Send + 'static> EntityBase for T {
     }
 
     fn interact(&self, player: &Arc<Player>, item_stack: &mut ItemStack) -> bool {
-        if item_stack.get_item() == &Item::SHEARS
-            && self.can_shear_equipment(player)
-            && !player.get_entity().is_sneaking()
-            && self.attempt_to_shear_equipment(player, item_stack)
-        {
-            return true;
-        }
-        self.mob_interact(player, item_stack)
+        let interacted = self.mob_interact(player, item_stack)
             || self
                 .as_ageable()
-                .is_some_and(|ageable| ageable.ageable_interact(player, item_stack))
+                .is_some_and(|ageable| ageable.ageable_interact(player, item_stack));
+        if interacted {
+            emit_entity_interact(self.get_entity(), player);
+        }
+        interacted
     }
 
     fn interact_with_hand(
@@ -3027,7 +3186,46 @@ impl<T: Mob + Send + 'static> EntityBase for T {
         item_stack: &mut ItemStack,
         hand: pumpkin_util::Hand,
     ) -> Option<bool> {
-        self.mob_interact_with_hand(player, item_stack, hand)
+        let entity = self.get_entity();
+        if !self.get_mob_entity().living_entity.is_alive() {
+            return Some(false);
+        }
+        if item_stack.item == &Item::NAME_TAG
+            && entity.entity_type.saveable
+            && item_stack
+                .get_data_component::<pumpkin_data::data_component_impl::CustomNameImpl>()
+                .is_some()
+        {
+            let world = entity.world.load();
+            let server = world.server.upgrade()?;
+            let target = world.get_entity_by_id(entity.entity_id)?;
+            server
+                .item_registry
+                .get_pumpkin_item(item_stack.item.id)?
+                .use_on_entity(item_stack, player, target);
+            emit_entity_interact(entity, player);
+            return Some(true);
+        }
+        if self
+            .get_mob_entity()
+            .transfer_player_leashes(player, self.can_be_leashed())
+        {
+            return Some(true);
+        }
+        if let Some(handled) = super::interact_with_shears(self, player, item_stack, hand) {
+            return Some(handled);
+        }
+        if let Some(handled) =
+            self.get_mob_entity()
+                .interact_leash(player, item_stack, self.can_be_leashed())
+        {
+            return Some(handled);
+        }
+        let interacted = self.mob_interact_with_hand(player, item_stack, hand)?;
+        if interacted {
+            emit_entity_interact(entity, player);
+        }
+        Some(interacted)
     }
 
     fn on_player_collision(&self, player: &Arc<Player>) {
@@ -3208,6 +3406,16 @@ pub trait PathAwareEntity: Mob + Send + Sync {
 
 pub trait RangedAttackMob: Mob + Send + Sync {
     fn perform_ranged_attack(&self, target: &Arc<dyn EntityBase>, power: f32);
+}
+
+fn emit_entity_interact(entity: &Entity, player: &Arc<Player>) {
+    entity.world.load().emit_game_event_with_context(
+        GameEvent::EntityInteract.name(),
+        entity.pos.load(),
+        &crate::world::game_event::GameEventContext {
+            source_entity: Some(player.as_ref()),
+        },
+    );
 }
 
 #[cfg(test)]

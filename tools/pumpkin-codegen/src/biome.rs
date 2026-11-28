@@ -6,6 +6,7 @@ use proc_macro2::{Span, TokenStream};
 use pumpkin_worldgen_model::biome_data::{BiomeFile, Spawner, TemperatureModifier};
 use quote::{format_ident, quote};
 use serde::Deserialize;
+use serde_json::Value;
 use syn::LitInt;
 
 #[derive(Deserialize)]
@@ -156,6 +157,12 @@ pub fn build() -> TokenStream {
         let format_name = format_ident!("{}", name.to_shouty_snake_case());
         let has_precipitation = biome.has_precipitation;
         let temperature = biome.temperature;
+        let boolean_attributes: Vec<_> = biome.attributes.iter().filter_map(|(name, value)| {
+            let value = value.as_bool().or_else(|| value.get("argument").and_then(Value::as_bool))?;
+            let name = name.strip_prefix("minecraft:").unwrap_or(name);
+            let variant = format_ident!("{}", name.replace('/', "_").to_pascal_case());
+            Some(quote! { (crate::environment_attribute::EnvironmentAttribute::#variant, #value) })
+        }).collect();
         let downfall = biome.downfall;
         let carvers: Vec<TokenStream> = biome
             .carvers
@@ -183,16 +190,6 @@ pub fn build() -> TokenStream {
             .collect();
 
         let creature_spawn_probability = &biome.creature_spawn_probability.unwrap_or(0.1);
-        let increased_fire_burnout = biome
-            .attr_bool("minecraft:gameplay/increased_fire_burnout")
-            .unwrap_or(false);
-        let snow_golem_melts = biome
-            .attr_bool("minecraft:gameplay/snow_golem_melts")
-            .unwrap_or(false);
-        let can_pillager_patrol_spawn = biome
-            .attr_bool("minecraft:gameplay/can_pillager_patrol_spawn")
-            .unwrap_or(true);
-
         let temperature_modifier = biome
             .temperature_modifier
             .unwrap_or(TemperatureModifier::None);
@@ -277,6 +274,7 @@ pub fn build() -> TokenStream {
                 id: #index,
                 registry_id: #name,
                 be_network_id: #be_network_id,
+                boolean_attributes: &[#(#boolean_attributes),*],
                 weather: Weather::new(
                      #has_precipitation,
                      #temperature,
@@ -286,9 +284,6 @@ pub fn build() -> TokenStream {
                 features: &[#(#features),*],
                 carvers: &[#(#carvers),*],
                 creature_spawn_probability: #creature_spawn_probability,
-                increased_fire_burnout: #increased_fire_burnout,
-                snow_golem_melts: #snow_golem_melts,
-                can_pillager_patrol_spawn: #can_pillager_patrol_spawn,
                 spawners: #spawners,
                 spawn_costs: SpawnCostsLookup::Vanilla(&phf::phf_map! {
                     #(#spawn_costs),*
@@ -322,13 +317,11 @@ pub fn build() -> TokenStream {
             pub id: u8,
             pub registry_id: &'static str,
             pub be_network_id: u8,
+            pub boolean_attributes: &'static [(crate::environment_attribute::EnvironmentAttribute, bool)],
             pub weather: Weather,
             pub carvers: &'static [&'static crate::carver::CarverConfig],
             pub features: &'static [&'static [crate::placed_feature::PlacedFeature]],
             pub creature_spawn_probability: f32,
-            pub increased_fire_burnout: bool,
-            pub snow_golem_melts: bool,
-            pub can_pillager_patrol_spawn: bool,
             pub spawners: SpawnGroups,
             pub spawn_costs: SpawnCostsLookup,
         }
@@ -805,12 +798,9 @@ pub fn build() -> TokenStream {
                 best_dist: &mut i64,
                 best_node: &mut &'static BiomeTree,
             ) {
-                let dist = self.get_squared_distance(point);
-
-                // PRUNING: If this branch/leaf is further than our best, skip it and all children
-                if dist >= *best_dist {
+                let Some(dist) = self.get_squared_distance_below(point, *best_dist) else {
                     return;
-                }
+                };
 
                 match self {
                     Self::Leaf { .. } => {
@@ -827,20 +817,25 @@ pub fn build() -> TokenStream {
 
             #[inline(always)]
             fn get_squared_distance(&self, p: &[i64; 7]) -> i64 {
+                self.get_squared_distance_below(p, i64::MAX).unwrap_or(i64::MAX)
+            }
+
+            #[inline(always)]
+            fn get_squared_distance_below(&self, p: &[i64; 7], upper_bound: i64) -> Option<i64> {
                 let params = match self {
                     Self::Leaf { parameters, .. } => parameters,
                     Self::Branch { parameters, .. } => parameters,
                 };
 
-                let d0 = params[0].calc_distance(p[0]);
-                let d1 = params[1].calc_distance(p[1]);
-                let d2 = params[2].calc_distance(p[2]);
-                let d3 = params[3].calc_distance(p[3]);
-                let d4 = params[4].calc_distance(p[4]);
-                let d5 = params[5].calc_distance(p[5]);
-                let d6 = params[6].calc_distance(p[6]);
-
-                d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6
+                let mut squared_distance = 0;
+                for (parameter, value) in params.iter().zip(p) {
+                    let distance = parameter.calc_distance(*value);
+                    squared_distance += distance * distance;
+                    if squared_distance >= upper_bound {
+                        return None;
+                    }
+                }
+                Some(squared_distance)
             }
         }
 

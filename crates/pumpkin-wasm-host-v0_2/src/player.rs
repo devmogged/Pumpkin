@@ -3231,15 +3231,9 @@ impl pumpkin::plugin::player::HostPlayerWithStore<PluginHostState> for HasSelf<P
         player: Resource<Player>,
         host: String,
         port: u16,
-    ) -> wasmtime::Result<()> {
+    ) -> wasmtime::Result<bool> {
         let player = accessor.get_res(&player)?;
-        if let pumpkin_core::net::ClientPlatform::Java(client) = player.client.as_ref() {
-            client.try_send_packet(&pumpkin_protocol::java::client::play::CTransfer::new(
-                &host,
-                pumpkin_protocol::codec::var_int::VarInt(i32::from(port)),
-            ));
-        }
-        Ok(())
+        run_blocking(accessor, move || player.transfer(&host, port).is_some()).await
     }
 
     async fn open_ender_chest(
@@ -4026,7 +4020,7 @@ impl pumpkin::plugin::player::HostJavaPlayerWithStore<PluginHostState>
                         player.clone(),
                         protocol_dialog.clone(),
                     );
-                server.plugin_manager.fire(&server, &mut event).await;
+                event = server.plugin_manager.fire(&server, event).await;
                 if event.cancelled {
                     return Ok(());
                 }
@@ -4078,7 +4072,7 @@ impl pumpkin::plugin::player::HostJavaPlayerWithStore<PluginHostState>
                     pumpkin_core::plugin::api::events::dialog::dialog_clear::DialogClearEvent::new(
                         player.clone(),
                     );
-                server.plugin_manager.fire(&server, &mut event).await;
+                event = server.plugin_manager.fire(&server, event).await;
                 if event.cancelled {
                     return Ok(());
                 }
@@ -4136,7 +4130,7 @@ impl pumpkin::plugin::player::HostJavaPlayerWithStore<PluginHostState>
                         player_arc,
                         reason.clone().to_pretty_console(),
                     );
-                server.plugin_manager.fire(&server, &mut event).await;
+                event = server.plugin_manager.fire(&server, event).await;
                 if event.cancelled {
                     return Ok(());
                 }
@@ -4579,7 +4573,7 @@ impl pumpkin::plugin::player::HostBedrockPlayerWithStore<PluginHostState>
                         player_arc,
                         options.message.clone(),
                     );
-                server.plugin_manager.fire(&server, &mut event).await;
+                event = server.plugin_manager.fire(&server, event).await;
                 if event.cancelled {
                     return Ok(());
                 }

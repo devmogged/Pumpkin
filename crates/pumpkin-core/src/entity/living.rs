@@ -89,6 +89,8 @@ pub struct LivingEntity {
     /// Arrows sticking out of the entity, synced so the client renders them.
     arrow_count: AtomicI32,
     remove_arrow_time: AtomicI32,
+    stinger_count: AtomicI32,
+    remove_stinger_time: AtomicI32,
     /// Stores the amount of damage the entity last received.
     pub last_damage_taken: AtomicCell<f32>,
     /// The current health level of the entity.
@@ -490,6 +492,8 @@ impl LivingEntity {
             hurt_cooldown: AtomicI32::new(0),
             arrow_count: AtomicI32::new(0),
             remove_arrow_time: AtomicI32::new(0),
+            stinger_count: AtomicI32::new(0),
+            remove_stinger_time: AtomicI32::new(0),
             last_damage_taken: AtomicCell::new(0.0),
             absorption: AtomicCell::new(0.0),
             fall_distance: AtomicCell::new(0.0),
@@ -1032,7 +1036,7 @@ impl LivingEntity {
     }
 
     /// Vanilla `LivingEntity.onItemPickup`, with the ground stack as it was before the pickup.
-    fn on_item_pickup(&self, item: &crate::entity::item::ItemEntity, stack: &ItemStack) {
+    pub(crate) fn on_item_pickup(&self, item: &crate::entity::item::ItemEntity, stack: &ItemStack) {
         let Some(owner) = item.get_owner_entity() else {
             return;
         };
@@ -1289,7 +1293,7 @@ impl LivingEntity {
                 additional_health,
             );
         if let Some(server) = self.entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return;
             }
@@ -1428,18 +1432,27 @@ impl LivingEntity {
         );
     }
 
-    /// Stuck arrows fall out one at a time, faster the more there are.
-    fn tick_arrow_count(&self) {
-        let count = self.get_arrow_count();
+    pub fn get_stinger_count(&self) -> i32 {
+        self.stinger_count.load(Relaxed)
+    }
+
+    pub fn set_stinger_count(&self, count: i32) {
+        self.stinger_count.store(count, Relaxed);
+        self.entity.set_synced_data(
+            tracked_data::living_entity::DATA_STINGER_COUNT_ID,
+            VarInt(count),
+        );
+    }
+
+    /// Stuck arrows and stingers fall out one at a time, faster the more there are.
+    fn tick_stuck_count(count: i32, removal_time: &AtomicI32) -> bool {
         if count <= 0 {
-            return;
+            return false;
         }
-        if self.remove_arrow_time.load(Relaxed) <= 0 {
-            self.remove_arrow_time.store(20 * (30 - count), Relaxed);
+        if removal_time.load(Relaxed) <= 0 {
+            removal_time.store(20 * (30 - count), Relaxed);
         }
-        if self.remove_arrow_time.fetch_sub(1, Relaxed) - 1 <= 0 {
-            self.set_arrow_count(count - 1);
-        }
+        removal_time.fetch_sub(1, Relaxed) - 1 <= 0
     }
 
     /// Returns the computed value for `attribute` using the local instance, falling back
@@ -1572,7 +1585,10 @@ impl LivingEntity {
         {
             return false;
         }
-        if (entity_type == &EntityType::NAUTILUS || entity_type == &EntityType::ZOMBIE_NAUTILUS)
+        if (entity_type == &EntityType::NAUTILUS
+            || entity_type == &EntityType::ZOMBIE_NAUTILUS
+            || entity_type == &EntityType::SPIDER
+            || entity_type == &EntityType::CAVE_SPIDER)
             && effect.effect_type == &StatusEffect::POISON
         {
             return false;
@@ -1590,8 +1606,12 @@ impl LivingEntity {
         }
     }
 
-    #[expect(clippy::too_many_lines)]
     pub fn add_effect(&self, effect: Effect) {
+        self.add_effect_with_source(effect, None);
+    }
+
+    #[expect(clippy::too_many_lines)]
+    pub fn add_effect_with_source(&self, effect: Effect, source: Option<&dyn EntityBase>) {
         if !self.can_be_affected(&effect) {
             return;
         }
@@ -1604,9 +1624,7 @@ impl LivingEntity {
                 effect.amplifier,
             );
         if let Some(server) = self.entity.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut effect_event);
+            effect_event = server.plugin_manager.fire_blocking(&server, effect_event);
         }
         if effect_event.cancelled {
             return;
@@ -1726,8 +1744,16 @@ impl LivingEntity {
                 let category = self.entity.entity_type.sound_source;
                 world.play_sound_fine(sound, category, &self.entity.pos.load(), 1.0, 1.0);
             }
+            self.trigger_effects_changed(source);
         }
         self.sync_effect_particles();
+    }
+
+    fn trigger_effects_changed(&self, source: Option<&dyn EntityBase>) {
+        let world = self.entity.world.load();
+        if let Some(player) = world.get_player_by_id(self.entity.entity_id) {
+            player.trigger_effects_changed(source);
+        }
     }
 
     fn sync_effect_particles(&self) {
@@ -1825,6 +1851,7 @@ impl LivingEntity {
 
         if succeeded {
             self.sync_effect_particles();
+            self.trigger_effects_changed(None);
         }
 
         succeeded
@@ -2039,7 +2066,9 @@ impl LivingEntity {
 
                 let mut velo = self.entity.velocity.load();
 
-                velo.y += 0.04;
+                velo.y += caller
+                    .get_mob()
+                    .map_or(0.04, crate::entity::mob::Mob::fluid_jump_velocity);
 
                 self.entity.velocity.store(velo);
             } else if (on_ground || in_water && fluid_height <= swim_height)
@@ -2076,6 +2105,10 @@ impl LivingEntity {
         }
 
         self.push_entities(caller);
+
+        if caller.is_sensitive_to_water() && self.entity.is_in_water_or_rain() {
+            caller.damage(caller, 1.0, DamageType::DROWN);
+        }
 
         if let Some(ageable) = caller.get_mob().and_then(|mob| mob.as_ageable())
             && self.entity.is_alive()
@@ -2576,7 +2609,7 @@ impl LivingEntity {
         }
     }
 
-    fn jump_from_ground(&self, multiplier: f32) {
+    pub(crate) fn jump_from_ground(&self, multiplier: f32) {
         let jump = self.get_jump_velocity(f64::from(multiplier));
 
         if jump <= 1.0e-5 {
@@ -3076,7 +3109,7 @@ impl LivingEntity {
                             final_death_message.clone(),
                             0,
                         );
-                    server.plugin_manager.fire_blocking(&server, &mut event);
+                    event = server.plugin_manager.fire_blocking(&server, event);
                     if event.cancelled {
                         return;
                     }
@@ -3275,9 +3308,9 @@ impl LivingEntity {
                     self.entity.entity_id,
                 );
             if let Some(server) = self.entity.world.load().server.upgrade() {
-                server
+                resurrect_event = server
                     .plugin_manager
-                    .fire_blocking(&server, &mut resurrect_event);
+                    .fire_blocking(&server, resurrect_event);
             }
             if resurrect_event.cancelled {
                 return false;
@@ -3517,19 +3550,14 @@ impl LivingEntity {
         damage_blocked
     }
 
-    pub fn do_hurt_equipment(
-        &self,
-        caller: &dyn EntityBase,
-        damage_type: DamageType,
-        damage: f32,
-        slots: &[EquipmentSlot],
-    ) {
+    pub fn do_hurt_equipment(&self, damage_type: DamageType, damage: f32, slots: &[EquipmentSlot]) {
         if damage <= 0.0 {
             return;
         }
         let durability_damage = (damage / 4.0).max(1.0) as i32;
+        let world = self.entity.world.load();
         for slot in slots {
-            let mut stack = self
+            let stack = self
                 .entity_equipment
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -3540,27 +3568,45 @@ impl LivingEntity {
             if !damage_on_hurt || !stack.is_damageable() || !stack.can_be_hurt_by(damage_type) {
                 continue;
             }
-            if let Some(player) = caller.get_player() {
-                player.damage_item_in_slot(slot, durability_damage);
-                continue;
-            }
-            let result = stack.damage_item(durability_damage);
-            if result == DamageResult::Untouched {
-                continue;
-            }
-            self.entity_equipment
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .put(slot, stack.clone());
-            self.send_equipment_changes(&[(slot.clone(), stack)]);
-            if result == DamageResult::Broken {
-                self.entity.world.load().send_entity_status(
-                    &self.entity,
-                    super::equipment_break_status(slot),
-                    ActorEventID::None,
-                );
-            }
+            self.damage_equipped_item(&world, slot, durability_damage);
         }
+    }
+
+    /// Damages the item currently equipped in `slot`, or returns false when nothing changed.
+    pub fn damage_equipped_item(
+        &self,
+        world: &crate::world::World,
+        slot: &EquipmentSlot,
+        amount: i32,
+    ) -> bool {
+        if amount <= 0 {
+            return false;
+        }
+        if let Some(player) = world.get_player_by_id(self.entity.entity_id) {
+            return player.damage_item_in_slot(slot, amount);
+        }
+        let mut stack = self
+            .entity_equipment
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(slot);
+        let result = stack.damage_item(amount);
+        if result == DamageResult::Untouched {
+            return false;
+        }
+        self.entity_equipment
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .put(slot, stack.clone());
+        self.send_equipment_changes(&[(slot.clone(), stack)]);
+        if result == DamageResult::Broken {
+            world.send_entity_status(
+                &self.entity,
+                super::equipment_break_status(slot),
+                ActorEventID::None,
+            );
+        }
+        true
     }
 
     pub fn held_item(&self, caller: &dyn EntityBase) -> ItemStack {
@@ -3983,7 +4029,6 @@ impl LivingEntity {
         }
 
         self.do_hurt_equipment(
-            caller,
             *damage_type,
             damage,
             caller.hurt_gear_slots(GearDamage::Armor),
@@ -4118,9 +4163,7 @@ impl LivingEntity {
                 source.map(|entity| entity.get_entity().entity_id),
             );
         if let Some(server) = self.entity.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut damage_event);
+            damage_event = server.plugin_manager.fire_blocking(&server, damage_event);
         }
         if damage_event.cancelled {
             return false;
@@ -4137,9 +4180,9 @@ impl LivingEntity {
                     cancelled: false,
                 };
             if let Some(server) = self.entity.world.load().server.upgrade() {
-                server
+                by_entity_event = server
                     .plugin_manager
-                    .fire_blocking(&server, &mut by_entity_event);
+                    .fire_blocking(&server, by_entity_event);
             }
             if by_entity_event.cancelled {
                 return false;
@@ -4171,9 +4214,7 @@ impl LivingEntity {
                     cancelled: false,
                 };
             if let Some(server) = self.entity.world.load().server.upgrade() {
-                server
-                    .plugin_manager
-                    .fire_blocking(&server, &mut by_block_event);
+                by_block_event = server.plugin_manager.fire_blocking(&server, by_block_event);
             }
             if by_block_event.cancelled {
                 return false;
@@ -4244,7 +4285,6 @@ impl LivingEntity {
                 .is_empty()
         {
             self.do_hurt_equipment(
-                caller,
                 damage_type,
                 amount,
                 caller.hurt_gear_slots(GearDamage::Helmet),
@@ -4268,42 +4308,6 @@ impl LivingEntity {
         };
         self.last_damage_taken.store(amount);
 
-        // Vanilla `actuallyHurt`: armor, then enchantments and effects
-        let damage_after_armor =
-            self.get_damage_after_armor_absorb(caller, incoming, &damage_type, cause.or(source));
-        let mut effective_amount = self.get_damage_after_magic_absorb(
-            damage_after_armor,
-            &damage_type,
-            caller,
-            cause.or(source),
-        );
-        if let Some(server) = world.server.upgrade()
-            && server
-                .plugin_manager
-                .has_handlers::<crate::plugin::api::events::entity::EntityDamageFinalEvent>()
-        {
-            let absorption = self.absorption.load();
-            let mut event = crate::plugin::api::events::entity::EntityDamageFinalEvent {
-                hit: crate::plugin::api::events::entity::EntityDamageEvent::new(
-                    self.entity.entity_id,
-                    damage_type,
-                    effective_amount,
-                )
-                .with_source(
-                    damage_event.causing_entity_id,
-                    damage_event.direct_entity_id,
-                ),
-                lethal: effective_amount >= self.health.load() + absorption,
-                absorption,
-            };
-            server.plugin_manager.fire_blocking(&server, &mut event);
-            if event.hit.damage.is_finite() {
-                effective_amount = event.hit.damage.max(0.0);
-            }
-        }
-        let play_sound = took_full_damage && self.health.load() > effective_amount;
-        let damage_amount = effective_amount.max(0.0);
-
         // Record the source once the hit is confirmed.
         *self
             .last_damage_type
@@ -4320,6 +4324,15 @@ impl LivingEntity {
         let Some(server) = world.server.upgrade() else {
             return false;
         };
+
+        // Vanilla `actuallyHurt`: armor, absorption and health come before the hurt animation,
+        // the sound and the knockback.
+        match caller.get_mob() {
+            Some(mob) => mob.actually_hurt(caller, damage_type, source, cause, incoming),
+            None => self.actually_hurt(caller, damage_type, source, cause, incoming),
+        }
+        let play_sound = took_full_damage && self.health.load() > 0.0;
+
         if let Some(attacker) = cause.or(source)
             && let Some(living) = attacker.get_living_entity()
         {
@@ -4398,10 +4411,87 @@ impl LivingEntity {
             }
         }
 
-        // Vanilla parity: actuallyHurt
+        if self.health.load() <= 0.0 && !self.check_totem_death_protection(caller, &damage_type) {
+            if let Some(player) = caller.get_player() {
+                player.set_health(0.0);
+            } else {
+                self.set_health(0.0);
+            }
+            let death_event =
+                crate::plugin::api::events::entity::entity_death::EntityDeathEvent::new(
+                    self.entity.entity_id,
+                    0,
+                );
+            if let Some(server) = world.server.upgrade() {
+                server.plugin_manager.fire_blocking(&server, death_event);
+            }
+            self.on_death(damage_type, source, cause);
+        }
+
+        if let Some(attacker_player) = cause.or(source).and_then(EntityBase::get_player) {
+            attacker_player.trigger_advancement(
+                crate::entity::player::advancement::trigger::AdvancementTrigger::PlayerHurtEntity {
+                    is_blocked: was_blocked,
+                    is_projectile: damage_type.has_tag(&tag::DamageType::MINECRAFT_IS_PROJECTILE),
+                    is_mace_smash: damage_type.has_tag(&tag::DamageType::MINECRAFT_MACE_SMASH),
+                    damage: f64::from(amount),
+                    direct_entity_type: source
+                        .map(|s| s.get_entity().entity_type.resource_name.to_string()),
+                },
+            );
+        }
+
+        true
+    }
+
+    /// Vanilla `LivingEntity.actuallyHurt`: armor, enchantments and effects, then absorption and
+    /// health. A mob that overrides it through `Mob::actually_hurt` calls this first.
+    pub(crate) fn actually_hurt(
+        &self,
+        caller: &dyn EntityBase,
+        damage_type: DamageType,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
+        damage: f32,
+    ) {
+        let world = self.entity.world.load();
+        let damage_after_armor =
+            self.get_damage_after_armor_absorb(caller, damage, &damage_type, cause.or(source));
+        let mut effective_amount = self.get_damage_after_magic_absorb(
+            damage_after_armor,
+            &damage_type,
+            caller,
+            cause.or(source),
+        );
+        if let Some(server) = world.server.upgrade()
+            && server
+                .plugin_manager
+                .has_handlers::<crate::plugin::api::events::entity::EntityDamageFinalEvent>()
+        {
+            let absorption = self.absorption.load();
+            let event = crate::plugin::api::events::entity::EntityDamageFinalEvent {
+                hit: crate::plugin::api::events::entity::EntityDamageEvent::new(
+                    self.entity.entity_id,
+                    damage_type,
+                    effective_amount,
+                )
+                .with_source(
+                    cause.map(|entity| entity.get_entity().entity_id),
+                    source.map(|entity| entity.get_entity().entity_id),
+                ),
+                lethal: effective_amount >= self.health.load() + absorption,
+                absorption,
+            };
+            let event = server.plugin_manager.fire_blocking(&server, event);
+            if event.hit.damage.is_finite() {
+                effective_amount = event.hit.damage.max(0.0);
+            }
+        }
+        let damage_amount = effective_amount.max(0.0);
+        let dmg_to_health = (damage_amount - self.absorption.load()).max(0.0);
+
         let original_damage = damage_amount;
         let current_abs = self.absorption.load();
-        let dmg_to_health = (original_damage - current_abs).max(0.0);
         let absorbed_damage = original_damage - dmg_to_health;
 
         if absorbed_damage > 0.0 {
@@ -4483,40 +4573,6 @@ impl LivingEntity {
                 );
             }
         }
-
-        if new_health <= 0.0 && !self.check_totem_death_protection(caller, &damage_type) {
-            if let Some(player) = caller.get_player() {
-                player.set_health(0.0);
-            } else {
-                self.set_health(0.0);
-            }
-            let mut death_event =
-                crate::plugin::api::events::entity::entity_death::EntityDeathEvent::new(
-                    self.entity.entity_id,
-                    0,
-                );
-            if let Some(server) = world.server.upgrade() {
-                server
-                    .plugin_manager
-                    .fire_blocking(&server, &mut death_event);
-            }
-            self.on_death(damage_type, source, cause);
-        }
-
-        if let Some(attacker_player) = cause.or(source).and_then(EntityBase::get_player) {
-            attacker_player.trigger_advancement(
-                crate::entity::player::advancement::trigger::AdvancementTrigger::PlayerHurtEntity {
-                    is_blocked: was_blocked,
-                    is_projectile: damage_type.has_tag(&tag::DamageType::MINECRAFT_IS_PROJECTILE),
-                    is_mace_smash: damage_type.has_tag(&tag::DamageType::MINECRAFT_MACE_SMASH),
-                    damage: f64::from(amount),
-                    direct_entity_type: source
-                        .map(|s| s.get_entity().entity_type.resource_name.to_string()),
-                },
-            );
-        }
-
-        true
     }
 
     pub fn damage(&self, caller: &dyn EntityBase, amount: f32, damage_type: DamageType) -> bool {
@@ -4615,7 +4671,14 @@ impl EntityBase for LivingEntity {
             mob.tick_ambient_sound();
             mob.base_tick();
         }
-        self.tick_arrow_count();
+        let arrow_count = self.get_arrow_count();
+        if Self::tick_stuck_count(arrow_count, &self.remove_arrow_time) {
+            self.set_arrow_count(arrow_count - 1);
+        }
+        let stinger_count = self.get_stinger_count();
+        if Self::tick_stuck_count(stinger_count, &self.remove_stinger_time) {
+            self.set_stinger_count(stinger_count - 1);
+        }
 
         // Only tick movement if the entity is alive. This prevents a dead "corpse"
         // from continuing to be simulated (accumulating fall_distance/velocity).
@@ -4825,6 +4888,7 @@ impl EntityBase for LivingEntity {
                         effects,
                         1.0,
                         crate::item::potion::PotionApplicationSource::Normal,
+                        None,
                         None,
                     );
                 }
@@ -5210,7 +5274,7 @@ impl LivingEntity {
         }
         let bounding_box = BoundingBox::new_from_pos(x, y, z, &entity.entity_dimension.load());
         if !world.is_space_empty(bounding_box)
-            || !world.no_entity_collision(caller, bounding_box)
+            || !world.no_entity_collision(Some(caller), bounding_box)
             || world.contains_any_liquid(bounding_box)
             || BlockPos::iterate(bounding_box.min_block_pos(), bounding_box.max_block_pos())
                 .any(|pos| is_invalid(world.get_block(&pos)))
@@ -5232,7 +5296,7 @@ impl LivingEntity {
                     entity.pos.load(),
                     new_pos,
                 );
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return false;
             }
@@ -5681,6 +5745,48 @@ mod ai_step_tests {
         fn is_mob_immobile(&self) -> bool {
             self.immobile || self.mob.living_entity.is_dead_or_dying()
         }
+    }
+
+    #[tokio::test]
+    async fn water_sensitive_mobs_take_damage_in_the_shared_ai_step() -> TestResult {
+        struct SensitiveMob(MobEntity);
+        impl Mob for SensitiveMob {
+            fn get_mob_entity(&self) -> &MobEntity {
+                &self.0
+            }
+            fn is_sensitive_to_water(&self) -> bool {
+                true
+            }
+        }
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        world.level.loaded_chunks.insert(
+            pumpkin_util::math::vector2::Vector2::new(0, 0),
+            pumpkin_world::chunk::ChunkData::empty_sync(0, 0),
+        );
+        for y in 63..=65 {
+            world.set_block_state(
+                &BlockPos::new(0, y, 0),
+                pumpkin_data::Block::WATER.default_state.id,
+                pumpkin_world::world::BlockFlags::SKIP_BLOCK_ADDED_CALLBACK
+                    | pumpkin_world::world::BlockFlags::UPDATE_KNOWN_SHAPE,
+            );
+        }
+        let mob = SensitiveMob(MobEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(0.5, 64.0, 0.5),
+            &EntityType::COW,
+        )));
+        let living = &mob.0.living_entity;
+        living.entity.touching_water.store(true, Ordering::Relaxed);
+        living.tick_movement(&mob);
+        assert_eq!(living.last_damage_taken.load(), 1.0);
+        assert_eq!(
+            living.get_last_damage_source().map(|(kind, _)| kind),
+            Some(pumpkin_data::damage::DamageType::DROWN)
+        );
+        world.level.shutdown().await;
+        Ok(())
     }
 
     #[derive(Default)]

@@ -103,6 +103,7 @@ pub mod passive;
 pub mod player;
 pub mod projectile;
 pub mod projectile_deflection;
+pub mod shearable;
 pub mod spawn_util;
 pub mod synched_entity_data;
 pub mod tnt;
@@ -166,6 +167,14 @@ pub enum GearDamage {
 
 /// Returns the [`EntityStatus`] that should be broadcast when the given
 /// equipment slot breaks.
+#[must_use]
+pub const fn hand_equipment_slot(hand: pumpkin_util::Hand) -> EquipmentSlot {
+    match hand {
+        pumpkin_util::Hand::Right => EquipmentSlot::MAIN_HAND,
+        pumpkin_util::Hand::Left => EquipmentSlot::OFF_HAND,
+    }
+}
+
 #[must_use]
 pub const fn equipment_break_status(slot: &EquipmentSlot) -> EntityStatus {
     match slot {
@@ -567,6 +576,14 @@ pub trait EntityBase: Send + Sync + std::any::Any {
         false
     }
 
+    fn leash_snap_distance(&self) -> f64 {
+        Entity::LEASH_SNAP_DISTANCE
+    }
+
+    fn leash_elastic_distance(&self) -> f64 {
+        Entity::LEASH_ELASTIC_DISTANCE
+    }
+
     fn is_spectator(&self) -> bool {
         false
     }
@@ -586,10 +603,14 @@ pub trait EntityBase: Send + Sync + std::any::Any {
             .is_some_and(|living| !self.is_spectator() && living.is_alive())
     }
 
-    fn can_be_seen_as_enemy(&self) -> bool {
+    fn is_visible_and_vulnerable(&self) -> bool {
         self.get_living_entity()
             .is_some_and(|living| !living.entity.invulnerable.load(Ordering::Relaxed))
             && self.can_be_seen_by_anyone()
+    }
+
+    fn can_be_seen_as_enemy(&self) -> bool {
+        self.is_visible_and_vulnerable()
     }
 
     fn is_stepping_carefully(&self) -> bool {
@@ -968,11 +989,11 @@ pub trait EntityBase: Send + Sync + std::any::Any {
 
     fn interact_with_hand(
         &self,
-        _player: &Arc<Player>,
-        _item_stack: &mut ItemStack,
-        _hand: pumpkin_util::Hand,
+        player: &Arc<Player>,
+        item_stack: &mut ItemStack,
+        hand: pumpkin_util::Hand,
     ) -> Option<bool> {
-        None
+        interact_with_shears(self, player, item_stack, hand)
     }
 
     fn set_on_fire_for(&self, seconds: f32) {
@@ -990,7 +1011,7 @@ pub trait EntityBase: Send + Sync + std::any::Any {
             ticks as f32 / 20.0,
         );
         if let Some(server) = entity.world.load().server.upgrade() {
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return;
             }
@@ -1396,6 +1417,38 @@ const SHARED_QUAD_ATTACHMENT_POINTS: [Vector3<f64>; 4] = [
     Vector3::new(0.5, 0.5, 0.5),
 ];
 
+const LEASHABLE_SCAN_SIZE: f64 = 32.0;
+
+pub fn can_have_a_leash_attached_to(leashee: &dyn EntityBase, holder: &dyn EntityBase) -> bool {
+    let entity = leashee.get_entity();
+    let holder = holder.get_entity();
+    entity.entity_id != holder.entity_id
+        && entity.leash_distance_to(holder) <= leashee.leash_snap_distance()
+        && leashee.get_mob().is_none_or(mob::Mob::can_be_leashed)
+}
+
+pub fn leashable_in_area(
+    world: &World,
+    center: Vector3<f64>,
+    holder_id: i32,
+) -> Vec<Arc<dyn EntityBase>> {
+    let half = Vector3::new(
+        LEASHABLE_SCAN_SIZE / 2.0,
+        LEASHABLE_SCAN_SIZE / 2.0,
+        LEASHABLE_SCAN_SIZE / 2.0,
+    );
+    world
+        .get_entities_at_box(&BoundingBox::new(center - half, center + half))
+        .into_iter()
+        .filter(|other| {
+            other
+                .get_entity()
+                .get_leash_holder()
+                .is_some_and(|holder| holder.get_entity().entity_id == holder_id)
+        })
+        .collect()
+}
+
 /// Rotates `vector` around the Y axis.
 fn y_rot(vector: Vector3<f64>, angle: f32) -> Vector3<f64> {
     let cos = f64::from(angle.cos());
@@ -1408,7 +1461,7 @@ fn y_rot(vector: Vector3<f64>, angle: f32) -> Vector3<f64> {
 }
 
 /// Attachment points for the entity's current pose and age, and the scale they grow with.
-fn attachments_of(entity: &dyn EntityBase) -> (&'static EntityAttachments, f64) {
+fn attachments_of(entity: &(impl EntityBase + ?Sized)) -> (&'static EntityAttachments, f64) {
     let base = entity.get_entity();
     let entity_type = base.entity_type;
     let living = entity.get_living_entity();
@@ -1425,6 +1478,17 @@ fn attachments_of(entity: &dyn EntityBase) -> (&'static EntityAttachments, f64) 
 pub(crate) fn attachment_point(point: [f64; 3], scale: f64, yaw: f32) -> Vector3<f64> {
     let [x, y, z] = point;
     y_rot(Vector3::new(x, y, z) * scale, -yaw.to_radians())
+}
+
+pub(crate) fn average_passenger_attachment(entity: &(impl EntityBase + ?Sized)) -> Vector3<f64> {
+    let (attachments, scale) = attachments_of(entity);
+    let points = attachments.passenger;
+    if points.is_empty() {
+        return Vector3::default();
+    }
+    points.iter().fold(Vector3::default(), |sum, point| {
+        sum + Vector3::new(point[0], point[1], point[2])
+    }) * (scale / points.len() as f64)
 }
 
 pub fn default_passenger_attachment_point(
@@ -1651,6 +1715,7 @@ pub struct Entity {
     pub delayed_leash: std::sync::Mutex<Option<DelayedLeash>>,
     /// Spin a taut leash gives the leashed entity, applied to its yaw each tick.
     leash_angular_momentum: AtomicCell<f64>,
+    leash_release_cancelled: AtomicBool,
     /// Cooldown before entity can mount again after dismounting
     pub riding_cooldown: AtomicI32,
     /// Vanilla `moveDist`, `flyDist` and `nextStep`, which pace step sounds and movement game events.
@@ -1947,6 +2012,7 @@ impl Entity {
             leashed_to: std::sync::Mutex::new(None),
             delayed_leash: std::sync::Mutex::new(None),
             leash_angular_momentum: AtomicCell::new(0.0),
+            leash_release_cancelled: AtomicBool::new(false),
 
             riding_cooldown: AtomicI32::new(0),
             move_dist: AtomicCell::new(0.0),
@@ -2257,7 +2323,7 @@ impl Entity {
                     self.entity_id,
                     air,
                 );
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             if event.cancelled {
                 return;
             }
@@ -2832,7 +2898,7 @@ impl Entity {
                 knockback,
                 cancelled: false,
             };
-        server.plugin_manager.fire_blocking(&server, &mut event);
+        event = server.plugin_manager.fire_blocking(&server, event);
         let mut knockback = event.knockback;
         let mut cancelled = event.cancelled;
         if let Some(attacker) = attacker {
@@ -2845,7 +2911,7 @@ impl Entity {
                 knockback.z,
             );
             event.cancelled = cancelled;
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             knockback = Vector3::new(event.x, event.y, event.z);
             cancelled = event.cancelled;
         }
@@ -3111,16 +3177,14 @@ impl Entity {
 
                         if surface_y >= bounding_box.min.y {
                             let marginal_height = surface_y - entity_box.min.y;
-                            let i = usize::from(
-                                fluid.id == Fluid::FLOWING_LAVA.id || fluid.id == Fluid::LAVA.id,
-                            );
+                            let i = usize::from(fluid.matches_type(&Fluid::LAVA));
 
                             fluid_height[i] = fluid_height[i].max(marginal_height);
 
                             in_fluid[i] = true;
 
                             if !is_pushed {
-                                fluids.insert(fluid.id, fluid);
+                                fluids.insert(fluid.to_flowing().id, fluid.to_flowing());
 
                                 continue;
                             }
@@ -3135,7 +3199,7 @@ impl Entity {
 
                             fluid_n[i] += 1;
 
-                            fluids.insert(fluid.id, fluid);
+                            fluids.insert(fluid.to_flowing().id, fluid.to_flowing());
                         }
                     }
                 }
@@ -3800,9 +3864,7 @@ impl Entity {
                 pos,
             );
         if let Some(server) = self.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut portal_event);
+            portal_event = server.plugin_manager.fire_blocking(&server, portal_event);
         }
         if portal_event.cancelled {
             return;
@@ -4158,7 +4220,7 @@ impl Entity {
                     swimming,
                 );
             if let Some(server) = self.world.load().server.upgrade() {
-                server.plugin_manager.fire_blocking(&server, &mut event);
+                event = server.plugin_manager.fire_blocking(&server, event);
             }
             if event.cancelled {
                 return;
@@ -4434,7 +4496,7 @@ impl Entity {
                 .get_player()
                 .and_then(|p| match p.client.as_ref() {
                     ClientPlatform::Bedrock(client) => Some(client),
-                    ClientPlatform::Java(_) => None,
+                    ClientPlatform::Java(_) | ClientPlatform::SimulatedPlayer(_) => None,
                 });
             if !tracked.has_bedrock_watchers() && self_bedrock.is_none() {
                 return;
@@ -4599,9 +4661,7 @@ impl Entity {
                 (pose as u8).to_string(),
             );
         if let Some(server) = self.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut pose_event);
+            pose_event = server.plugin_manager.fire_blocking(&server, pose_event);
             if pose_event.cancelled {
                 return;
             }
@@ -4948,11 +5008,7 @@ impl Entity {
     )]
     /// Returns false if a plugin cancelled the leash event.
     pub fn leash_to(&self, holder: Arc<dyn EntityBase>) -> bool {
-        let allowed = self.fire_leash_event(&holder);
-        if allowed {
-            self.attach_leash(&holder);
-        }
-        allowed
+        self.fire_leash_event(&holder) && self.attach_leash(&holder)
     }
 
     /// Moves the leash to `holder` only while `expected_holder_id` still holds it. The check and
@@ -4977,7 +5033,7 @@ impl Entity {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-        if !held || !self.fire_leash_event(holder) {
+        if !held || !self.fire_leash_event(holder) || !self.leave_vehicle_for_leash() {
             return false;
         }
         let mut leashed_to = self
@@ -4985,6 +5041,26 @@ impl Entity {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !held_by(&leashed_to) {
+            return false;
+        }
+        let old_holder = leashed_to.replace(Arc::downgrade(holder));
+        drop(leashed_to);
+        self.send_leash_attached(holder);
+        if let Some(old_holder) = old_holder.as_ref().and_then(Weak::upgrade) {
+            old_holder.notify_leashee_removed();
+        }
+        true
+    }
+
+    pub(crate) fn attach_leash_if_free(&self, holder: &Arc<dyn EntityBase>) -> bool {
+        if !self.leave_vehicle_for_leash() {
+            return false;
+        }
+        let mut leashed_to = self
+            .leashed_to
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if leashed_to.is_some() {
             return false;
         }
         *leashed_to = Some(Arc::downgrade(holder));
@@ -4995,7 +5071,7 @@ impl Entity {
 
     /// Fires `PlayerLeashEntityEvent` when a player becomes the holder. Returns false if a plugin
     /// cancelled it.
-    fn fire_leash_event(&self, holder: &Arc<dyn EntityBase>) -> bool {
+    pub(crate) fn fire_leash_event(&self, holder: &Arc<dyn EntityBase>) -> bool {
         let world = self.world.load();
         if let Some(server) = world.server.upgrade()
             && let Some(player) = holder.get_player()
@@ -5008,25 +5084,47 @@ impl Entity {
                     holder_id: holder.get_entity().entity_id,
                     cancelled: false,
                 };
-            server.plugin_manager.fire_blocking(&server, &mut event);
+            event = server.plugin_manager.fire_blocking(&server, event);
             return !event.cancelled;
         }
         true
     }
 
-    pub fn attach_leash(&self, holder: &Arc<dyn EntityBase>) {
-        *self
+    pub fn attach_leash(&self, holder: &Arc<dyn EntityBase>) -> bool {
+        if !self.leave_vehicle_for_leash() {
+            return false;
+        }
+        let old_holder = self
             .leashed_to
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::downgrade(holder));
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(Arc::downgrade(holder));
         self.send_leash_attached(holder);
+        if let Some(old_holder) = old_holder.as_ref().and_then(Weak::upgrade)
+            && old_holder.get_entity().entity_id != holder.get_entity().entity_id
+        {
+            old_holder.notify_leashee_removed();
+        }
+        true
+    }
+
+    fn leave_vehicle_for_leash(&self) -> bool {
+        if let Some(vehicle) = self.get_vehicle() {
+            vehicle.get_entity().remove_passenger(self.entity_id);
+        }
+        self.get_vehicle().is_none()
+    }
+
+    /// Vanilla `Entity.resetAngularLeashMomentum`.
+    pub(crate) fn reset_angular_leash_momentum(&self) {
+        self.leash_angular_momentum.store(0.0);
     }
 
     /// Resets the leash motion and tells clients about the new holder. Call it without holding
     /// `leashed_to`: sending the packet runs plugin handlers that may lock it again.
     fn send_leash_attached(&self, holder: &Arc<dyn EntityBase>) {
         let holder_entity_id = holder.get_entity().entity_id;
-        self.leash_angular_momentum.store(0.0);
+        self.reset_angular_leash_momentum();
         *self
             .delayed_leash
             .lock()
@@ -5055,6 +5153,7 @@ impl Entity {
             tick: VarULong(0),
         };
 
+        self.leash_release_cancelled.store(false, Ordering::Relaxed);
         self.world.load().broadcast_to_chunk_editioned(
             self.chunk_pos.load(),
             &je_packet,
@@ -5062,90 +5161,227 @@ impl Entity {
         );
     }
 
-    pub fn unleash(&self) {
-        let world = self.world.load();
-        if let Some(server) = world.server.upgrade() {
-            let mut event =
-                crate::plugin::api::events::entity::entity_unleash::EntityUnleashEvent::new(
-                    self.entity_id,
-                    "unleashed".to_string(),
-                );
-            server.plugin_manager.fire_blocking(&server, &mut event);
-            if event.cancelled {
-                return;
-            }
-        }
+    /// Removes the leash unless plugins cancel, returning whether this call removed it.
+    pub fn unleash(&self) -> bool {
+        self.unleash_held_by(None)
+    }
 
-        let old_holder = self
-            .leashed_to
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        let Some(old_holder) = old_holder else {
-            return;
+    fn unleash_held_by(&self, held_by: Option<i32>) -> bool {
+        let Some(holder) = self.get_leash_holder() else {
+            return false;
         };
-        self.send_leash_removed();
+        let holder_id = holder.get_entity().entity_id;
+        if held_by.is_some_and(|expected| expected != holder_id) {
+            return false;
+        }
+        self.fire_unleash_events(Some(&holder)) && self.take_leash(Some(holder_id))
+    }
 
-        let holder = old_holder.upgrade();
-        if let Some(holder) = &holder
-            && let Some(server) = world.server.upgrade()
-            && let Some(player) = holder.get_player()
+    fn fire_unleash_events(&self, holder: Option<&Arc<dyn EntityBase>>) -> bool {
+        let world = self.world.load();
+        let Some(server) = world.server.upgrade() else {
+            return true;
+        };
+        let mut event = crate::plugin::api::events::entity::entity_unleash::EntityUnleashEvent::new(
+            self.entity_id,
+            "unleashed".to_string(),
+        );
+        event = server.plugin_manager.fire_blocking(&server, event);
+        if event.cancelled {
+            return false;
+        }
+        if let Some(player) = holder.and_then(|holder| holder.get_player())
             && let Some(player_arc) = world.get_player_by_uuid(player.gameprofile.id)
         {
-            let mut event = crate::plugin::api::events::player::player_unleash_entity::PlayerUnleashEntityEvent {
+            let event = crate::plugin::api::events::player::player_unleash_entity::PlayerUnleashEntityEvent {
                 player: player_arc,
                 entity_id: self.entity_id,
                 cancelled: false,
             };
-            server.plugin_manager.fire_blocking(&server, &mut event);
-        }
-        if let Some(holder) = holder {
-            holder.notify_leashee_removed();
-        }
-    }
-
-    pub fn remove_leash(&self) {
-        let old_holder = self
-            .leashed_to
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        if let Some(old_holder) = old_holder {
-            self.send_leash_removed();
-            if let Some(holder) = old_holder.upgrade() {
-                holder.notify_leashee_removed();
+            let event = server.plugin_manager.fire_blocking(&server, event);
+            if event.cancelled {
+                return false;
             }
         }
+        true
     }
 
-    pub fn drop_leash(&self) -> bool {
-        if !self.is_leashed() {
+    fn release_leash_on_tick(&self, holder: Option<&Arc<dyn EntityBase>>, drop_lead: bool) {
+        if self.leash_release_cancelled.load(Ordering::Relaxed) {
+            return;
+        }
+        if !self.fire_unleash_events(holder) {
+            self.leash_release_cancelled.store(true, Ordering::Relaxed);
+            return;
+        }
+        let released = holder.map_or_else(
+            || self.take_expired_leash(),
+            |holder| self.take_leash(Some(holder.get_entity().entity_id)),
+        );
+        if released && drop_lead {
+            self.spawn_at_location(ItemStack::new(1, &pumpkin_data::item::Item::LEAD));
+        }
+    }
+
+    /// Cuts leash connections, returning `None` when there are none to cut.
+    /// `Some(false)` means no cut succeeded; callers must not fall through to shearing.
+    pub fn shear_off_all_leash_connections(
+        &self,
+        caller: &(impl EntityBase + ?Sized),
+        player: Option<&Arc<Player>>,
+    ) -> Option<bool> {
+        let world = self.world.load();
+        let area = BoundingBox::of_size(self.bounding_box.load().get_center(), 32.0, 32.0, 32.0);
+        let connections = world
+            .get_entities_at_box(&area)
+            .into_iter()
+            .filter(|entity| {
+                entity
+                    .get_entity()
+                    .get_leash_holder()
+                    .is_some_and(|holder| holder.get_entity().entity_id == self.entity_id)
+            })
+            .collect::<Vec<_>>();
+        if self.get_leash_holder().is_none() && connections.is_empty() {
+            return None;
+        }
+        let mut dropped = self.drop_leash_from_shearing(player, None);
+        for entity in connections {
+            dropped |= entity
+                .get_entity()
+                .drop_leash_from_shearing(player, Some(self.entity_id));
+        }
+        if dropped {
+            world.emit_game_event_with_context(
+                GameEvent::Shear.name(),
+                self.pos.load(),
+                &crate::world::game_event::GameEventContext {
+                    source_entity: player.map(|player| player.as_ref() as &dyn EntityBase),
+                },
+            );
+            world.play_sound(
+                Sound::ItemShearsSnip,
+                player.map_or_else(|| caller.sound_source(), |player| player.sound_source()),
+                &self.block_pos.load().to_centered_f64(),
+            );
+        }
+        Some(dropped)
+    }
+
+    fn drop_leash_from_shearing(&self, player: Option<&Arc<Player>>, held_by: Option<i32>) -> bool {
+        let Some(holder) = self.get_leash_holder() else {
+            return false;
+        };
+        if held_by.is_some_and(|holder_id| holder.get_entity().entity_id != holder_id) {
             return false;
         }
-        self.unleash();
-        if self.is_leashed() {
+        if let Some(server) = self.world.load().server.upgrade() {
+            let event = crate::plugin::api::events::entity::entity_unleash::EntityUnleashEvent::new(
+                self.entity_id,
+                "unleashed".to_string(),
+            );
+            let event = server.plugin_manager.fire_blocking(&server, event);
+            if event.cancelled {
+                return false;
+            }
+            if let Some(player) = player {
+                let event = crate::plugin::api::events::player::player_unleash_entity::PlayerUnleashEntityEvent {
+                    player: player.clone(),
+                    entity_id: self.entity_id,
+                    cancelled: false,
+                };
+                let event = server.plugin_manager.fire_blocking(&server, event);
+                if event.cancelled {
+                    return false;
+                }
+            }
+        }
+        if !self.take_leash(held_by) {
             return false;
         }
         self.spawn_at_location(ItemStack::new(1, &pumpkin_data::item::Item::LEAD));
         true
     }
 
+    /// Removes the leash, returning whether this call took the connection.
+    pub fn remove_leash(&self) -> bool {
+        self.take_leash(None)
+    }
+
+    fn take_leash(&self, held_by: Option<i32>) -> bool {
+        let mut leashed_to = self
+            .leashed_to
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(holder_id) = held_by
+            && leashed_to
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_none_or(|holder| holder.get_entity().entity_id != holder_id)
+        {
+            return false;
+        }
+        let old_holder = leashed_to.take();
+        drop(leashed_to);
+        if let Some(old_holder) = &old_holder {
+            self.send_leash_removed();
+            self.leash_release_cancelled.store(false, Ordering::Relaxed);
+            if let Some(holder) = old_holder.upgrade() {
+                holder.notify_leashee_removed();
+            }
+        }
+        old_holder.is_some()
+    }
+
+    pub fn drop_leash(&self) -> bool {
+        if !self.has_leash_data() {
+            return false;
+        }
+        let removed = if self.is_leashed() {
+            self.unleash()
+        } else {
+            self.fire_unleash_events(None) && self.take_expired_leash()
+        };
+        if !removed {
+            return false;
+        }
+        self.spawn_at_location(ItemStack::new(1, &pumpkin_data::item::Item::LEAD));
+        true
+    }
+
+    fn take_expired_leash(&self) -> bool {
+        let mut leashed_to = self
+            .leashed_to
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if leashed_to
+            .as_ref()
+            .is_none_or(|holder| holder.strong_count() > 0)
+        {
+            return false;
+        }
+        *leashed_to = None;
+        drop(leashed_to);
+        self.send_leash_removed();
+        self.leash_release_cancelled.store(false, Ordering::Relaxed);
+        true
+    }
+
+    pub fn has_leash_data(&self) -> bool {
+        self.leashed_to
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+    }
+
     /// Vanilla `Leashable.leashableLeashedTo`: entities in the 32 block box around this one
     /// that are leashed to it.
     pub fn leashable_leashed_to(&self) -> Vec<Arc<dyn EntityBase>> {
-        let center = self.bounding_box.load().get_center();
-        let half = Vector3::new(16.0, 16.0, 16.0);
-        self.world
-            .load()
-            .get_entities_at_box(&BoundingBox::new(center - half, center + half))
-            .into_iter()
-            .filter(|other| {
-                other
-                    .get_entity()
-                    .get_leash_holder()
-                    .is_some_and(|holder| holder.get_entity().entity_id == self.entity_id)
-            })
-            .collect()
+        leashable_in_area(
+            &self.world.load(),
+            self.bounding_box.load().get_center(),
+            self.entity_id,
+        )
     }
 
     pub fn drop_all_leash_connections(&self) -> bool {
@@ -5169,23 +5405,6 @@ impl Entity {
             world.emit_game_event(
                 pumpkin_data::game_event::GameEvent::Shear.name(),
                 self.pos.load(),
-            );
-        }
-        dropped
-    }
-
-    pub fn shear_off_all_leash_connections(&self, by_player: bool) -> bool {
-        let dropped = self.drop_all_leash_connections();
-        if dropped {
-            let category = if by_player {
-                SoundCategory::Players
-            } else {
-                SoundCategory::Neutral
-            };
-            self.world.load().play_block_sound(
-                Sound::ItemShearsSnip,
-                category,
-                self.block_pos.load(),
             );
         }
         dropped
@@ -5293,25 +5512,30 @@ impl Entity {
             let Ok(guard) = self.leashed_to.try_lock() else {
                 return LeashTick::NotLeashed;
             };
-            guard.as_ref().and_then(Weak::upgrade)
+            let Some(holder) = guard.as_ref() else {
+                return LeashTick::NotLeashed;
+            };
+            holder.upgrade()
         };
-        let Some(holder) = holder else {
+
+        let world = self.world.load();
+        let stale_holder = holder.clone();
+        let Some(holder) = holder
+            .filter(|holder| caller.can_interact_with_level() && holder.can_interact_with_level())
+        else {
+            self.release_leash_on_tick(
+                stale_holder.as_ref(),
+                world.level_info.load().game_rules.entity_drops,
+            );
             return LeashTick::NotLeashed;
         };
         let holder_entity = holder.get_entity();
-
-        if !caller.can_interact_with_level() || !holder.can_interact_with_level() {
-            if self.world.load().level_info.load().game_rules.entity_drops {
-                self.drop_leash();
-            } else {
-                // Vanilla `removeLeash`; `unleash` also fires the unleash event like `drop_leash`.
-                self.unleash();
-            }
+        if !Arc::ptr_eq(&holder_entity.world.load(), &world) {
             return LeashTick::NotLeashed;
         }
 
         let distance = self.leash_distance_to(holder_entity);
-        if distance > Self::LEASH_SNAP_DISTANCE {
+        if distance > caller.leash_snap_distance() {
             let holder_pos = holder_entity.pos.load();
             self.world
                 .load()
@@ -5320,7 +5544,7 @@ impl Entity {
             self.drop_leash();
             return LeashTick::Snapped;
         }
-        let elastic_threshold = Self::LEASH_ELASTIC_DISTANCE
+        let elastic_threshold = caller.leash_elastic_distance()
             - f64::from(holder_entity.width())
             - f64::from(self.width());
         let result = if distance > elastic_threshold
@@ -5341,6 +5565,7 @@ impl Entity {
     /// Pulls the entity back with a damped spring on each attachment point beyond the slack.
     fn check_elastic_interactions(&self, caller: &dyn EntityBase, holder: &dyn EntityBase) -> bool {
         let quad_connection = holder.support_quad_leash_as_holder() && caller.support_quad_leash();
+        let slack_distance = caller.leash_elastic_distance();
         let (entity_points, holder_points): (&[Vector3<f64>], &[Vector3<f64>]) = if quad_connection
         {
             (
@@ -5391,11 +5616,11 @@ impl Entity {
                     -holder_yaw,
                 );
             let attach_distance = (holder_attach - entity_attach).length();
-            if attach_distance < Self::LEASH_ELASTIC_DISTANCE {
+            if attach_distance < slack_distance {
                 continue;
             }
-            let mut displacement = (holder_attach - entity_attach).normalize()
-                * (attach_distance - Self::LEASH_ELASTIC_DISTANCE);
+            let mut displacement =
+                (holder_attach - entity_attach).normalize() * (attach_distance - slack_distance);
             torque += lever_arm.z * displacement.x - lever_arm.x * displacement.z;
             if entity_movement.dot(&displacement) >= 0.0 {
                 displacement = displacement * f64::from(0.3f32);
@@ -5451,14 +5676,20 @@ impl Entity {
     }
 
     pub fn spawn_at_location(&self, stack: ItemStack) {
+        self.spawn_at_location_with_offset(stack, Vector3::default());
+    }
+
+    pub fn spawn_at_location_with_offset(&self, stack: ItemStack, offset: Vector3<f64>) {
         if stack.is_empty() {
             return;
         }
         let world = self.world.load();
-        let item_entity = ItemEntity::new(
-            Self::new(world.clone(), self.pos.load(), &EntityType::ITEM),
-            stack,
-        );
+        let pos = self.pos.load() + offset;
+        let entity = Self::new(world.clone(), pos, &EntityType::ITEM);
+        if !world.fire_item_spawn_event(&entity, &stack) {
+            return;
+        }
+        let item_entity = ItemEntity::new(entity, stack);
         world.spawn_entity(Arc::new(item_entity));
     }
 
@@ -5588,18 +5819,20 @@ impl Entity {
                 passenger.get_entity().entity_id,
             );
         if let Some(server) = self.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut mount_event);
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut vehicle_enter);
+            mount_event = server.plugin_manager.fire_blocking(&server, mount_event);
+            vehicle_enter = server.plugin_manager.fire_blocking(&server, vehicle_enter);
         }
         if mount_event.cancelled || vehicle_enter.cancelled {
             return;
         }
 
         let passenger_entity = passenger.get_entity();
+        if passenger.get_mob().is_some()
+            && passenger_entity.has_leash_data()
+            && !passenger_entity.drop_leash()
+        {
+            return;
+        }
         *passenger_entity
             .vehicle
             .lock()
@@ -5787,12 +6020,8 @@ impl Entity {
                 passenger_id,
             );
         if let Some(server) = self.world.load().server.upgrade() {
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut dismount_event);
-            server
-                .plugin_manager
-                .fire_blocking(&server, &mut vehicle_exit);
+            dismount_event = server.plugin_manager.fire_blocking(&server, dismount_event);
+            vehicle_exit = server.plugin_manager.fire_blocking(&server, vehicle_exit);
         }
         if dismount_event.cancelled || vehicle_exit.cancelled {
             return;
@@ -5967,8 +6196,8 @@ impl Entity {
 
             let below_state_id = world.get_block_state_id(&below_pos);
             // Vanilla: isWater checks specifically for water fluid, not any fluid
-            let is_water = Fluid::from_state_id(below_state_id)
-                .is_some_and(|f| f.id == Fluid::WATER.id || f.id == Fluid::FLOWING_WATER.id);
+            let is_water =
+                Fluid::from_state_id(below_state_id).is_some_and(|f| f.matches_type(&Fluid::WATER));
 
             let fallback_pos =
                 Vector3::new(self.pos.load().x, vehicle_box.max.y, self.pos.load().z);
@@ -6474,15 +6703,14 @@ impl Entity {
     }
 }
 
-impl EntityBase for Entity {
-    fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
+impl Entity {
+    pub(crate) fn base_tick(&self, caller: &dyn EntityBase) {
         // Recomputed during movement/block-collision handling in the same tick.
         let was_in_powder_snow = self.is_in_powder_snow.load(Ordering::Relaxed);
         self.was_in_powder_snow
             .store(was_in_powder_snow, Ordering::Relaxed);
         self.is_in_powder_snow.store(false, Ordering::Relaxed);
 
-        self.update_last_pos();
         self.tick_portal(caller);
         self.update_fluid_state(caller);
         self.check_out_of_world(caller);
@@ -6516,6 +6744,13 @@ impl EntityBase for Entity {
                 .store(riding_cooldown - 1, Ordering::Relaxed);
         }
         self.first_tick.store(false, Ordering::Relaxed);
+    }
+}
+
+impl EntityBase for Entity {
+    fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
+        self.update_last_pos();
+        self.base_tick(caller);
     }
 
     fn get_entity(&self) -> &Entity {
@@ -6597,9 +6832,91 @@ impl Flag {
     }
 }
 
+fn interact_with_shears(
+    target: &(impl EntityBase + ?Sized),
+    player: &Arc<Player>,
+    stack: &mut ItemStack,
+    hand: pumpkin_util::Hand,
+) -> Option<bool> {
+    if stack.item != &pumpkin_data::item::Item::SHEARS {
+        return None;
+    }
+    if let Some(sheared) = target
+        .get_entity()
+        .shear_off_all_leash_connections(target, Some(player))
+    {
+        if sheared {
+            let _ = player.damage_held_stack(stack, 1, hand);
+        }
+        return Some(sheared);
+    }
+    let mob = target.get_mob()?;
+    if mob.can_shear_equipment(player) && !player.get_entity().is_sneaking() {
+        mob.attempt_to_shear_equipment(player, stack, hand)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn concurrent_leash_shearing_drops_one_lead_per_connection()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::entity::{ai::test_support::world, passive::snow_golem::SnowGolemEntity};
+        use std::sync::{Barrier, atomic::AtomicUsize};
+
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let golem = SnowGolemEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(0.5, 64.0, 0.5),
+            &EntityType::SNOW_GOLEM,
+        ));
+        let holder: Arc<dyn EntityBase> = SnowGolemEntity::new(Entity::new(
+            world.clone(),
+            Vector3::new(4.5, 64.0, 0.5),
+            &EntityType::SNOW_GOLEM,
+        ));
+        let removals = AtomicUsize::new(0);
+        for _ in 0..16 {
+            golem.get_entity().attach_leash(&holder);
+            let barrier = Barrier::new(8);
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        if golem.get_entity().drop_leash_from_shearing(None, None) {
+                            removals.fetch_add(1, Ordering::Relaxed);
+                        }
+                    });
+                }
+            });
+        }
+        assert_eq!(removals.load(Ordering::Relaxed), 16);
+        let leads: usize = world
+            .entities
+            .load()
+            .iter()
+            .filter_map(|entity| entity.cast_any().downcast_ref::<item::ItemEntity>())
+            .map(|item| {
+                let stack = item
+                    .get_item_stack()
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if stack.item == &pumpkin_data::item::Item::LEAD {
+                    usize::from(stack.item_count)
+                } else {
+                    0
+                }
+            })
+            .sum();
+        assert_eq!(leads, 16);
+        world.level.shutdown().await;
+        Ok(())
+    }
 
     #[test]
     fn equipment_break_status_maps_all_slots() {
@@ -6655,6 +6972,53 @@ mod tests {
             "minecraft:zombie_villager_v2"
         );
         assert_eq!(entity_type_to_bedrock_identifier(&EntityType::COW), "cow");
+    }
+
+    #[tokio::test]
+    async fn drop_leash_drops_when_the_holder_is_gone() -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = crate::entity::ai::test_support::world(&folder);
+        let pos = Vector3::new(0.0, 64.0, 0.0);
+        let cow = Entity::new(world.clone(), pos, &EntityType::COW);
+        let knot: Arc<dyn EntityBase> = Arc::new(LeashKnotEntity::new(Entity::new(
+            world.clone(),
+            pos,
+            &EntityType::LEASH_KNOT,
+        )));
+        cow.attach_leash(&knot);
+        drop(knot);
+        assert!(cow.drop_leash());
+        assert!(!cow.has_leash_data());
+        world.level.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unleash_held_by_keeps_a_leash_moved_to_another_holder()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = tempfile::tempdir()?;
+        let world = crate::entity::ai::test_support::world(&folder);
+        let pos = Vector3::new(0.0, 64.0, 0.0);
+        let knot = |world: &Arc<crate::world::World>| -> Arc<dyn EntityBase> {
+            Arc::new(LeashKnotEntity::new(Entity::new(
+                world.clone(),
+                pos,
+                &EntityType::LEASH_KNOT,
+            )))
+        };
+        let old_knot = knot(&world);
+        let new_holder = knot(&world);
+        let cow = Entity::new(world.clone(), pos, &EntityType::COW);
+        cow.attach_leash(&old_knot);
+        cow.attach_leash(&new_holder);
+        assert!(!cow.unleash_held_by(Some(old_knot.get_entity().entity_id)));
+        assert_eq!(
+            cow.get_leash_holder()
+                .map(|holder| holder.get_entity().entity_id),
+            Some(new_holder.get_entity().entity_id)
+        );
+        world.level.shutdown().await;
+        Ok(())
     }
 }
 

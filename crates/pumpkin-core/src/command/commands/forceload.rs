@@ -71,21 +71,26 @@ impl CommandExecutor for ForceloadAddExecutor {
             ));
         }
 
-        let mut added = Vec::new();
-        {
-            let mut forced = world
-                .forced_chunks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for x in min_x..=max_x {
-                for z in min_z..=max_z {
-                    if forced.insert(Vector2::new(x, z)) {
-                        added.push(Vector2::new(x, z));
-                    }
+        let mut forced = world
+            .forced_chunks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut chunk_loading = world
+            .level
+            .chunk_loading
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for x in min_x..=max_x {
+            for z in min_z..=max_z {
+                let pos = Vector2::new(x, z);
+                if forced.insert(pos) {
+                    chunk_loading.add_force_ticket(pos);
                 }
             }
         }
-        set_force_tickets(world, &added, true);
+        chunk_loading.send_change();
+        drop(chunk_loading);
+        drop(forced);
 
         world.update_active_chunks();
 
@@ -158,21 +163,26 @@ impl CommandExecutor for ForceloadRemoveExecutor {
             ));
         }
 
-        let mut removed = Vec::new();
-        {
-            let mut forced = world
-                .forced_chunks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for x in min_x..=max_x {
-                for z in min_z..=max_z {
-                    if forced.remove(&Vector2::new(x, z)) {
-                        removed.push(Vector2::new(x, z));
-                    }
+        let mut forced = world
+            .forced_chunks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut chunk_loading = world
+            .level
+            .chunk_loading
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for x in min_x..=max_x {
+            for z in min_z..=max_z {
+                let pos = Vector2::new(x, z);
+                if forced.remove(&pos) {
+                    chunk_loading.remove_force_ticket(pos);
                 }
             }
         }
-        set_force_tickets(world, &removed, false);
+        chunk_loading.send_change();
+        drop(chunk_loading);
+        drop(forced);
 
         world.update_active_chunks();
 
@@ -220,10 +230,17 @@ impl CommandExecutor for ForceloadRemoveAllExecutor {
                 .forced_chunks
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let removed: Vec<_> = forced.drain().collect();
-            drop(forced);
-            set_force_tickets(world, &removed, false);
-            removed.len()
+            let count = forced.len();
+            let mut chunk_loading = world
+                .level
+                .chunk_loading
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for pos in forced.drain() {
+                chunk_loading.remove_force_ticket(pos);
+            }
+            chunk_loading.send_change();
+            count
         };
 
         world.update_active_chunks();
@@ -377,22 +394,3 @@ pub fn register(dispatcher: &mut CommandDispatcher, registry: &PermissionRegistr
     dispatcher.register(builder);
 }
 
-/// Forced chunks must also hold a load ticket, or they are only marked active and never loaded.
-fn set_force_tickets(world: &crate::world::World, chunks: &[Vector2<i32>], add: bool) {
-    if chunks.is_empty() {
-        return;
-    }
-    let mut chunk_loading = world
-        .level
-        .chunk_loading
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    for chunk in chunks {
-        if add {
-            chunk_loading.add_force_ticket(*chunk);
-        } else {
-            chunk_loading.remove_force_ticket(*chunk);
-        }
-    }
-    chunk_loading.send_change();
-}
