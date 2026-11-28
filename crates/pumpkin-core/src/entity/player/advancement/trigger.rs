@@ -416,7 +416,8 @@ impl Player {
                     CriterionConditions::BredAnimals(pred) => {
                         pred.matches(&parent_type, &partner_type, child_type.as_deref())
                     }
-                    CriterionConditions::Custom { .. } => true,
+                    // Generated unconditional criteria (e.g. breed_an_animal) use Tick.
+                    CriterionConditions::Tick | CriterionConditions::Custom { .. } => true,
                     _ => false,
                 });
             }
