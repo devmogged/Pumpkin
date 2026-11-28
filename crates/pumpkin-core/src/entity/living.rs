@@ -4516,6 +4516,15 @@ impl LivingEntity {
             );
         }
 
+        if server.plugin_manager.has_handlers::<crate::plugin::api::events::entity::EntityDamageAcceptedEvent>() {
+            let mut event = crate::plugin::api::events::entity::EntityDamageAcceptedEvent {
+                hit: damage_event,
+                health_damage: dmg_to_health,
+                absorbed_damage,
+            };
+            server.plugin_manager.fire_blocking(&server, &mut event);
+        }
+
         true
     }
 
