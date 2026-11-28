@@ -7596,8 +7596,8 @@ impl World {
         destination: BlockStateId,
         replacement: Option<&NbtCompound>,
     ) -> bool {
-        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
         use crate::block::entities::content::ContentBlockEntity;
+        use crate::block::entities::{block_entity_from_nbt, create_block_entity_for_state};
 
         if incarnation == 0 || expected_state == destination || !self.is_in_build_limit(*pos) {
             return false;
@@ -8037,8 +8037,7 @@ impl World {
         let start = if count > MAX_MIGRATIONS_PER_CHUNK_TICK {
             // World age is a persisted tick counter and supplies a stable,
             // lock-free rotation without another per-chunk cursor map.
-            usize::try_from(self.get_world_age().max(0)).unwrap_or(0)
-                % count
+            usize::try_from(self.get_world_age().max(0)).unwrap_or(0) % count
         } else {
             0
         };

@@ -20,7 +20,9 @@
 
 use super::player_inventory::PlayerInventory;
 use crate::crafting::crafting_inventory::CraftingInventory;
-use crate::crafting::crafting_screen_handler::{CraftingScreenHandler, ResultSlot, recipe_result_cycling_enabled};
+use crate::crafting::crafting_screen_handler::{
+    CraftingScreenHandler, ResultSlot, recipe_result_cycling_enabled,
+};
 use crate::crafting::recipes::{RecipeFinderScreenHandler, RecipeInputInventory};
 use crate::inventory::Inventory;
 use crate::screen_handler::{InventoryPlayer, ScreenHandler, ScreenHandlerBehaviour};
@@ -164,7 +166,10 @@ impl ScreenHandler for PlayerScreenHandler {
             && slot_index == 0
             && button == 1
             && action_type == SlotActionType::Pickup
-            && self.result_slot.as_ref().is_some_and(|slot| slot.cycle_recipe())
+            && self
+                .result_slot
+                .as_ref()
+                .is_some_and(|slot| slot.cycle_recipe())
         {
             self.sync_state();
             return;

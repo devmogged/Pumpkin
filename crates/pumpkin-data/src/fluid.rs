@@ -80,7 +80,7 @@ impl Fluid {
     /// Vanilla `BlockState.getFluidState().getType()`.
     #[must_use]
     #[inline]
-    pub const fn of_block_state(id: BlockStateId) -> &'static Self {
+    pub fn of_block_state(id: BlockStateId) -> &'static Self {
         // extractor IS_LIQUID: fluid state not empty
         if !id.to_state().is_liquid() {
             return &Self::EMPTY;

@@ -488,12 +488,6 @@ impl Server {
             });
         }
 
-        // datapacks before levels: dimension types
-        let enabled_packs = server.level_info.load().data_packs.enabled.clone();
-        server
-            .datapack_manager
-            .load_all(&world_path, &enabled_packs, &server.recipe_manager);
-
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {
             info!(

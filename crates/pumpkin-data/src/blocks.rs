@@ -222,7 +222,7 @@ impl Block {
 
     #[must_use]
     pub fn is_waterloggable(&self) -> bool {
-        self.property_slot(PropertyKey::Waterlogged).is_some()
+        self.has_property("waterlogged")
     }
 
     /// Returns a new [`BlockStateId`] for the given [`BlockStateId`] with the
@@ -281,6 +281,10 @@ impl Block {
 
     #[must_use]
     pub fn get_property(&self, id: BlockStateId, key: PropertyKey) -> Option<Property> {
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            return self.property_values(id).find(|value| value.key() == key);
+        }
         let index = self.property_index(id, key)?;
         Some(self.property_slot(key)?.values[index as usize])
     }
@@ -288,6 +292,26 @@ impl Block {
     /// `id` with `value` applied; `None` if the block has no such value.
     #[must_use]
     pub fn with_property(&self, id: BlockStateId, value: Property) -> Option<BlockStateId> {
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            let entry = crate::content::state(id.as_u16())?;
+            if entry.block.id != self.id || !entry.properties.contains_key(value.key_str()) {
+                return None;
+            }
+            return crate::content::state_from_properties(
+                self,
+                entry.properties.iter().map(|(key, old)| {
+                    (
+                        key.as_str(),
+                        if key == value.key_str() {
+                            value.value_str()
+                        } else {
+                            old.as_str()
+                        },
+                    )
+                }),
+            );
+        }
         let slot = self.property_slot(value.key())?;
         self.with_property_index(id, slot.key, slot.index_of(value)?)
     }
@@ -308,10 +332,21 @@ impl Block {
 
     /// All property values of `id`, no allocation.
     pub fn property_values(&self, id: BlockStateId) -> impl Iterator<Item = Property> {
+        #[cfg(feature = "item")]
+        let custom = (self.id.as_u16() >= BlockId::COUNT)
+            .then(|| crate::content::state(id.as_u16()))
+            .flatten()
+            .filter(|entry| entry.block.id == self.id)
+            .into_iter()
+            .flat_map(|entry| &entry.properties)
+            .filter_map(|(key, value)| Property::from_str_pair(key, value));
+        #[cfg(not(feature = "item"))]
+        let custom = std::iter::empty::<Property>();
         let offset = self.state_offset(id).unwrap_or(0);
         self.property_slots
             .iter()
             .map(move |slot| slot.values[(offset / slot.stride % slot.count()) as usize])
+            .chain(custom)
     }
 
     #[must_use]
@@ -319,6 +354,16 @@ impl Block {
         &'static self,
         properties: &[Property],
     ) -> Option<&'static BlockState> {
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            return self.states.iter().find(|state| {
+                let actual: Vec<_> = self.property_values(state.id).collect();
+                actual.len() == properties.len()
+                    && properties.iter().all(|property| {
+                        actual.iter().any(|value| value.matches_property(*property))
+                    })
+            });
+        }
         if properties.len() != self.property_slots.len() {
             return None;
         }
@@ -336,6 +381,20 @@ impl Block {
         key: &str,
         value: &str,
     ) -> Result<crate::Property, PropertyLookupError> {
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            if !self.has_property(key) {
+                return Err(PropertyLookupError::UnknownProperty);
+            }
+            return self
+                .states
+                .iter()
+                .find_map(|state| {
+                    self.property_values(state.id)
+                        .find(|property| property.key_str() == key && property.value_str() == value)
+                })
+                .ok_or(PropertyLookupError::InvalidValue);
+        }
         let slot = self
             .property_slots
             .iter()
@@ -351,6 +410,11 @@ impl Block {
     /// Returns whether this block defines a state property with `key`.
     #[must_use]
     pub fn has_property(&self, key: &str) -> bool {
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            return crate::content::state(self.default_state.id.as_u16())
+                .is_some_and(|entry| entry.properties.contains_key(key));
+        }
         self.property_slots
             .iter()
             .any(|slot| slot.key.to_str() == key)
@@ -399,6 +463,29 @@ impl Block {
     ) -> &'static BlockState {
         if (rotation == Rotation::None && mirror == Mirror::None) || self.states.len() <= 1 {
             return BlockState::from_id(id);
+        }
+        #[cfg(feature = "item")]
+        if self.id.as_u16() >= BlockId::COUNT {
+            let values: Vec<_> = self.property_values(id).collect();
+            let transformed = transform_block_properties(self.name, &values, rotation, mirror);
+            let new_id = crate::content::state(id.as_u16())
+                .filter(|entry| entry.block.id == self.id)
+                .and_then(|entry| {
+                    crate::content::state_from_properties(
+                        self,
+                        entry.properties.iter().map(|(key, old)| {
+                            (
+                                key.as_str(),
+                                transformed
+                                    .iter()
+                                    .find(|value| value.key_str() == key)
+                                    .map_or(old.as_str(), |value| value.value_str()),
+                            )
+                        }),
+                    )
+                })
+                .unwrap_or(id);
+            return BlockState::from_id(new_id);
         }
         let mut values = [Property::Waterlogged(false); MAX_BLOCK_PROPERTIES];
         let count = self.property_slots.len();

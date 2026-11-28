@@ -27,12 +27,15 @@ use pumpkin_core::{
     stop_or_exit_server, stop_server,
 };
 
-use std::sync::Arc;
-use pumpkin_core::{server::Server, plugin::{Plugin, PluginMetadata}};
+use pumpkin_core::{
+    plugin::{Plugin, PluginMetadata},
+    server::Server,
+};
 use pumpkin_util::text::{
     TextComponent,
     color::{Color, NamedColor},
 };
+use std::sync::Arc;
 use tracing::warn;
 
 mod dedicated_server;
@@ -370,7 +373,6 @@ fn setup_sighandler() -> io::Result<()> {
 
     Ok(())
 }
-
 
 use std::path::PathBuf;
 

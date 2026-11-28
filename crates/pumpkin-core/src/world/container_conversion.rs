@@ -60,7 +60,10 @@ mod tests {
     fn accepts_only_unopened_vanilla_single_chests() {
         let single = Block::CHEST.default_state.id;
         let base = unopened();
-        assert_eq!(ChestLikeProperties::from_state_id(single).r#type, ChestType::Single);
+        assert_eq!(
+            ChestLikeProperties::from_state_id(single).r#type,
+            ChestType::Single
+        );
         assert!(supported(single, &base));
         assert!(!supported(Block::TRAPPED_CHEST.default_state.id, &base));
         assert!(!supported(Block::BARREL.default_state.id, &base));
