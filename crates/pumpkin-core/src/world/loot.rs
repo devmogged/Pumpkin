@@ -17,6 +17,19 @@ use pumpkin_util::random::{RandomImpl, xoroshiro128::Xoroshiro};
 mod generation;
 mod predicates;
 
+/// Additional independent loot pools supplied by registered native mods.
+pub struct LootAppendPool {
+    pub item: &'static Item,
+    pub count: i32,
+    pub chance: f64,
+}
+type LootAppendHook = fn(&str) -> Vec<LootAppendPool>;
+static LOOT_APPEND: std::sync::OnceLock<LootAppendHook> = std::sync::OnceLock::new();
+
+pub fn install_loot_append_hook(hook: LootAppendHook) -> bool {
+    LOOT_APPEND.set(hook).is_ok()
+}
+
 #[derive(Default, Clone)]
 pub struct LootContextParameters<'a> {
     pub world: Option<&'a World>,
@@ -368,7 +381,7 @@ pub fn generate_loot_with_context(
     seed: i64,
     params: &LootContextParameters<'_>,
 ) -> Vec<ItemStack> {
-    generation::generate(generation::Table::Static(table), seed, params)
+    generation::generate(generation::Table::Static(table), None, seed, params)
 }
 pub use generate_loot as generate_chest_loot;
 #[must_use]
@@ -381,7 +394,7 @@ pub fn generate_dynamic_loot_with_context(
     seed: i64,
     params: &LootContextParameters<'_>,
 ) -> Vec<ItemStack> {
-    generation::generate(generation::Table::Dynamic(table), seed, params)
+    generation::generate(generation::Table::Dynamic(table), None, seed, params)
 }
 
 /// A handle to either a compile-time static loot table or a datapack dynamic loot table.
@@ -389,6 +402,7 @@ pub fn generate_dynamic_loot_with_context(
 pub enum LootTableHandle {
     Static(&'static LootTable),
     Dynamic(std::sync::Arc<DynamicLootTable>),
+    Named(String, Box<Self>),
 }
 
 impl From<&'static LootTable> for LootTableHandle {
@@ -404,6 +418,17 @@ impl From<std::sync::Arc<DynamicLootTable>> for LootTableHandle {
 }
 
 impl LootTableHandle {
+    pub fn named(self, key: String) -> Self {
+        Self::Named(key, Box::new(self))
+    }
+
+    fn table_and_key(&self) -> (generation::Table<'_>, Option<&str>) {
+        match self {
+            Self::Static(table) => (generation::Table::Static(table), None),
+            Self::Dynamic(table) => (generation::Table::Dynamic(table), None),
+            Self::Named(key, table) => (table.table_and_key().0, Some(key)),
+        }
+    }
     #[must_use]
     pub fn generate_loot(&self, seed: i64) -> Vec<ItemStack> {
         self.generate_loot_with_context(seed, &LootContextParameters::default())
@@ -501,7 +526,7 @@ pub fn get_loot_table(key: &str) -> Option<LootTableHandle> {
     };
     pumpkin_data::loot_table::get_loot_table(key)
         .or_else(|| pumpkin_data::loot_table::get_loot_table(&full_key))
-        .map(LootTableHandle::Static)
+        .map(|table| LootTableHandle::Static(table).named(full_key))
 }
 
 #[must_use]
@@ -510,10 +535,8 @@ pub fn generate_loot_from_handle(
     seed: i64,
     params: &LootContextParameters,
 ) -> Vec<ItemStack> {
-    match handle {
-        LootTableHandle::Static(table) => generate_loot_with_context(table, seed, params),
-        LootTableHandle::Dynamic(table) => generate_dynamic_loot_with_context(table, seed, params),
-    }
+    let (table, key) = handle.table_and_key();
+    generation::generate(table, key, seed, params)
 }
 
 /// Places loot into empty slots of `slots`. Occupied slots stay.

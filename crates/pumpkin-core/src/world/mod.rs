@@ -8765,7 +8765,7 @@ impl World {
                 };
                 pumpkin_data::loot_table::get_loot_table(key)
                     .or_else(|| pumpkin_data::loot_table::get_loot_table(&full_key))
-                    .map(crate::world::loot::LootTableHandle::Static)
+                    .map(|table| crate::world::loot::LootTableHandle::Static(table).named(full_key))
             },
             |server| server.datapack_manager.get_loot_table(key),
         )
