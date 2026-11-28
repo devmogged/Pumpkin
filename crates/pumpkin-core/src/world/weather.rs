@@ -78,7 +78,8 @@ impl Weather {
     }
 
     pub fn tick_weather(&mut self, world: &World) {
-        if !self.weather_cycle_enabled {
+        self.weather_cycle_enabled = world.level_info.load().game_rules.advance_weather;
+        if self.weather_cycle_enabled {
             self.advance_weather_cycle();
         }
 
