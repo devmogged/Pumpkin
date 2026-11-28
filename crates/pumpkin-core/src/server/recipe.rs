@@ -24,7 +24,9 @@ pub struct CookingRecipe {
     pub ticks: i32,
 }
 
-fn cooking_definition(recipe: &DynamicRecipe) -> Option<(CookingRecipeKind, &OwnedCookingRecipe)> {
+const fn cooking_definition(
+    recipe: &DynamicRecipe,
+) -> Option<(CookingRecipeKind, &OwnedCookingRecipe)> {
     let DynamicRecipe::Cooking(recipe) = recipe else {
         return None;
     };

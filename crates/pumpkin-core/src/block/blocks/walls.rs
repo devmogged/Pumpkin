@@ -65,7 +65,7 @@ impl BlockBehaviour for WallBlock {
             args.world.schedule_fluid_tick(
                 &Fluid::WATER,
                 *args.position,
-                Fluid::WATER.flow_speed as u8,
+                pumpkin_data::fluid::Fluid::WATER.flow.tick_delay,
                 TickPriority::Normal,
             );
         }
@@ -85,16 +85,14 @@ impl BlockBehaviour for WallBlock {
             props.west != WestWall::None,
         ];
         let above = args.position.up();
-        let top_state = if let Some(index) = side {
+        let top_state = side.map_or(neighbor_state, |index| {
             connections[index] = connects_to(
                 DIRECTIONS[index],
                 args.neighbor_state_id.to_block(),
                 neighbor_state,
             );
             args.world.get_block_state(&above)
-        } else {
-            neighbor_state
-        };
+        });
         update_shape(props, args.block, connections, top_state, &above)
     }
 

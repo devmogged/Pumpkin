@@ -279,6 +279,8 @@ impl Registry {
                 item_id,
                 default_state,
                 states,
+                // Registered states have persistent IDs, not vanilla's mixed-radix layout.
+                property_slots: &[],
                 hardness: override_physics.map_or_else(
                     || {
                         def.material

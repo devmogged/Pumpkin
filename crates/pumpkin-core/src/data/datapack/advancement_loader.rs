@@ -177,9 +177,9 @@ fn layout(entries: &[(Identifier, Value)]) -> HashMap<Identifier, (f32, f32)> {
             None => roots.push(id),
         }
     }
-    roots.sort_by_key(|id| id.to_string());
+    roots.sort_by_key(ToString::to_string);
     for list in children.values_mut() {
-        list.sort_by_key(|id| id.to_string());
+        list.sort_by_key(ToString::to_string);
     }
     let mut positions = HashMap::new();
     for root in roots {

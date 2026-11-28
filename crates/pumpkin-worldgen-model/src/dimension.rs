@@ -85,7 +85,7 @@ impl DimensionType {
             Some("never") => BedRuleOption::Never,
             _ => BedRuleOption::Always,
         };
-        let explodes = bed
+        let destroy_on_use = bed
             .and_then(|value| value.get("destroy_on_use"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
@@ -134,7 +134,7 @@ impl DimensionType {
             bed_rule: BedRule {
                 can_sleep,
                 can_set_spawn,
-                explodes,
+                destroy_on_use,
             },
             timelines: self.timelines.as_ref().map(|timelines| {
                 let id = if timelines.contains(':') {

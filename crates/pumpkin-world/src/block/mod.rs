@@ -87,16 +87,20 @@ impl BlockStateCodec {
             }
             return nbt;
         }
-        nbt.put_string("Name", format!("minecraft:{}", block.name));
-        if let Some(properties) = block.properties(state_id) {
-            let properties = properties.to_props();
-            if !properties.is_empty() {
-                let mut properties_nbt = NbtCompound::new();
-                for property in properties {
-                    properties_nbt.put_string(property.key_str(), property.value_str().to_string());
-                }
-                nbt.put_compound("Properties", properties_nbt);
+        nbt.put_string(
+            "Name",
+            if block.name.starts_with("minecraft:") {
+                block.name.to_owned()
+            } else {
+                format!("minecraft:{}", block.name)
+            },
+        );
+        if !block.property_slots.is_empty() {
+            let mut properties_nbt = NbtCompound::new();
+            for property in block.property_values(state_id) {
+                properties_nbt.put_string(property.key_str(), property.value_str().to_string());
             }
+            nbt.put_compound("Properties", properties_nbt);
         }
         nbt
     }

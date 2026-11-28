@@ -72,6 +72,9 @@ impl ServerPlayerData {
             let mut snapshots = Vec::new();
             for world in server.worlds.load().iter() {
                 for player in world.players.load().iter() {
+                    if !player.client.should_persist_player_data() {
+                        continue;
+                    }
                     let revision = self.storage.reserve_snapshot();
                     let mut nbt = NbtCompound::new();
                     player.write_nbt(&mut nbt);
@@ -106,7 +109,12 @@ impl ServerPlayerData {
 
         // Save players from all worlds
         for world in server.worlds.load().iter() {
-            for player in world.players.load().iter() {
+            for player in world
+                .players
+                .load()
+                .iter()
+                .filter(|player| player.client.should_persist_player_data())
+            {
                 self.extract_data_and_save_player(player)?;
                 total_players += 1;
             }
@@ -165,7 +173,7 @@ impl ServerPlayerData {
     ///
     /// A Result indicating success or the error that occurred.
     pub fn extract_data_and_save_player(&self, player: &Player) -> Result<(), PlayerDataError> {
-        if !self.storage.is_save_enabled() {
+        if !self.storage.is_save_enabled() || !player.client.should_persist_player_data() {
             return Ok(());
         }
 

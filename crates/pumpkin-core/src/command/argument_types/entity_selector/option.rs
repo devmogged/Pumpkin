@@ -408,8 +408,8 @@ impl EntitySelectorOption {
                     }) {
                         parser.reader.skip();
                     }
-                    let advancement_id = parser.reader.string()[start..parser.reader.cursor()]
-                        .to_owned();
+                    let advancement_id =
+                        parser.reader.string()[start..parser.reader.cursor()].to_owned();
                     parser.reader.skip_whitespace();
                     parser.reader.expect('=')?;
                     parser.reader.skip_whitespace();

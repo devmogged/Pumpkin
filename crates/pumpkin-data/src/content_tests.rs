@@ -108,6 +108,61 @@ fn definition(name: &str) -> BlockDefinition {
 }
 
 #[test]
+fn registered_properties_handle_noncontiguous_state_ids() -> Result<(), Box<dyn std::error::Error>>
+{
+    use crate::{Property, PropertyKey};
+
+    let world = tempfile::tempdir()?;
+    let file = world.path().join("registry.dat");
+    let mut block = definition("test:property_block");
+    block.states[0]
+        .properties
+        .insert("waterlogged".into(), "false".into());
+    let first = Registry::open(&file, &[block], &[])?;
+    let first_id = first
+        .block("test:property_block")
+        .ok_or("missing block")?
+        .default_state
+        .id;
+    let _ = Registry::open(&file, &[definition("test:interleaved")], &[])?;
+
+    let mut block = definition("test:property_block");
+    block.states[0]
+        .properties
+        .insert("waterlogged".into(), "false".into());
+    block.states.push(StateDefinition {
+        properties: [("waterlogged".into(), "true".into())].into(),
+        physical: Block::STONE.default_state,
+        carrier: Block::NOTE_BLOCK.default_state.id,
+        random_ticks: false,
+        carrier_replacement: None,
+        shape: Vec::new(),
+    });
+    let registry = Registry::open(&file, &[block], &[])?;
+    let block = registry
+        .block("test:property_block")
+        .ok_or("missing block")?;
+    let second_id = block.states[1].id;
+    assert_eq!(block.default_state.id, first_id);
+    assert!(second_id.as_u16() > first_id.as_u16() + 1);
+    registry.install()?;
+    assert!(block.has_property("waterlogged"));
+    assert_eq!(
+        block.get_property(first_id, PropertyKey::Waterlogged),
+        Some(Property::Waterlogged(false))
+    );
+    assert_eq!(
+        block.with_property(first_id, Property::Waterlogged(true)),
+        Some(second_id)
+    );
+    assert_eq!(
+        block.with_property(second_id, Property::Waterlogged(false)),
+        Some(first_id)
+    );
+    Ok(())
+}
+
+#[test]
 fn a_slab_can_copy_a_different_blocks_material() -> Result<(), Box<dyn std::error::Error>> {
     use crate::map_color::MapColor;
 

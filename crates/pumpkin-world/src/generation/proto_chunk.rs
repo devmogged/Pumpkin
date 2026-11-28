@@ -75,7 +75,7 @@ pub trait GenerationCache: HeightLimitView + BlockAccessor {
     fn try_get_proto_chunk(&self, chunk_x: i32, chunk_z: i32) -> Option<&ProtoChunk>;
 
     fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId;
-    fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState);
+    fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (&'static Fluid, FluidState);
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState);
     fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound);
     fn mark_above_for_post_processing(&mut self, pos: BlockPos) {
@@ -2107,27 +2107,8 @@ impl GenerationCache for ProtoChunk {
         }
         Self::get_block_state(self, pos)
     }
-    fn get_fluid_and_fluid_state(&self, pos: &Vector3<i32>) -> (Fluid, FluidState) {
-        let id = GenerationCache::get_block_state(self, pos);
-        let Some(fluid) = Fluid::from_state_id(id) else {
-            let fluid = if id.is_waterlogged()
-                || matches!(
-                    id.to_block_id(),
-                    pumpkin_data::BlockId::KELP
-                        | pumpkin_data::BlockId::KELP_PLANT
-                        | pumpkin_data::BlockId::SEAGRASS
-                        | pumpkin_data::BlockId::TALL_SEAGRASS
-                        | pumpkin_data::BlockId::BUBBLE_COLUMN
-                ) {
-                Fluid::WATER
-            } else {
-                Fluid::EMPTY
-            };
-            let state = fluid.states[0].clone();
-            return (fluid, state);
-        };
-        let state = fluid.states[0].clone();
-        (fluid.clone(), state)
+    fn get_fluid_and_fluid_state(&self, pos: &Vector3<i32>) -> (&'static Fluid, FluidState) {
+        Fluid::fluid_state_of(GenerationCache::get_block_state(self, pos))
     }
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState) {
         if pos.x >> 4 == self.x && pos.z >> 4 == self.z {

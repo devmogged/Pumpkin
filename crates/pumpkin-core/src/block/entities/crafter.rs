@@ -257,12 +257,22 @@ impl CrafterBlockEntity {
     /// still matches the snapshot used to resolve the recipe. Holding the
     /// shared inventory write lock prevents hopper/menu mutations between
     /// validating and consuming inputs; a failed comparison changes nothing.
-    pub fn consume_matching_ingredients(&self, expected: &[ItemStack; Self::INVENTORY_SIZE]) -> bool {
-        let mut items = self.items.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if items.iter().zip(expected.iter()).any(|(current, original)| {
-            current.item_count != original.item_count
-                || !current.are_items_and_components_equal(original)
-        }) {
+    pub fn consume_matching_ingredients(
+        &self,
+        expected: &[ItemStack; Self::INVENTORY_SIZE],
+    ) -> bool {
+        let mut items = self
+            .items
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if items
+            .iter()
+            .zip(expected.iter())
+            .any(|(current, original)| {
+                current.item_count != original.item_count
+                    || !current.are_items_and_components_equal(original)
+            })
+        {
             return false;
         }
         for item in items.iter_mut() {

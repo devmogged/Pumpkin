@@ -129,7 +129,7 @@ impl BlockEntity for CampfireBlockEntity {
                             slot as u8,
                             cooking_time,
                         );
-                        server.plugin_manager.fire_blocking(&server, &mut event);
+                        event = server.plugin_manager.fire_blocking(&server, event);
                         if event.cancelled {
                             continue;
                         }
@@ -158,10 +158,10 @@ impl BlockEntity for CampfireBlockEntity {
                 let mut event = crate::plugin::api::events::block::block_cook::BlockCookEvent::new(
                     self.position,
                     world.clone(),
-                    stack.clone(),
+                    stack,
                     result.clone(),
                 );
-                server.plugin_manager.fire_blocking(&server, &mut event);
+                event = server.plugin_manager.fire_blocking(&server, event);
                 if event.cancelled {
                     continue;
                 }

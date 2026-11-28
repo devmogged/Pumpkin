@@ -112,9 +112,8 @@ impl ResourceKeyArgument {
         )?;
         // The full id, so datapack advancements outside `minecraft` resolve too.
         Advancement::from_minecraft_name(&resource_key.identifier.to_string()).ok_or_else(|| {
-            ERROR_INVALID_ADVANCEMENT.create_without_context(TextComponent::text(
-                resource_key.identifier.to_string(),
-            ))
+            ERROR_INVALID_ADVANCEMENT
+                .create_without_context(TextComponent::text(resource_key.identifier.to_string()))
         })
     }
 

@@ -124,6 +124,8 @@ impl CrafterBlock {
     pub const CRAFTING_TICK_DELAY: u8 = 4;
     pub const MAX_CRAFTING_TICKS: i32 = 6;
 
+    // Keep the input snapshot, plugin callback and commit ordering together.
+    #[allow(clippy::too_many_lines)]
     fn dispense_from(world: &Arc<World>, pos: &BlockPos, block: &Block) {
         let Some(block_entity) = world.get_block_entity(pos) else {
             return;
@@ -196,7 +198,7 @@ impl CrafterBlock {
                         world.clone(),
                         result_stack.clone(),
                     );
-                server.plugin_manager.fire_blocking(&server, &mut event);
+                event = server.plugin_manager.fire_blocking(server, event);
                 if event.cancelled {
                     return;
                 }

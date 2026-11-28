@@ -32,7 +32,7 @@ impl BlockBehaviour for IronBarsBlock {
                 attaches_to(args.block, state, neighbor, face),
             );
         }
-        bars_state(args.block, &props)
+        bars_state(args.block, props)
     }
 
     fn get_state_for_neighbor_update(
@@ -46,7 +46,7 @@ impl BlockBehaviour for IronBarsBlock {
             args.world.schedule_fluid_tick(
                 &Fluid::WATER,
                 *args.position,
-                Fluid::WATER.flow_speed as u8,
+                pumpkin_data::fluid::Fluid::WATER.flow.tick_delay,
                 TickPriority::Normal,
             );
         }
@@ -63,7 +63,7 @@ impl BlockBehaviour for IronBarsBlock {
                 args.direction,
             ),
         );
-        bars_state(args.block, &props)
+        bars_state(args.block, props)
     }
 
     fn random_tick(&self, args: RandomTickArgs<'_>) {
@@ -83,7 +83,7 @@ fn attaches_to(block: &Block, state: &BlockState, neighbor: &Block, side: BlockD
         || neighbor.has_tag(&tag::Block::MINECRAFT_WALLS)
 }
 
-fn set_side(props: &mut BarsProperties, face: BlockDirection, connected: bool) {
+const fn set_side(props: &mut BarsProperties, face: BlockDirection, connected: bool) {
     match face {
         BlockDirection::North => props.north = connected,
         BlockDirection::East => props.east = connected,
@@ -102,7 +102,7 @@ fn bars_properties(block: &Block, state: BlockStateId) -> Option<BarsProperties>
     (decoded.to_props() == raw).then_some(decoded)
 }
 
-fn bars_state(block: &Block, props: &BarsProperties) -> BlockStateId {
+fn bars_state(block: &Block, props: BarsProperties) -> BlockStateId {
     if BarsProperties::handles_block_id(block.id) {
         return props.to_state_id(block);
     }

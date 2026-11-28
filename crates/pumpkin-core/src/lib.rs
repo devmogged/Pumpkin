@@ -214,16 +214,16 @@ pub static CRASH_REPORT: OnceLock<CrashReport> = OnceLock::new();
 pub static SERVER_EXIT_CODE: AtomicI32 = AtomicI32::new(0);
 
 pub fn stop_server() {
-    SHOULD_STOP.store(true, Ordering::Relaxed);
+    SHOULD_STOP.store(true, Ordering::Release);
     STOP_INTERRUPT.cancel();
 }
 
 pub fn stop_or_exit_server() {
-    if SERVER_IS_STOPPING.load(Ordering::Acquire) {
+    if SHOULD_STOP.swap(true, Ordering::AcqRel) || SERVER_IS_STOPPING.load(Ordering::Acquire) {
         // Server is already stopping, so we forcefully exit.
         exit(SERVER_EXIT_CODE.load(Ordering::Acquire));
     }
-    stop_server();
+    STOP_INTERRUPT.cancel();
 }
 
 /// Runs one Java connection from handshake to disconnect: login, configuration, play, and the
@@ -542,7 +542,7 @@ impl PumpkinServer {
 
         self.server
             .plugin_manager
-            .fire(&self.server, &mut ServerLoadEvent::new(LoadType::Startup))
+            .fire(&self.server, ServerLoadEvent::new(LoadType::Startup))
             .await;
 
         self.server.start_telemetry();
@@ -802,10 +802,7 @@ fn setup_stdin_console(server: &Arc<Server>) {
                 break;
             };
             let mut event = ServerCommandEvent::new(command.clone());
-            server_clone
-                .plugin_manager
-                .fire(&server_clone, &mut event)
-                .await;
+            event = server_clone.plugin_manager.fire(&server_clone, event).await;
             if !event.cancelled {
                 server_clone.command_dispatcher.load().handle_command(
                     &command::CommandSender::Console.into_source(&server_clone),
@@ -873,7 +870,7 @@ fn setup_console(mut rl: Editor<PumpkinCommandCompleter, FileHistory>, server: A
 
             if let Some(line) = result {
                 let mut event = ServerCommandEvent::new(line.clone());
-                server.plugin_manager.fire(&server, &mut event).await;
+                event = server.plugin_manager.fire(&server, event).await;
                 if !event.cancelled {
                     server.command_dispatcher.load().handle_command(
                         &command::CommandSender::Console.into_source(&server),

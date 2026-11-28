@@ -1,6 +1,7 @@
 use pumpkin_data::{
     biome::{Biome, SpawnCosts, SpawnCostsLookup, SpawnGroups, Spawner},
     carver::CarverConfig,
+    environment_attribute::EnvironmentAttribute,
     placed_feature::PlacedFeature,
 };
 use pumpkin_util::biome::{TemperatureModifier, Weather};
@@ -21,15 +22,11 @@ pub fn build_biome(
         Some(FileTemperatureModifier::Frozen) => TemperatureModifier::Frozen,
         Some(FileTemperatureModifier::None) | None => TemperatureModifier::None,
     };
-    let increased_fire_burnout = biome
-        .attr_bool("minecraft:gameplay/increased_fire_burnout")
-        .unwrap_or(false);
-    let snow_golem_melts = biome
-        .attr_bool("minecraft:gameplay/snow_golem_melts")
-        .unwrap_or(false);
-    let can_pillager_patrol_spawn = biome
-        .attr_bool("minecraft:gameplay/can_pillager_patrol_spawn")
-        .unwrap_or(true);
+    let boolean_attributes = biome
+        .attributes
+        .keys()
+        .filter_map(|key| Some((EnvironmentAttribute::from_name(key)?, biome.attr_bool(key)?)))
+        .collect::<Vec<_>>();
     let spawners = biome.spawners;
     let carvers = biome.carvers.iter().map(String::as_str).filter_map(carver);
     let group = |entries: Vec<pumpkin_worldgen_model::biome_data::Spawner>| {
@@ -75,9 +72,7 @@ pub fn build_biome(
         ),
         carvers: Box::leak(carvers.collect::<Vec<_>>().into_boxed_slice()),
         creature_spawn_probability: biome.creature_spawn_probability.unwrap_or(0.1),
-        increased_fire_burnout,
-        snow_golem_melts,
-        can_pillager_patrol_spawn,
+        boolean_attributes: Box::leak(boolean_attributes.into_boxed_slice()),
         spawners: SpawnGroups {
             monster: group(spawners.monster),
             ambient: group(spawners.ambient),

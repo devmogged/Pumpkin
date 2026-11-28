@@ -83,7 +83,10 @@ impl InteractionEntity {
 
     pub fn attach(&self, behavior: Arc<dyn InteractionBehavior>) {
         let activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
-        if !self.entity.is_removed() && self.behavior.set(behavior.clone()).is_ok() {
+        if !self.entity.is_removed()
+            && self.behavior.set(behavior).is_ok()
+            && let Some(behavior) = self.behavior.get()
+        {
             behavior.loaded(self);
         }
         drop(activity);
