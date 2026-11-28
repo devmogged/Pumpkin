@@ -35,7 +35,7 @@ pub(crate) fn state_changed(
     new: BlockStateId,
     moved: bool,
 ) {
-    if old != new && (old.as_u16() >= BlockStateId::COUNT || new.as_u16() >= BlockStateId::COUNT) {
+    if old != new && (!old.is_vanilla() || !new.is_vanilla()) {
         let change = if moved {
             Change::Moved(old, new)
         } else {

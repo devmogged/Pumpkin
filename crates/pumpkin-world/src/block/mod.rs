@@ -76,7 +76,7 @@ impl BlockStateCodec {
     pub fn state_to_nbt(state_id: BlockStateId) -> NbtCompound {
         let block = Block::from_state_id(state_id);
         let mut nbt = NbtCompound::new();
-        if let Some(entry) = pumpkin_data::content::state(state_id.as_u16()) {
+        if let Some(entry) = pumpkin_data::content::state(state_id.as_u32()) {
             nbt.put_string("Name", block.name.to_owned());
             if !entry.properties.is_empty() {
                 let mut properties = NbtCompound::new();

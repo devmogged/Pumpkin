@@ -78,7 +78,7 @@ fn spawn_golem(world: &Arc<World>, pattern: &GolemPattern) {
         world.sync_world_event(
             WorldEvent::ParticlesDestroyBlock,
             pos,
-            i32::from(state_id.as_u16()),
+            i32::from(state_id.vanilla_view().as_u16()),
         );
     }
 

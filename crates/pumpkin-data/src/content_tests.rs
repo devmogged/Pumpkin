@@ -68,9 +68,9 @@ fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::erro
         &[definition("test:motor"), definition("test:cog")],
         &[],
     )?;
-    assert!(second.state(old_shaft.as_u16()).is_none());
+    assert!(second.state(old_shaft.as_u32()).is_none());
     assert_eq!(
-        second.state(old_cog.as_u16()).map(|s| s.state.id),
+        second.state(old_cog.as_u32()).map(|s| s.state.id),
         Some(old_cog)
     );
     assert!(
@@ -83,7 +83,7 @@ fn removed_slots_remain_reserved_after_restart() -> Result<(), Box<dyn std::erro
     );
     let third = Registry::open(&file, &[definition("test:shaft")], &[])?;
     assert_eq!(
-        third.state(old_shaft.as_u16()).map(|s| s.state.id),
+        third.state(old_shaft.as_u32()).map(|s| s.state.id),
         Some(old_shaft)
     );
     Ok(())
@@ -105,6 +105,66 @@ fn definition(name: &str) -> BlockDefinition {
             shape: Vec::new(),
         }],
     }
+}
+
+#[test]
+fn state_allocator_crosses_u16_and_preserves_saved_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let world = tempfile::tempdir()?;
+    let file = world.path().join("registry.dat");
+    std::fs::write(
+        &file,
+        r#"{"blocks":{},"states":{"test:old{}":65535},"items":{}}"#,
+    )?;
+    let definitions = [definition("test:old"), definition("test:wide")];
+    let first = Registry::open(&file, &definitions, &[])?;
+    let old = first
+        .block("test:old")
+        .ok_or("old state missing")?
+        .default_state
+        .id;
+    let wide = first
+        .block("test:wide")
+        .ok_or("wide state missing")?
+        .default_state
+        .id;
+    assert_eq!(old.as_u32(), 65535);
+    assert_eq!(wide.as_u32(), 65536);
+    assert_eq!(
+        first
+            .state(wide.as_u32())
+            .ok_or("wide lookup missing")?
+            .state
+            .id,
+        wide
+    );
+    let second = Registry::open(&file, &[definition("test:wide")], &[])?;
+    assert!(second.state(old.as_u32()).is_none());
+    assert_eq!(
+        second
+            .block("test:wide")
+            .ok_or("wide state lost")?
+            .default_state
+            .id,
+        wide
+    );
+    let third = Registry::open(&file, &definitions, &[])?;
+    assert_eq!(
+        third
+            .block("test:old")
+            .ok_or("old state lost")?
+            .default_state
+            .id,
+        old
+    );
+    assert_eq!(
+        third
+            .block("test:wide")
+            .ok_or("wide state lost")?
+            .default_state
+            .id,
+        wide
+    );
+    Ok(())
 }
 
 #[test]

@@ -449,8 +449,8 @@ impl ToTokens for BlockPropertyStruct {
                 #[must_use]
                 pub fn from_state_id(id: BlockStateId) -> Self {
                     let block = Block::from_state_id(id);
-                    let min_id = block.states[0].id.as_u16();
-                    Self::from_index(id.as_u16() - min_id)
+                    let min_id = block.states[0].id.as_u32();
+                    Self::from_index(u16::try_from(id.as_u32() - min_id).expect("block state index"))
                 }
 
                 #[inline]
@@ -498,11 +498,11 @@ impl ToTokens for BlockPropertyStruct {
                         "{} is not a valid block for {}", block.name, #struct_name
                     );
 
-                    let min_id = block.states[0].id.as_u16();
-                    let max_id = block.states.last().map(|s| s.id.as_u16()).unwrap_or(min_id);
+                    let min_id = block.states[0].id.as_u32();
+                    let max_id = block.states.last().map(|s| s.id.as_u32()).unwrap_or(min_id);
 
-                    if (min_id..=max_id).contains(&id.as_u16()) {
-                        Self::from_index(id.as_u16() - min_id)
+                    if (min_id..=max_id).contains(&id.as_u32()) {
+                        Self::from_index(u16::try_from(id.as_u32() - min_id).expect("block state index"))
                     } else {
                         #[cfg(debug_assertions)]
                         panic!("State ID {} does not exist for {}", id, block.name);
@@ -1763,7 +1763,7 @@ pub fn build() -> TokenStream {
         #[inline(always)]
         #[must_use]
         pub const fn is_air(id: BlockStateId) -> bool {
-            matches!(id.as_u16(), #air_state_ids)
+            id.is_vanilla() && matches!(id.as_u16(), #air_state_ids)
         }
 
         #[inline(always)]
@@ -1775,7 +1775,7 @@ pub fn build() -> TokenStream {
         #[inline(always)]
         #[must_use]
         pub fn has_random_ticks(id: BlockStateId) -> bool {
-            #mod_ident::#contains_ident(id.as_u16())
+            id.is_vanilla() && #mod_ident::#contains_ident(id.as_u16())
         }
 
         #[must_use]
@@ -1794,8 +1794,8 @@ pub fn build() -> TokenStream {
             #[must_use]
             pub fn from_id(id: BlockStateId) -> &'static Self {
                 #[cfg(feature = "item")]
-                if id.as_u16() >= BlockStateId::COUNT {
-                    return crate::content::state(id.as_u16()).map_or(Block::AIR.default_state, |entry| entry.state);
+                if !id.is_vanilla() {
+                    return crate::content::state(id.as_u32()).map_or(Block::AIR.default_state, |entry| entry.state);
                 }
                 // SAFETY: Vanilla ids index the generated states, see layout asserts.
                 unsafe { lookup(&mappings::BLOCK_STATES, id.as_u16()) }
@@ -2016,8 +2016,8 @@ pub fn build() -> TokenStream {
             #[must_use]
             pub fn from_state_id(id: BlockStateId) -> BlockId {
                 #[cfg(feature = "item")]
-                if id.as_u16() >= BlockStateId::COUNT {
-                    return crate::content::state(id.as_u16()).map_or(Self::AIR, |entry| entry.block.id);
+                if !id.is_vanilla() {
+                    return crate::content::state(id.as_u32()).map_or(Self::AIR, |entry| entry.block.id);
                 }
                 // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
                 unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, id.as_u16()) }

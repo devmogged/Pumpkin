@@ -1073,23 +1073,44 @@ impl BlockPalette {
 
         match self {
             Self::Homogeneous(id) => {
-                out.put_u8(0);
-                out.put_u16(id.as_u16());
+                if id.as_u32() <= u32::from(u16::MAX) {
+                    out.put_u8(0);
+                    out.put_u16(id.as_u16());
+                } else {
+                    out.put_u8(3);
+                    out.put_u32(id.as_u32());
+                }
             }
             Self::Heterogeneous(data) => match &data.storage {
                 PaletteStorage::Indexed(indices) => {
-                    out.put_u8(1);
+                    let wide = data
+                        .palette
+                        .iter()
+                        .any(|id| id.as_u32() > u32::from(u16::MAX));
+                    out.put_u8(if wide { 4 } else { 1 });
                     out.put_u16(data.palette.len() as u16);
                     for (&id, &count) in data.palette.iter().zip(&data.counts) {
-                        out.put_u16(id.as_u16());
+                        if wide {
+                            out.put_u32(id.as_u32());
+                        } else {
+                            out.put_u16(id.as_u16());
+                        }
                         out.put_u16(count);
                     }
                     out.extend_from_slice(indices.as_flattened().as_flattened());
                 }
                 PaletteStorage::Dense(cube) => {
-                    out.put_u8(2);
+                    let wide = data
+                        .palette
+                        .iter()
+                        .any(|id| id.as_u32() > u32::from(u16::MAX));
+                    out.put_u8(if wide { 5 } else { 2 });
                     for &id in cube.as_flattened().as_flattened() {
-                        out.put_u16(id.as_u16());
+                        if wide {
+                            out.put_u32(id.as_u32());
+                        } else {
+                            out.put_u16(id.as_u16());
+                        }
                     }
                 }
             },
@@ -1109,16 +1130,26 @@ impl BlockPalette {
         }
         let mut missing = false;
         let mut read_id = |raw| saved_block_state(raw, &mut missing);
-        let palette = match buf.get_u8() {
-            0 => {
-                if buf.remaining() < 2 {
+        let mode = buf.get_u8();
+        let wide = matches!(mode, 3..=5);
+        let width = if wide { 4 } else { 2 };
+        let raw_id = |buf: &mut &[u8]| {
+            if wide {
+                buf.get_u32()
+            } else {
+                u32::from(buf.get_u16())
+            }
+        };
+        let palette = match mode {
+            0 | 3 => {
+                if buf.remaining() < width {
                     return Err(super::ChunkParsingError::ErrorDeserializingChunk(
                         "Unexpected EOF reading homogeneous block palette".into(),
                     ));
                 }
-                Ok(Self::Homogeneous(read_id(buf.get_u16())))
+                Ok(Self::Homogeneous(read_id(raw_id(buf))))
             }
-            1 => {
+            1 | 4 => {
                 if buf.remaining() < 2 {
                     return Err(super::ChunkParsingError::ErrorDeserializingChunk(
                         "Unexpected EOF reading indexed block palette length".into(),
@@ -1126,7 +1157,7 @@ impl BlockPalette {
                 }
                 let palette_len = buf.get_u16() as usize;
                 if !(1..=256).contains(&palette_len)
-                    || buf.remaining() < palette_len * 4 + Self::VOLUME
+                    || buf.remaining() < palette_len * (width + 2) + Self::VOLUME
                 {
                     return Err(super::ChunkParsingError::ErrorDeserializingChunk(
                         "Invalid indexed block palette length".into(),
@@ -1134,7 +1165,7 @@ impl BlockPalette {
                 }
                 let mut palette = Vec::with_capacity(palette_len);
                 for _ in 0..palette_len {
-                    palette.push(read_id(buf.get_u16()));
+                    palette.push(read_id(raw_id(buf)));
                     buf.advance(2);
                 }
                 if palette_len == 1 {
@@ -1160,8 +1191,8 @@ impl BlockPalette {
                     counts,
                 })))
             }
-            2 => {
-                if buf.remaining() < Self::VOLUME * 2 {
+            2 | 5 => {
+                if buf.remaining() < Self::VOLUME * width {
                     return Err(super::ChunkParsingError::ErrorDeserializingChunk(
                         "Unexpected EOF reading dense block palette".into(),
                     ));
@@ -1169,7 +1200,7 @@ impl BlockPalette {
                 let mut cube =
                     Box::new([[[BlockStateId::AIR; Self::SIZE]; Self::SIZE]; Self::SIZE]);
                 for slot in cube.as_flattened_mut().as_flattened_mut() {
-                    *slot = read_id(buf.get_u16());
+                    *slot = read_id(raw_id(buf));
                 }
                 Ok(Self::from_cube(cube))
             }
@@ -1186,7 +1217,7 @@ impl BlockPalette {
     }
 }
 
-pub(super) fn saved_block_state(raw: u16, removed: &mut bool) -> BlockStateId {
+pub(super) fn saved_block_state(raw: u32, removed: &mut bool) -> BlockStateId {
     BlockStateId::from_runtime_id(raw).unwrap_or_else(|| {
         *removed = true;
         BlockStateId::AIR
@@ -1421,6 +1452,123 @@ mod tests {
     use pumpkin_data::{Block, BlockStateId};
 
     #[test]
+    fn wide_states_roundtrip_all_palette_modes_and_project_to_vanilla()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use pumpkin_data::{
+            content::{BlockDefinition, Registry, StateDefinition},
+            item::Item,
+        };
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("registry.dat");
+        std::fs::write(
+            &file,
+            r#"{"blocks":{},"states":{"test:removed{}":425981},"items":{}}"#,
+        )?;
+        let carrier = Block::STONE.default_state.id;
+        Registry::open(
+            &file,
+            &[BlockDefinition {
+                name: "test:wide_palette".into(),
+                display_name: "Wide Palette".into(),
+                entity: None,
+                item_carrier: &Item::PAPER,
+                material: None,
+                states: vec![StateDefinition {
+                    random_ticks: false,
+                    properties: Default::default(),
+                    physical: Block::STONE.default_state,
+                    carrier,
+                    carrier_replacement: None,
+                    shape: Vec::new(),
+                }],
+            }],
+            &[],
+        )?
+        .install()?;
+        let wide = BlockStateId::from_runtime_id(425982).ok_or("wide registry state missing")?;
+        crate::generation::proto_chunk::GenerationBlockMap::verify_wide_promotion(wide);
+        assert_eq!(wide.vanilla_view(), carrier);
+        let homogeneous = BlockPalette::Homogeneous(wide);
+        let indexed = BlockPalette::from_fn(|x, _, _| if x == 0 { wide } else { carrier });
+        let dense = BlockPalette::from_fn(|x, y, z| {
+            let i = x + z * 16 + y * 256;
+            if i == 0 {
+                wide
+            } else {
+                BlockStateId::new_or_air((i % 300) as u16)
+            }
+        });
+        for (mode, palette) in [(3, homogeneous), (4, indexed), (5, dense)] {
+            let mut encoded = Vec::new();
+            palette.write_pump_binary(&mut encoded);
+            assert_eq!(encoded[0], mode);
+            let mut input = encoded.as_slice();
+            let mut removed = false;
+            let decoded = BlockPalette::read_pump_binary(&mut input, &mut removed)?;
+            assert!(input.is_empty());
+            assert!(!removed);
+            assert!(decoded.iter().eq(palette.iter()));
+            let disk = BlockPalette::from_disk_nbt(palette.to_disk_nbt());
+            assert!(disk.iter().eq(palette.iter()));
+            let network = palette.convert_network();
+            if let Some(values) = network_palette_values(network.palette) {
+                assert!(values.iter().all(|&id| id < BlockStateId::COUNT));
+                assert!(values.contains(&carrier.as_u16()));
+            } else {
+                let bits = network.bits_per_entry;
+                let per_word = usize::from(64 / bits);
+                let mask = (1u64 << bits) - 1;
+                for (i, expected) in palette.iter().enumerate() {
+                    let raw = ((network.packed_data[i / per_word] as u64)
+                        >> (i % per_word * usize::from(bits)))
+                        & mask;
+                    assert_eq!(raw, u64::from(expected.vanilla_view().as_u16()));
+                }
+            }
+            assert!(
+                BlockPalette::read_pump_binary(&mut &encoded[..encoded.len() - 1], &mut false)
+                    .is_err()
+            );
+        }
+        let mut old = Vec::new();
+        BlockPalette::Homogeneous(carrier).write_pump_binary(&mut old);
+        assert_eq!(
+            old,
+            [vec![0], carrier.as_u16().to_be_bytes().to_vec()].concat()
+        );
+
+        // Exercise the actual chunk codecs as well as the palette representation.
+        use crate::chunk::ChunkData;
+        use pumpkin_nbt::{Nbt, compound::NbtCompound, tag::NbtTag};
+        use pumpkin_util::math::vector2::Vector2;
+        let mut states = NbtCompound::new();
+        states.put(
+            "palette",
+            NbtTag::List(vec![NbtTag::Compound(
+                crate::block::BlockStateCodec::state_to_nbt(wide),
+            )]),
+        );
+        let mut section = NbtCompound::new();
+        section.put_int("Y", 0);
+        section.put_compound("block_states", states);
+        let mut root = NbtCompound::new();
+        root.put_int("DataVersion", 5023);
+        root.put_int("xPos", 0);
+        root.put_int("zPos", 0);
+        root.put_int("yPos", 0);
+        root.put_string("Status", "minecraft:full".into());
+        root.put("sections", NbtTag::List(vec![NbtTag::Compound(section)]));
+        let pos = Vector2::new(0, 0);
+        let chunk = ChunkData::internal_from_bytes(&Nbt::new(String::new(), root).write(), pos)?;
+        let anvil = ChunkData::internal_from_bytes(&chunk.internal_to_bytes(), pos)?;
+        let pump = ChunkData::internal_from_pump_bytes(&chunk.internal_to_pump_bytes(), pos)?;
+        for decoded in [chunk, anvil, pump] {
+            assert_eq!(decoded.section.get_block_absolute_y(0, 0, 0), Some(wide));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn matching_visits_distinct_values_after_mutations() {
         let mut palette = BlockPalette::default();
         let plate = Block::STONE_PRESSURE_PLATE.default_state.id;
@@ -1552,7 +1700,7 @@ mod tests {
     #[test]
     fn bulk_palette_handles_direct_network_palettes() {
         assert_bulk_matches_mutations(|x, y, z| {
-            BlockStateId::runtime_or_air(((y * 256 + z * 16 + x) % 300) as u16)
+            BlockStateId::runtime_or_air(((y * 256 + z * 16 + x) % 300) as u32)
         });
     }
 

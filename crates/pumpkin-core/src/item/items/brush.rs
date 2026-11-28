@@ -172,7 +172,7 @@ impl ItemBehaviour for BrushItem {
             world.sync_world_event(
                 WorldEvent::ParticlesAndSoundBrushBlockComplete,
                 location,
-                i32::from(current_state_id.as_u16()),
+                i32::from(current_state_id.vanilla_view().as_u16()),
             );
             let replacement_state_id = if is_sand {
                 Block::SAND.default_state.id

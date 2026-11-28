@@ -465,7 +465,7 @@ mod tests {
                 &mut random,
                 BlockPos::new(8, 120, 8)
             ));
-            chunk.flat_block_map
+            chunk.flat_block_map.into_states()
         };
         assert_eq!(place(&runtime), place(generated));
     }

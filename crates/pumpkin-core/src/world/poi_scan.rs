@@ -13,7 +13,9 @@ fn collect_section_palette(
     section_y: i32,
     chunk_z: i32,
 ) -> Vec<(BlockPos, PoiType)> {
-    if !palette.contains_matching(|state| PoiType::from_state_id(state.as_u16()).is_some()) {
+    if !palette.contains_matching(|state| {
+        state.is_vanilla() && PoiType::from_state_id(state.as_u16()).is_some()
+    }) {
         return Vec::new();
     }
     let mut found = Vec::new();
@@ -21,7 +23,9 @@ fn collect_section_palette(
         for z in 0..BlockPalette::SIZE {
             for x in 0..BlockPalette::SIZE {
                 let state = palette.get(x, y, z);
-                if let Some(poi_type) = PoiType::from_state_id(state.as_u16()) {
+                if state.is_vanilla()
+                    && let Some(poi_type) = PoiType::from_state_id(state.as_u16())
+                {
                     found.push((
                         BlockPos(Vector3::new(
                             chunk_x * BlockPalette::SIZE as i32 + x as i32,

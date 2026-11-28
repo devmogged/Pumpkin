@@ -510,7 +510,7 @@ mod tests {
             &mut random,
             BlockPos::new(chunk_x * 16 + 8, y, 8),
         );
-        (placed, chunk.flat_block_map)
+        (placed, chunk.flat_block_map.into_states())
     }
 
     #[test]
@@ -552,7 +552,7 @@ mod tests {
                     &mut random,
                     BlockPos::new(8, 101, 8),
                 );
-                (placed, chunk.flat_block_map)
+                (placed, chunk.flat_block_map.into_states())
             };
             for seed in 0..8 {
                 let expected = grow(generated, seed);
@@ -669,7 +669,7 @@ mod tests {
                     .is_air()
                 };
                 let y = (-56..30).find(|&y| air(y) && !air(y - 1) && air(y + 4))?;
-                Some((chunk_x, y, chunk.flat_block_map))
+                Some((chunk_x, y, chunk.flat_block_map.into_states()))
             })
             .collect();
         assert!(caves.len() >= 3, "found {} caves", caves.len());

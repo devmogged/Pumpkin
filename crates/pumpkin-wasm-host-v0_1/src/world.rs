@@ -231,8 +231,8 @@ pub(crate) fn to_wit_block(block: &pumpkin_data::Block) -> WitBlock {
         velocity_multiplier: block.velocity_multiplier,
         jump_velocity_multiplier: block.jump_velocity_multiplier,
         item_id: block.item_id,
-        default_state_id: block.default_state.id.as_u16(),
-        state_ids: block.states.iter().map(|s| s.id.as_u16()).collect(),
+        default_state_id: block.default_state.id.legacy_id(),
+        state_ids: block.states.iter().map(|s| s.id.legacy_id()).collect(),
         is_solid: block.is_solid(),
         is_air: block.is_air(),
         is_flammable: block.flammable.is_some(),
@@ -261,7 +261,7 @@ pub(crate) fn to_wit_block_state(
         .unwrap_or_default();
 
     WitBlockState {
-        id: state.id.as_u16(),
+        id: state.id.legacy_id(),
         block_id: block.id.as_u16(),
         block_name: block.name.to_string(),
         luminance: state.luminance,
@@ -417,7 +417,7 @@ impl pumpkin::plugin::world::Host for PluginHostState {
         };
 
         if properties.is_empty() {
-            return Ok(Some(block.default_state.id.as_u16()));
+            return Ok(u16::try_from(block.default_state.id.as_u32()).ok());
         }
 
         let props: Vec<pumpkin_data::Property> = properties
@@ -428,9 +428,9 @@ impl pumpkin::plugin::world::Host for PluginHostState {
         // so catch panics to avoid crashing on schematics from other MC versions.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let block_props = block.from_properties(&props);
-            block_props.to_state_id(block).as_u16()
+            u16::try_from(block_props.to_state_id(block).as_u32()).ok()
         }));
-        Ok(result.ok())
+        Ok(result.ok().flatten())
     }
 
     fn block_state_to_info(
@@ -519,7 +519,7 @@ impl pumpkin::plugin::world::Host for PluginHostState {
             return Ok(Vec::new());
         };
         let block_ref = pumpkin_data::Block::from_id(id);
-        Ok(block_ref.states.iter().map(|s| s.id.as_u16()).collect())
+        Ok(block_ref.states.iter().map(|s| s.id.legacy_id()).collect())
     }
 
     fn get_block_properties(&mut self, state_id: u16) -> wasmtime::Result<Vec<(String, String)>> {
@@ -638,7 +638,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
     ) -> wasmtime::Result<u16> {
         let world_ref = self.get(&world)?;
         let internal_pos = BlockPos::new(pos.x, pos.y, pos.z);
-        Ok(world_ref.get_block_state_id(&internal_pos).as_u16())
+        Ok(world_ref.get_block_state_id(&internal_pos).legacy_id())
     }
 
     fn get_block_state(
@@ -1287,7 +1287,9 @@ impl pumpkin::plugin::world::HostWorldWithStore<PluginHostState> for HasSelf<Plu
         let Some(block) = pumpkin_data::Block::from_name(&name) else {
             return Ok(false);
         };
-        let default_state_id = block.default_state.id.as_u16();
+        let Ok(default_state_id) = u16::try_from(block.default_state.id.as_u32()) else {
+            return Ok(false);
+        };
         set_block_state_with_store(host, world, pos, default_state_id, update_flags).await?;
         Ok(true)
     }
@@ -1336,7 +1338,7 @@ impl pumpkin::plugin::world::HostChunk for PluginHostState {
             .section
             .get_block_absolute_y(pos.x as usize, pos.y, pos.z as usize)
             .unwrap_or(BlockStateId::AIR)
-            .as_u16())
+            .legacy_id())
     }
 
     fn get_block_state(
@@ -1939,7 +1941,7 @@ impl pumpkin::plugin::world::HostChunkBuffer for PluginHostState {
             if local_y >= 0 && local_y < proto.height() as i32 {
                 Ok(proto
                     .get_block_state_raw(x as i32, local_y, z as i32)
-                    .as_u16())
+                    .legacy_id())
             } else {
                 Ok(0)
             }

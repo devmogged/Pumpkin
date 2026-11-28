@@ -44,7 +44,33 @@ pub struct BlockState {
 /// Every [`BlockStateId`] is guaranteed to correspond to a valid [`BlockState`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct BlockStateId(u16);
+pub struct BlockStateId(u32);
+
+/// A validated runtime state whose identity fits in two bytes. This is a
+/// storage representation, not a vanilla/client ID: low custom IDs are valid.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct CompactBlockStateId(u16);
+
+impl CompactBlockStateId {
+    pub const AIR: Self = Self(BlockStateId::AIR.as_u16());
+
+    #[inline]
+    #[must_use]
+    pub const fn try_from_state(state: BlockStateId) -> Option<Self> {
+        if state.as_u32() <= u16::MAX as u32 {
+            Some(Self(state.as_u32() as u16))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn widen(self) -> BlockStateId {
+        BlockStateId(self.0 as u32)
+    }
+}
 
 /// Vanilla `SoundType`: the sounds a block makes when broken, stepped on, placed, hit or fallen on.
 #[derive(Debug)]
@@ -256,8 +282,8 @@ impl BlockState {
 
     fn shapes(&self, vanilla: &[u16]) -> impl Iterator<Item = BoundingBox> {
         #[cfg(feature = "item")]
-        let custom = (self.id.as_u16() >= BlockStateId::COUNT)
-            .then(|| crate::content::state(self.id.as_u16()))
+        let custom = (!self.id.is_vanilla())
+            .then(|| crate::content::state(self.id.as_u32()))
             .flatten()
             .map(|entry| entry.shape.as_slice())
             .filter(|shape| !shape.is_empty());
@@ -321,7 +347,7 @@ impl BlockStateId {
     #[must_use]
     pub const fn new(inner: u16) -> Option<Self> {
         if inner < Self::STATE_COUNT {
-            Some(Self(inner))
+            Some(Self(inner as u32))
         } else {
             None
         }
@@ -329,8 +355,8 @@ impl BlockStateId {
 
     #[inline]
     #[must_use]
-    pub fn from_runtime_id(inner: u16) -> Option<Self> {
-        if inner < Self::STATE_COUNT {
+    pub fn from_runtime_id(inner: u32) -> Option<Self> {
+        if inner < u32::from(Self::STATE_COUNT) {
             return Some(Self(inner));
         }
         #[cfg(feature = "item")]
@@ -344,18 +370,18 @@ impl BlockStateId {
     #[must_use]
     pub const fn new_or_air(inner: u16) -> Self {
         if inner < Self::STATE_COUNT {
-            Self(inner)
+            Self(inner as u32)
         } else {
             Self::AIR
         }
     }
 
     #[must_use]
-    pub fn runtime_or_air(inner: u16) -> Self {
+    pub fn runtime_or_air(inner: u32) -> Self {
         Self::from_runtime_id(inner).unwrap_or(Self::AIR)
     }
 
-    pub(crate) const fn registered(inner: u16) -> Self {
+    pub(crate) const fn registered(inner: u32) -> Self {
         Self(inner)
     }
 
@@ -365,7 +391,7 @@ impl BlockStateId {
     pub fn vanilla_view(self) -> Self {
         #[cfg(feature = "item")]
         {
-            if self.0 >= Self::COUNT {
+            if !self.is_vanilla() {
                 return crate::content::state(self.0).map_or(Self::AIR, |entry| entry.carrier);
             }
             crate::content::replace_carrier(self)
@@ -378,7 +404,7 @@ impl BlockStateId {
     #[must_use]
     pub fn block_display_view(self) -> Self {
         #[cfg(feature = "item")]
-        if self.0 >= Self::COUNT {
+        if !self.is_vanilla() {
             return crate::content::state(self.0).map_or(Self::AIR, |entry| {
                 entry.block_display_carrier.unwrap_or(entry.carrier)
             });
@@ -388,8 +414,31 @@ impl BlockStateId {
 
     #[inline(always)]
     #[must_use]
-    pub const fn as_u16(self) -> u16 {
+    pub const fn as_u32(self) -> u32 {
         self.0
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn is_vanilla(self) -> bool {
+        self.0 < Self::COUNT as u32
+    }
+
+    /// Narrow only at a legacy 16-bit boundary; never truncate a runtime ID.
+    #[inline]
+    #[must_use]
+    pub const fn as_u16(self) -> u16 {
+        assert!(
+            self.0 <= u16::MAX as u32,
+            "runtime state exceeds legacy ID width"
+        );
+        self.0 as u16
+    }
+
+    /// Project states outside the legacy WIT ID space to their vanilla carrier.
+    #[must_use]
+    pub fn legacy_id(self) -> u16 {
+        u16::try_from(self.0).unwrap_or_else(|_| self.vanilla_view().as_u16())
     }
 
     #[inline]
@@ -514,8 +563,8 @@ impl BlockState {
 #[inline]
 pub fn has_random_ticks(id: BlockStateId) -> bool {
     #[cfg(feature = "item")]
-    if id.as_u16() >= BlockStateId::COUNT {
-        return crate::content::state(id.as_u16())
+    if !id.is_vanilla() {
+        return crate::content::state(id.as_u32())
             .is_some_and(|entry| entry.state.has_random_ticks());
     }
     crate::block_properties::has_random_ticks(id)

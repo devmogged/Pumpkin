@@ -1574,7 +1574,7 @@ impl pumpkin::plugin::player::HostPlayer for PluginHostState {
             pumpkin_util::math::position::BlockPos(pumpkin_util::math::vector3::Vector3::new(
                 pos.x, pos.y, pos.z,
             )),
-            block_id,
+            u32::from(block_id),
         );
         Ok(())
     }

@@ -1511,10 +1511,13 @@ impl World {
         offset: Vector3<f32>,
         max_speed: f32,
         particle_count: i32,
-        state_id: u16,
+        state_id: BlockStateId,
     ) {
         let mut data = Vec::new();
-        if VarInt(i32::from(state_id)).encode(&mut data).is_err() {
+        if VarInt(i32::from(state_id.vanilla_view().as_u16()))
+            .encode(&mut data)
+            .is_err()
+        {
             return;
         }
         let packet = CParticle::new(
@@ -2129,7 +2132,7 @@ impl World {
                 let be_block_id = BlockState::to_be_network_id(block_state_id);
                 self.broadcast_to_chunk_editioned(
                     chunk_pos,
-                    &CBlockUpdate::new(block_pos, i32::from(block_state_id.as_u16()).into()),
+                    &CBlockUpdate::new(block_pos, (block_state_id.as_u32() as i32).into()),
                     &pumpkin_protocol::bedrock::client::CUpdateBlock::new(block_pos, be_block_id),
                 );
                 if let Some(block_entity) = self.get_block_entity(&block_pos)
@@ -2729,8 +2732,8 @@ impl World {
                         collisions.push(shape);
                     }
                 }
-            } else if state.id.as_u16() < BlockStateId::COUNT
-                || pumpkin_data::content::state(state.id.as_u16())
+            } else if state.id.is_vanilla()
+                || pumpkin_data::content::state(state.id.as_u32())
                     .and_then(|state| state.scaffolding.as_ref())
                     .is_none_or(|props| {
                         // A permanent bottom scaffold always collides. The other
@@ -6010,8 +6013,14 @@ impl World {
         old_state_id: BlockStateId,
         new_state_id: BlockStateId,
     ) {
-        let old = PoiType::from_state_id(old_state_id.as_u16());
-        let new = PoiType::from_state_id(new_state_id.as_u16());
+        let old = old_state_id
+            .is_vanilla()
+            .then(|| PoiType::from_state_id(old_state_id.as_u16()))
+            .flatten();
+        let new = new_state_id
+            .is_vanilla()
+            .then(|| PoiType::from_state_id(new_state_id.as_u16()))
+            .flatten();
         if old == new {
             return;
         }
@@ -6106,7 +6115,7 @@ impl World {
                 self.update_neighbors_at(position, old_block, None);
                 if block_state_id.has_analog_output_signal() {
                     self.update_neighbour_for_output_signal(position, new_block);
-                } else if replaced_block_state_id.as_u16() >= BlockStateId::COUNT
+                } else if !replaced_block_state_id.is_vanilla()
                     && replaced_block_state_id.has_analog_output_signal()
                 {
                     self.update_neighbour_for_output_signal(position, old_block);
@@ -7414,7 +7423,7 @@ impl World {
                         relative.y,
                         relative.z as usize,
                         |state| {
-                            if pumpkin_data::content::state(state.as_u16())
+                            if pumpkin_data::content::state(state.as_u32())
                                 .and_then(|entry| entry.entity)
                                 != Some(content.resource_location())
                             {
@@ -7467,7 +7476,7 @@ impl World {
                         relative.z as usize,
                         |state| {
                             if state != expected_state
-                                || pumpkin_data::content::state(state.as_u16())
+                                || pumpkin_data::content::state(state.as_u32())
                                     .and_then(|entry| entry.entity)
                                     != Some(content.resource_location())
                             {
@@ -7688,7 +7697,7 @@ impl World {
                 )?;
                 if let Some(id) = nbt.get_string("id")
                     && pumpkin_data::content::entity_name(id).is_some()
-                    && pumpkin_data::content::state(state.as_u16()).and_then(|entry| entry.entity)
+                    && pumpkin_data::content::state(state.as_u32()).and_then(|entry| entry.entity)
                         != Some(id)
                 {
                     return None;
