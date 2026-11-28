@@ -14,7 +14,10 @@ use pumpkin_util::GameMode;
 use pumpkin_util::math::boundingbox::BoundingBox;
 use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
 use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
-use std::{sync::Arc, sync::atomic::Ordering};
+use std::{
+    sync::atomic::Ordering,
+    sync::{Arc, OnceLock},
+};
 pub mod abstract_arrow;
 pub mod arrow;
 pub mod dragon_fireball;
@@ -229,6 +232,16 @@ pub enum HitOutcome {
     Deflected,
     /// The block was gone by the time the projectile got there.
     Ignored,
+    /// An embedding callback canceled the impact before any native side effects.
+    Canceled,
+}
+
+pub type ProjectileImpactHook = fn(&dyn EntityBase, &ProjectileHit) -> bool;
+static IMPACT_HOOK: OnceLock<ProjectileImpactHook> = OnceLock::new();
+
+/// Return true from the hook to cancel an impact.
+pub fn install_projectile_impact_hook(hook: ProjectileImpactHook) -> bool {
+    IMPACT_HOOK.set(hook).is_ok()
 }
 
 /// Deflects the projectile off an entity that deflects projectiles, otherwise hits the target.
@@ -237,6 +250,9 @@ pub fn hit_target_or_deflect_self(
     hit: ProjectileHit,
     server: &Server,
 ) -> HitOutcome {
+    if IMPACT_HOOK.get().is_some_and(|hook| hook(projectile, &hit)) {
+        return HitOutcome::Canceled;
+    }
     let world = projectile.get_entity().world.load();
     match &hit {
         ProjectileHit::Entity { entity, .. } => {
@@ -596,6 +612,17 @@ pub fn trace_projectile(
     clip_block: ClipBlock,
     margin: f64,
 ) -> Option<ProjectileHit> {
+    trace_projectile_ordered(projectile, can_hit_entity, clip_block, margin, false)
+}
+
+/// Some effects explicitly test blocks before entities.
+pub fn trace_projectile_ordered(
+    projectile: &dyn EntityBase,
+    can_hit_entity: impl Fn(&dyn EntityBase) -> bool,
+    clip_block: ClipBlock,
+    margin: f64,
+    block_first: bool,
+) -> Option<ProjectileHit> {
     let entity = projectile.get_entity();
     let world = entity.world.load();
     let delta = entity.velocity.load();
@@ -615,6 +642,9 @@ pub fn trace_projectile(
             world_border,
         }
     });
+    if block_first && hit.is_some() {
+        return hit;
+    }
 
     let search_box = entity
         .bounding_box

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use pumpkin_data::BlockStateId;
 use pumpkin_data::block_properties::{
@@ -302,7 +302,17 @@ pub fn update_power_strength(world: &Arc<World>, pos: &BlockPos) {
     }
 }
 
+pub type WirePowerHook = fn(&World, &BlockPos) -> bool;
+static WIRE_POWER_HOOK: OnceLock<WirePowerHook> = OnceLock::new();
+
+pub fn install_wire_power_hook(hook: WirePowerHook) -> bool {
+    WIRE_POWER_HOOK.set(hook).is_ok()
+}
+
 fn calculate_target_strength(world: &World, pos: &BlockPos) -> u8 {
+    if WIRE_POWER_HOOK.get().is_some_and(|hook| hook(world, pos)) {
+        return 15;
+    }
     let block_signal = get_block_signal(world, pos);
     if block_signal == 15 {
         return 15;
