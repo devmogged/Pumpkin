@@ -24,7 +24,7 @@ use pumpkin_util::math::vector3::Vector3;
 use std::sync::atomic::Ordering::{AcqRel, Relaxed};
 
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{
         AtomicBool, AtomicI32,
         Ordering::{self},
@@ -34,6 +34,15 @@ use std::sync::{
 use super::{Entity, EntityBase, living::LivingEntity, player::Player};
 use crate::block::blocks::bubble_column::SURFACE_UPWARD_ACCELERATION;
 use crate::world::entity_islands::{self, AuditedReach};
+
+/// Observes a permanently lost dropped stack after the item entity has claimed it.
+/// A missing damage type denotes age despawn.
+pub type ItemDestroyedHook = fn(&Arc<World>, &ItemStack, Option<DamageType>);
+static ITEM_DESTROYED_HOOK: OnceLock<ItemDestroyedHook> = OnceLock::new();
+
+pub fn install_item_destroyed_hook(hook: ItemDestroyedHook) -> bool {
+    ITEM_DESTROYED_HOOK.set(hook).is_ok()
+}
 
 pub struct ItemEntity {
     entity: Entity,
@@ -403,8 +412,8 @@ impl ItemEntity {
 
     /// Vanilla `Item.onDestroyed`: containers (`BlockItem`, e.g. shulker boxes and bundles
     /// spill their contents where the item died, whatever the damage type was).
-    fn on_destroyed(&self, world: &Arc<World>) {
-        let contents = {
+    fn on_destroyed(&self, world: &Arc<World>, damage_type: DamageType) {
+        let (original, contents) = {
             let mut stack = self
                 .item_stack
                 .lock()
@@ -413,6 +422,7 @@ impl ItemEntity {
             if stack.is_empty() {
                 return;
             }
+            let original = ITEM_DESTROYED_HOOK.get().map(|_| stack.clone());
             // Claims the item -> a pickup waiting on the lock sees an empty stack.
             stack.set_count(0);
             let mut contents = Vec::new();
@@ -428,9 +438,12 @@ impl ItemEntity {
                 contents.extend(bundle.items.iter().cloned());
                 stack.set_data_component(BundleContentsImpl::EMPTY);
             }
-            contents
+            (original, contents)
         };
 
+        if let (Some(hook), Some(original)) = (ITEM_DESTROYED_HOOK.get(), original) {
+            hook(world, &original, Some(damage_type));
+        }
         // no pickup delay.
         let pos = self.entity.pos.load();
         for item in contents.into_iter().filter(|item| !item.is_empty()) {
@@ -583,6 +596,24 @@ impl ItemEntity {
                 crate::plugin::api::events::entity::item_despawn::ItemDespawnEvent::new(entity_id)
             }) && let Some(e) = world.get_entity_by_id(entity_id)
             {
+                if let Some(hook) = ITEM_DESTROYED_HOOK.get() {
+                    let original = {
+                        let mut stack = self
+                            .item_stack
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if stack.is_empty() {
+                            None
+                        } else {
+                            let original = stack.clone();
+                            stack.set_count(0);
+                            Some(original)
+                        }
+                    };
+                    if let Some(original) = original {
+                        hook(&world, &original, None);
+                    }
+                }
                 e.get_entity().remove();
             }
             return false;
@@ -783,7 +814,7 @@ impl EntityBase for ItemEntity {
 
         world.emit_game_event(GameEvent::EntityDamage.name(), entity.pos.load());
         if destroyed {
-            self.on_destroyed(&world);
+            self.on_destroyed(&world, damage_type);
             entity.remove();
         }
         true
