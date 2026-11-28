@@ -2853,7 +2853,11 @@ impl<T: Mob + Send + 'static> EntityBase for T {
     }
 
     fn is_pushable(&self) -> bool {
-        self.mob_is_pushable()
+        !self
+            .get_entity()
+            .immovable
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && self.mob_is_pushable()
     }
 
     fn on_climbable(&self) -> bool {

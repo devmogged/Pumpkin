@@ -38,6 +38,8 @@ pub struct EmbedderSpawn {
     pub id: &'static str,
     /// The vanilla type whose size, spawn costs, caps and despawn rules the mob uses.
     pub carrier: &'static EntityType,
+    /// Native dimensions for the registered type when they differ from the carrier.
+    pub dimensions: Option<pumpkin_util::math::boundingbox::EntityDimensions>,
     /// The pool it is in.
     pub category: &'static MobCategory,
     pub location: SpawnLocation,
@@ -83,6 +85,21 @@ pub enum SpawnEntry {
 }
 
 impl SpawnEntry {
+    fn spawn_bounds(self, position: Vector3<f64>) -> pumpkin_util::math::boundingbox::BoundingBox {
+        if let Self::Embedder(spawn) = self
+            && let Some(dimensions) = spawn.dimensions
+        {
+            return pumpkin_util::math::boundingbox::BoundingBox::new_from_pos(
+                position.x,
+                position.y,
+                position.z,
+                &dimensions,
+            );
+        }
+        self.entity_type()
+            .get_spawn_bounding_box(position.x, position.y, position.z)
+    }
+
     #[must_use]
     pub const fn entity_type(self) -> &'static EntityType {
         match self {
@@ -189,11 +206,9 @@ pub fn spawn_pending_generation(world: &Arc<World>) {
         ready
     };
     for (entry, candidates) in ready {
-        let entity_type = entry.entity_type();
         for (position, check_pos) in candidates {
-            if world.is_space_empty(
-                entity_type.get_spawn_bounding_box(position.x, position.y, position.z),
-            ) && entry.check_rules(world, &check_pos, false, EntitySpawnReason::ChunkGeneration)
+            if world.is_space_empty(entry.spawn_bounds(position))
+                && entry.check_rules(world, &check_pos, false, EntitySpawnReason::ChunkGeneration)
                 && let Some(entity) = entry.create(world, position)
             {
                 entity
@@ -1233,11 +1248,11 @@ pub fn is_valid_spawn_position_for_entry(
     if !entry.check_rules(world, block_pos, is_thundering, EntitySpawnReason::Natural) {
         return false;
     }
-    if !world.is_space_empty(entity_type.get_spawn_bounding_box(
+    if !world.is_space_empty(entry.spawn_bounds(Vector3::new(
         f64::from(block_pos.0.x) + 0.5,
         f64::from(block_pos.0.y),
         f64::from(block_pos.0.z) + 0.5,
-    )) {
+    ))) {
         return false;
     }
     true
