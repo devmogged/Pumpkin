@@ -20,6 +20,18 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use std::sync::Arc;
 
+static DISABLED_STRUCTURE_SETS: std::sync::LazyLock<std::sync::RwLock<FxHashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(FxHashSet::default()));
+
+/// Startup mod registration may exclude a set without changing its registry identity.
+pub fn disable_structure_set(id: &str) {
+    let id = id.strip_prefix("minecraft:").unwrap_or(id);
+    DISABLED_STRUCTURE_SETS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(id.to_owned());
+}
+
 use crate::chunk_system::StagedChunkEnum;
 use crate::generation::proto_chunk::ProtoChunk;
 
@@ -315,6 +327,9 @@ impl VanillaGenerator {
                 .then_some(first)
             })
         };
+        let disabled = DISABLED_STRUCTURE_SETS
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let enabled_structure_sets = StructureSet::names()
             .iter()
             .enumerate()
@@ -327,7 +342,7 @@ impl VanillaGenerator {
                         .iter()
                         .any(|value| value.strip_prefix("minecraft:").unwrap_or(value) == name)
                 });
-                (has_biomes && selected).then_some(index)
+                (has_biomes && selected && !disabled.contains(name)).then_some(index)
             })
             .collect();
 
