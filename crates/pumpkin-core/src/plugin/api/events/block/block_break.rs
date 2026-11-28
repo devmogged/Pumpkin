@@ -3,7 +3,7 @@ use pumpkin_macros::{Event, cancellable};
 use pumpkin_util::math::position::BlockPos;
 use std::sync::Arc;
 
-use crate::entity::player::Player;
+use crate::{entity::player::Player, world::World};
 
 use super::BlockEvent;
 
@@ -14,6 +14,9 @@ use super::BlockEvent;
 #[cancellable]
 #[derive(Event, Clone)]
 pub struct BlockBreakEvent {
+    /// The world in which the block is being broken.
+    pub world: Arc<World>,
+
     /// The player who is breaking the block, if applicable.
     pub player: Option<Arc<Player>>,
 
@@ -34,6 +37,7 @@ impl BlockBreakEvent {
     /// Creates a new instance of `BlockBreakEvent`.
     ///
     /// # Arguments
+    /// - `world`: The world containing the block.
     /// - `player`: An optional reference to the player breaking the block.
     /// - `block`: The block that is being broken.
     /// - `block_position`: The position of the block that is being broken.
@@ -44,6 +48,7 @@ impl BlockBreakEvent {
     /// A new instance of `BlockBreakEvent`.
     #[must_use]
     pub const fn new(
+        world: Arc<World>,
         player: Option<Arc<Player>>,
         block: &'static Block,
         block_position: BlockPos,
@@ -51,6 +56,7 @@ impl BlockBreakEvent {
         drop: bool,
     ) -> Self {
         Self {
+            world,
             player,
             block,
             block_position,

@@ -6212,6 +6212,7 @@ impl World {
         }
 
         let mut event = BlockBreakEvent::new(
+            self.clone(),
             cause.cloned(),
             broken_block,
             *position,

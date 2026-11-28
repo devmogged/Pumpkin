@@ -120,16 +120,21 @@ impl ToFromWasmEvent for BlockBreakEvent {
         })
     }
 
-    fn from_wasm_event(event: Event, state: &mut PluginHostState) -> Self {
+    fn from_wasm_event(_event: Event, _state: &mut PluginHostState) -> Self {
+        panic!("block break events require their original world");
+    }
+
+    fn apply_wasm_event(&mut self, event: Event, state: &mut PluginHostState) {
+        // The WIT event has no world field; retain the originating world.
         match event {
-            Event::BlockBreakEvent(data) => Self {
-                player: data.player.map(|player| consume_player(state, &player)),
-                block: from_wasm_block_name(&data.block),
-                block_position: from_wasm_block_position(data.block_pos),
-                exp: data.exp,
-                drop: data.should_drop,
-                cancelled: data.cancelled,
-            },
+            Event::BlockBreakEvent(data) => {
+                self.player = data.player.map(|player| consume_player(state, &player));
+                self.block = from_wasm_block_name(&data.block);
+                self.block_position = from_wasm_block_position(data.block_pos);
+                self.exp = data.exp;
+                self.drop = data.should_drop;
+                self.cancelled = data.cancelled;
+            }
             _ => panic!("unexpected event type"),
         }
     }
@@ -1402,5 +1407,57 @@ impl ToFromWasmEvent for VaultDisplayItemEvent {
             }
             _ => panic!("unexpected event type"),
         }
+    }
+}
+
+#[cfg(test)]
+mod block_break_tests {
+    use super::*;
+    use pumpkin_config::world::LevelConfig;
+    use pumpkin_core::{block::registry::default_registry, world::World};
+    use pumpkin_data::{Block, dimension::Dimension};
+    use pumpkin_util::{math::position::BlockPos, world_seed::Seed};
+    use pumpkin_world::{level::Level, world_info::LevelData};
+    use std::sync::Weak;
+
+    #[tokio::test]
+    async fn playerless_break_preserves_world_after_wasm_round_trip()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let folder = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let dimension = Dimension::OVERWORLD.clone();
+        let world = World::load(
+            Level::from_root_folder(
+                &LevelConfig::default(),
+                folder.clone(),
+                0,
+                dimension.clone(),
+            ),
+            Arc::new(Arc::new(LevelData::default(Seed(0))).into()),
+            dimension,
+            default_registry(),
+            Weak::new(),
+        );
+        let pos = BlockPos::new(1, 64, 2);
+        let mut event = BlockBreakEvent::new(world.clone(), None, &Block::STONE, pos, 0, true);
+        let mut state = PluginHostState::new();
+        let Event::BlockBreakEvent(mut data) = event.to_wasm_event(&mut state) else {
+            panic!("expected a block break event");
+        };
+        data.should_drop = false;
+        data.exp = 3;
+        data.cancelled = true;
+        event.apply_wasm_event(Event::BlockBreakEvent(data), &mut state);
+
+        assert!(Arc::ptr_eq(&event.world, &world));
+        assert!(event.player.is_none());
+        assert_eq!(event.block_position, pos);
+        assert!(!event.drop);
+        assert_eq!(event.exp, 3);
+        assert!(event.cancelled);
+        world.level.shutdown().await;
+        drop(event);
+        drop(world);
+        std::fs::remove_dir_all(folder)?;
+        Ok(())
     }
 }
