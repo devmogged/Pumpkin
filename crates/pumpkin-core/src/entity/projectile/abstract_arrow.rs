@@ -433,5 +433,13 @@ pub fn get_entity_hit_result(
         .load()
         .expand_towards(delta.x, delta.y, delta.z)
         .expand_all(1.0);
-    super::nearest_entity_hit(projectile, &world, &search_box, from, to, can_hit)
+    super::nearest_entity_hit(
+        projectile,
+        &world,
+        &search_box,
+        from,
+        to,
+        super::compute_margin(projectile),
+        can_hit,
+    )
 }
