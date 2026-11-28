@@ -17,6 +17,7 @@
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_impl::DataComponentImpl;
 use std::any::Any;
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -100,7 +101,7 @@ fn equal_crafting_grid(expected: &[ItemStack], actual: &[ItemStack]) -> bool {
         })
 }
 
-fn equal_optional_stack(expected: &Option<ItemStack>, actual: &Option<ItemStack>) -> bool {
+fn equal_optional_stack(expected: Option<&ItemStack>, actual: Option<&ItemStack>) -> bool {
     match (expected, actual) {
         (None, None) => true,
         (Some(left), Some(right)) => {
@@ -1061,6 +1062,7 @@ pub fn match_crafting_recipe(
 }
 
 /// Runs `on_match` with the definition and result of the first matching recipe.
+///
 /// Unlike a separate matcher, this wrapper shares the exact recipe ordering and
 /// ingredient/remaining-item semantics with conflict enumeration.
 pub fn match_crafting_recipe_with<T>(
@@ -1071,9 +1073,7 @@ pub fn match_crafting_recipe_with<T>(
     let mut callback = Some(on_match);
     let mut result = None;
     for_each_matching_crafting_recipe(inventory, provider, |recipe, matched| {
-        result = Some(callback.take().expect("first recipe callback once")(
-            recipe, matched,
-        ));
+        result = callback.take().map(|callback| callback(recipe, matched));
         false
     });
     result
@@ -1083,13 +1083,10 @@ pub fn match_crafting_recipe_with<T>(
 /// Hash the *definition*, not its table position, so adding/reordering
 /// generated recipes does not redirect a persisted Crafter choice to another
 /// recipe after a binary upgrade. This is always an explicitly synthetic ID.
-fn generated_crafting_identity(recipe: &CraftingRecipeTypes) -> String {
+fn generated_crafting_identity(recipe: &CraftingRecipeTypes) -> Option<String> {
     let mut digest = Sha256::new();
     digest.update(b"moddedmc-generated-crafting-v2\0");
-    digest.update(
-        serde_json::to_vec(recipe)
-            .expect("generated vanilla recipe must serialize deterministically"),
-    );
+    digest.update(serde_json::to_vec(recipe).ok()?);
 
     // RecipeResultStruct's generated Serialize implementation skips its
     // data components. Include those separately, or changing a component
@@ -1123,9 +1120,9 @@ fn generated_crafting_identity(recipe: &CraftingRecipeTypes) -> String {
     let hash = digest.finalize();
     let mut key = String::from("moddedmc:generated_crafting/v2/");
     for byte in hash.iter().take(16) {
-        key.push_str(&format!("{byte:02x}"));
+        let _ = write!(key, "{byte:02x}");
     }
-    key
+    Some(key)
 }
 
 /// Stable synthetic identity for generated vanilla definitions, and authentic
@@ -1133,7 +1130,7 @@ fn generated_crafting_identity(recipe: &CraftingRecipeTypes) -> String {
 #[must_use]
 pub fn crafting_recipe_identity(definition: GenericRecipe<'_>) -> Option<String> {
     match definition {
-        GenericRecipe::Vanilla(recipe) => Some(generated_crafting_identity(recipe)),
+        GenericRecipe::Vanilla(recipe) => generated_crafting_identity(recipe),
         GenericRecipe::Dynamic(
             OwnedCraftingRecipe::Shaped { recipe_id, .. }
             | OwnedCraftingRecipe::Shapeless { recipe_id, .. },
@@ -1157,7 +1154,10 @@ pub fn for_each_matching_crafting_recipe(
 ) -> usize {
     let mut count: usize = 0;
     let inventory_width = inventory.get_width();
-    if inventory_width == 0 || inventory.size() == 0 || inventory.size() % inventory_width != 0 {
+    if inventory_width == 0
+        || inventory.size() == 0
+        || !inventory.size().is_multiple_of(inventory_width)
+    {
         return 0;
     }
     let mut top_x = 9;
@@ -1397,7 +1397,7 @@ impl ResultSlot {
                         && pinned_remainders
                             .iter()
                             .zip(&remainders)
-                            .all(|(a, b)| equal_optional_stack(a, b)))
+                            .all(|(a, b)| equal_optional_stack(a.as_ref(), b.as_ref())))
                     .then_some(result)
                 })
                 .or_else(|| {

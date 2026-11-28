@@ -334,7 +334,7 @@ impl VanillaGenerator {
         let default_rings = (dimension == Dimension::OVERWORLD).then(|| {
             match &StructureSet::STRONGHOLDS.placement.placement_type {
                 pumpkin_data::structures::StructurePlacementType::ConcentricRings(rings) => rings,
-                _ => unreachable!(),
+                pumpkin_data::structures::StructurePlacementType::RandomSpread(_) => unreachable!(),
             }
         });
         let global_structure_cache =

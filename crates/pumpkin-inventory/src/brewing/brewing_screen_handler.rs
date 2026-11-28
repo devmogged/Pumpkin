@@ -193,9 +193,10 @@ impl ScreenHandler for BrewingScreenHandler {
                 return ItemStack::EMPTY.clone();
             }
             if (0..=2).contains(&slot_index) {
-                let mut taken = clicked.clone();
-                taken.item_count -= stack.item_count;
-                slot.on_take_item(player, &taken);
+                let original_count = clicked.item_count;
+                clicked.item_count -= stack.item_count;
+                slot.on_take_item(player, &clicked);
+                clicked.item_count = original_count;
             }
         }
 
