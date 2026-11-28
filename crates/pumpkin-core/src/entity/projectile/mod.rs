@@ -138,6 +138,9 @@ impl ThrownItemEntity {
         if entity.is_removed() {
             return;
         }
+        if tick_controlled_projectile(entity) {
+            return;
+        }
         let world = entity.world.load();
 
         self.owner.tick(entity);
@@ -402,6 +405,9 @@ impl HurtingProjectile {
         if entity.is_removed() {
             return;
         }
+        if tick_controlled_projectile(entity) {
+            return;
+        }
         self.owner.tick(entity);
 
         let velocity = entity.velocity.load();
@@ -488,9 +494,27 @@ pub fn knockback_away_from(projectile: &Entity, hurt: &Entity) -> Option<(f64, f
 /// Only redirectable projectiles can be hit by other projectiles.
 #[must_use]
 pub fn is_redirectable(entity: &Entity) -> bool {
-    entity
-        .entity_type
-        .has_tag(&tag::EntityType::MINECRAFT_REDIRECTABLE_PROJECTILE)
+    entity.controlled_projectile_lease.load(Ordering::Relaxed) < 0
+        && entity
+            .entity_type
+            .has_tag(&tag::EntityType::MINECRAFT_REDIRECTABLE_PROJECTILE)
+}
+
+/// Host-controlled carriers receive movement and collision from the host, not
+/// the vanilla projectile tick. Expire abandoned carriers after three ticks.
+fn tick_controlled_projectile(entity: &Entity) -> bool {
+    let lease = entity.controlled_projectile_lease.load(Ordering::Relaxed);
+    if lease < 0 {
+        return false;
+    }
+    if entity
+        .controlled_projectile_lease
+        .fetch_sub(1, Ordering::Relaxed)
+        <= 1
+    {
+        entity.remove();
+    }
+    true
 }
 
 /// Whether the projectile may change the block at `pos`. A player's projectile follows spawn protection and the world border, a mob's needs
@@ -557,6 +581,21 @@ pub fn get_hit_result_on_move_vector(
     can_hit_entity: impl Fn(&dyn EntityBase) -> bool,
     clip_block: ClipBlock,
 ) -> Option<ProjectileHit> {
+    trace_projectile(
+        projectile,
+        can_hit_entity,
+        clip_block,
+        compute_margin(projectile.get_entity()),
+    )
+}
+
+/// Trace a mod-controlled projectile with an explicit target box inflation.
+pub fn trace_projectile(
+    projectile: &dyn EntityBase,
+    can_hit_entity: impl Fn(&dyn EntityBase) -> bool,
+    clip_block: ClipBlock,
+    margin: f64,
+) -> Option<ProjectileHit> {
     let entity = projectile.get_entity();
     let world = entity.world.load();
     let delta = entity.velocity.load();
@@ -582,9 +621,15 @@ pub fn get_hit_result_on_move_vector(
         .load()
         .expand_towards(delta.x, delta.y, delta.z)
         .expand_all(1.0);
-    if let Some((entity, hit_pos)) =
-        nearest_entity_hit(entity, &world, &search_box, from, to, can_hit_entity)
-    {
+    if let Some((entity, hit_pos)) = nearest_entity_hit(
+        entity,
+        &world,
+        &search_box,
+        from,
+        to,
+        margin,
+        can_hit_entity,
+    ) {
         hit = Some(ProjectileHit::Entity {
             entity,
             hit_pos,
@@ -613,9 +658,9 @@ fn nearest_entity_hit(
     search_box: &BoundingBox,
     from: Vector3<f64>,
     to: Vector3<f64>,
+    margin: f64,
     can_hit: impl Fn(&dyn EntityBase) -> bool,
 ) -> Option<(Arc<dyn EntityBase>, Vector3<f64>)> {
-    let margin = compute_margin(projectile);
     let mut nearest = None;
     let mut nearest_distance = f64::MAX;
     for candidate in entities_in(world, search_box) {
