@@ -1624,6 +1624,8 @@ pub struct Entity {
     default_dimensions: AtomicCell<Option<EntityDimensions>>,
     /// Embedder collision overrides, restored from the registered type on load.
     pub native_dimensions: AtomicCell<Option<EntityDimensions>>,
+    /// Transient, world-axis-aligned attack regions relative to the entity origin.
+    pub multipart_regions: std::sync::RwLock<Vec<(BoundingBox, f32)>>,
     pub immovable: AtomicBool,
     pub pass_through_block: AtomicCell<Option<u16>>,
     /// Vanilla `LivingEntity.getScale` (`Attributes.SCALE`). 1.0 for non-living.
@@ -1933,6 +1935,7 @@ impl Entity {
             entity_dimension: AtomicCell::new(bounding_box_size),
             default_dimensions: AtomicCell::new(None),
             native_dimensions: AtomicCell::new(None),
+            multipart_regions: std::sync::RwLock::new(Vec::new()),
             immovable: AtomicBool::new(false),
             pass_through_block: AtomicCell::new(None),
             scale: AtomicCell::new(1.0),
