@@ -5157,27 +5157,24 @@ impl Player {
             < d * d
     }
 
-    /// A packet attack uses server-side multipart bounds and the native attack pipeline.
-    /// Ordinary entities retain their usual reach allowance.
-    pub fn attack_target(&self, target: &Arc<dyn EntityBase>) {
+    /// A multipart attack uses server-side bounds and the native attack pipeline.
+    pub fn attack_multipart(&self, target: &Arc<dyn EntityBase>) {
         use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
         let entity = target.get_entity();
         let regions = entity
             .multipart_regions
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if regions.is_empty() {
-            drop(regions);
-            if self.can_interact_with_entity(target.as_ref(), 1.0) {
-                self.attack(target);
-            }
+        if regions.is_empty() || self.is_spectator() || !self.living_entity.is_alive()
+            || !entity.is_alive() || target.get_living_entity().is_none_or(|living| !living.is_alive()) {
             return;
         }
-        if self.is_spectator() || !self.get_entity().is_alive() || !entity.is_alive() {
+        let reach = self.entity_interaction_range();
+        if !reach.is_finite() || reach <= 0.0 {
             return;
         }
         let eye = self.eye_position();
-        let direction = self.get_looking_vector() * self.entity_interaction_range();
+        let direction = self.get_looking_vector() * reach;
         let pos = entity.pos.load();
         let world = self.world();
         let wall = world.clip(&ClipContext::new(
@@ -5189,7 +5186,7 @@ impl Player {
             .filter_map(|(bounds, multiplier)| {
                 let t = bounds.expand_all(0.15).ray_intersection(eye - pos, direction)?;
                 let distance = (direction * t).length_squared();
-                (wall.is_miss || distance < wall_distance).then_some((t, *multiplier))
+            (distance < wall_distance + 1.0e-6).then_some((t, *multiplier))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         drop(regions);
@@ -5201,6 +5198,7 @@ impl Player {
             }
             let tick = self.tick_counter.load(Ordering::Relaxed);
             if self.last_multipart_attack.swap(tick, Ordering::Relaxed) != tick {
+                self.update_last_action_time();
                 self.attack_with_multiplier(target, multiplier);
             }
         }

@@ -38,8 +38,7 @@ impl JavaClient {
             ));
             return;
         };
-        if target.get_entity().multipart_regions.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty()
-            && !player.can_interact_with_entity(target.as_ref(), 1.0) {
+        if !player.can_interact_with_entity(target.as_ref(), 1.0) {
             return;
         }
         if let Some(player_victim) = &player_target {
@@ -55,6 +54,6 @@ impl JavaClient {
                 return;
             }
         }
-        player.attack_target(&target);
+        player.attack(&target);
     }
 }

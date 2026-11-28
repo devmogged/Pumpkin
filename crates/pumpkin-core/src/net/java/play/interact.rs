@@ -34,8 +34,7 @@ impl JavaClient {
             .or_else(|| world.get_entity_by_id(entity_id.0));
 
         if let Some(target) = target {
-            if (action != ActionType::Attack || target.get_entity().multipart_regions.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty())
-                && !player.can_interact_with_entity(target.as_ref(), 1.0) {
+            if !player.can_interact_with_entity(target.as_ref(), 1.0) {
                 return;
             }
             if player.gamemode.load() == GameMode::Spectator {
@@ -89,7 +88,7 @@ impl JavaClient {
                                     return;
                                 }
                             }
-                            player.attack_target(&event.target);
+                            player.attack(&event.target);
                         }
                         ActionType::Interact | ActionType::InteractAt => {
                             if event.action == ActionType::InteractAt
