@@ -72,7 +72,7 @@ fn is_water_potion(stack: &ItemStack) -> bool {
 }
 
 fn potion_has_tag(stack: &ItemStack, tag: pumpkin_data::tag::Tag) -> bool {
-    let (names, ids) = tag;
+    let (names, ids, _) = tag;
     stack
         .get_data_component::<pumpkin_data::data_component_impl::PotionContentsImpl>()
         .and_then(|contents| contents.potion_id)

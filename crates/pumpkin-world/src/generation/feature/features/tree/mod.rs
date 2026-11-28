@@ -328,7 +328,7 @@ impl TreeFeature {
             let props = OakLeavesLikeProperties::from_state_id(state_id);
             if props.waterlogged {
                 chunk.schedule_fluid_tick(ScheduledTick {
-                    delay: Fluid::WATER.flow_speed as u8,
+                    delay: Fluid::WATER.flow.tick_delay,
                     priority: TickPriority::Normal,
                     position: pos,
                     value: &Fluid::WATER,
