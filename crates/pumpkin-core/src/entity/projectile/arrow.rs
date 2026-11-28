@@ -53,12 +53,16 @@ impl ArrowPickup {
 }
 
 pub type ArrowHurt = dyn Fn(&dyn EntityBase) + Send + Sync;
+pub type ArrowTick = dyn Fn(&dyn EntityBase, bool) + Send + Sync;
+pub type ArrowImpact = dyn Fn(&dyn EntityBase, Option<&dyn EntityBase>) -> bool + Send + Sync;
 
 /// Behaviour selected by the saved ammunition item.
 pub struct CustomArrowAmmo {
     pub velocity_multiplier: f32,
     pub water_inertia: f64,
     pub after_hurt: Box<ArrowHurt>,
+    pub tick: Option<Box<ArrowTick>>,
+    pub before_impact: Option<Box<ArrowImpact>>,
 }
 
 static CUSTOM_AMMO: OnceLock<HashMap<u16, CustomArrowAmmo>> = OnceLock::new();
@@ -67,7 +71,7 @@ pub fn install_custom_arrow_ammo(ammo: HashMap<u16, CustomArrowAmmo>) -> bool {
     CUSTOM_AMMO.set(ammo).is_ok()
 }
 
-pub(crate) fn custom_arrow_ammo(item: &Item) -> Option<&'static CustomArrowAmmo> {
+pub fn custom_arrow_ammo(item: &Item) -> Option<&'static CustomArrowAmmo> {
     if item.id < Item::VANILLA_COUNT {
         return None;
     }
@@ -79,6 +83,7 @@ pub struct ArrowEntity {
     pub owner: ProjectileOwner,
     item_stack: RwLock<ItemStack>,
     custom_ammo: AtomicCell<Option<&'static CustomArrowAmmo>>,
+    impacted: AtomicBool,
     pub base_damage: AtomicU64,
     pub pickup: AtomicCell<ArrowPickup>,
     pub is_critical: AtomicBool,
@@ -112,6 +117,7 @@ impl ArrowEntity {
             owner: ProjectileOwner::new(owner),
             item_stack: RwLock::new(item_stack.copy_with_count(1)),
             custom_ammo: AtomicCell::new(custom_arrow_ammo(item_stack.item)),
+            impacted: AtomicBool::new(false),
             base_damage: AtomicU64::new(Self::ARROW_BASE_DAMAGE.to_bits()),
             pickup: AtomicCell::new(pickup),
             is_critical: AtomicBool::new(false),
@@ -523,9 +529,25 @@ impl EntityBase for ArrowEntity {
 
     fn tick(&self, caller: &dyn EntityBase, server: &Server) {
         abstract_arrow::tick(self, caller, server);
+        if self.entity.is_alive()
+            && let Some(tick) = self.custom_ammo.load().and_then(|ammo| ammo.tick.as_ref())
+        {
+            tick(self, self.impacted.load(Ordering::Relaxed));
+        }
     }
 
     fn on_hit(&self, hit: ProjectileHit) {
+        if let Some(ammo) = self.custom_ammo.load() {
+            let target = match &hit {
+                ProjectileHit::Entity { entity, .. } => Some(entity.as_ref()),
+                ProjectileHit::Block { .. } => None,
+            };
+            if ammo.before_impact.as_ref().is_some_and(|callback| callback(self, target)) {
+                self.entity.remove();
+                return;
+            }
+            self.impacted.store(true, Ordering::Relaxed);
+        }
         let (hit_pos, hit_entity) = match hit {
             ProjectileHit::Block { hit_pos, .. } => (hit_pos, None),
             ProjectileHit::Entity {
