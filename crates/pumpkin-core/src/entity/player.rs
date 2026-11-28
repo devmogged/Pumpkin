@@ -697,6 +697,7 @@ pub struct Player {
     pub ping: AtomicU32,
     /// The amount of ticks since the player's last attack.
     pub last_attacked_ticks: AtomicU32,
+    last_multipart_attack: AtomicI32,
     /// The player's last known experience level.
     pub last_sent_xp: AtomicI32,
     pub last_sent_health: AtomicI32,
@@ -1041,6 +1042,7 @@ impl Player {
             last_action_time: AtomicCell::new(std::time::Instant::now()),
             ping: AtomicU32::new(0),
             last_attacked_ticks: AtomicU32::new(0),
+            last_multipart_attack: AtomicI32::new(i32::MIN),
             client_loaded: AtomicBool::new(initially_loaded),
             bedrock_spawned: AtomicBool::new(false),
             client_loaded_timeout: AtomicU32::new(if initially_loaded { 0 } else { 60 }),
@@ -1602,8 +1604,12 @@ impl Player {
         true
     }
 
-    #[expect(clippy::too_many_lines)]
     pub fn attack(&self, victim: &Arc<dyn EntityBase>) {
+        self.attack_with_multiplier(victim, 1.0);
+    }
+
+    #[expect(clippy::too_many_lines)]
+    fn attack_with_multiplier(&self, victim: &Arc<dyn EntityBase>, multiplier: f32) {
         let world = self.world();
         let Some(server) = world.server.upgrade() else {
             return;
@@ -1777,7 +1783,7 @@ impl Player {
         };
         if !victim.damage_with_context(
             victim.as_ref(),
-            primary_damage,
+            primary_damage * multiplier,
             if is_mace_smash {
                 DamageType::MACE_SMASH
             } else {
@@ -5149,6 +5155,53 @@ impl Player {
             .load()
             .squared_magnitude(self.eye_position())
             < d * d
+    }
+
+    /// A multipart attack uses server-side bounds and the native attack pipeline.
+    pub fn attack_multipart(&self, target: &Arc<dyn EntityBase>) {
+        use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
+        let entity = target.get_entity();
+        let regions = entity
+            .multipart_regions
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if regions.is_empty() || self.is_spectator() || !self.living_entity.is_alive()
+            || !entity.is_alive() || target.get_living_entity().is_none_or(|living| !living.is_alive()) {
+            return;
+        }
+        let reach = self.entity_interaction_range();
+        if !reach.is_finite() || reach <= 0.0 {
+            return;
+        }
+        let eye = self.eye_position();
+        let direction = self.get_looking_vector() * reach;
+        let pos = entity.pos.load();
+        let world = self.world();
+        let wall = world.clip(&ClipContext::new(
+            eye, eye + direction, ClipBlock::Collider, ClipFluid::None,
+        ));
+        let wall_distance = (wall.location - eye).length_squared();
+        let nearest = regions
+            .iter()
+            .filter_map(|(bounds, multiplier)| {
+                let t = bounds.expand_all(0.15).ray_intersection(eye - pos, direction)?;
+                let distance = (direction * t).length_squared();
+            (distance < wall_distance + 1.0e-6).then_some((t, *multiplier))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        drop(regions);
+        if let Some((t, multiplier)) = nearest {
+            let point = eye + direction * t;
+            if !world.worldborder.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_within_bounds(point.x, point.z, 0.0) {
+                return;
+            }
+            let tick = self.tick_counter.load(Ordering::Relaxed);
+            if self.last_multipart_attack.swap(tick, Ordering::Relaxed) != tick {
+                self.update_last_action_time();
+                self.attack_with_multiplier(target, multiplier);
+            }
+        }
     }
 
     pub fn update_bedrock_shield_sneaking(&self) {
