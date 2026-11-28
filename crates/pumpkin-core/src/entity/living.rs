@@ -70,6 +70,14 @@ use pumpkin_util::text::TextComponent;
 use rand::RngExt;
 use std::sync::RwLock;
 
+type ArmorWearHook = fn(&dyn EntityBase, DamageType, f32);
+static ARMOR_WEAR_HOOK: std::sync::OnceLock<ArmorWearHook> = std::sync::OnceLock::new();
+
+/// Install the native hook for equipment stored outside the carrier's inventory.
+pub fn install_armor_wear_hook(hook: ArmorWearHook) -> bool {
+    ARMOR_WEAR_HOOK.set(hook).is_ok()
+}
+
 #[derive(Clone, Copy)]
 struct LastHurtByMob {
     uuid: Uuid,
@@ -3982,6 +3990,9 @@ impl LivingEntity {
             return damage;
         }
 
+        if let Some(hook) = ARMOR_WEAR_HOOK.get() {
+            hook(caller, *damage_type, damage);
+        }
         self.do_hurt_equipment(
             caller,
             *damage_type,
