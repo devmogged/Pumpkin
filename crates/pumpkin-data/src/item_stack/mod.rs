@@ -1320,6 +1320,21 @@ mod tests {
     }
 
     #[test]
+    fn styled_custom_name_survives_saved_stack_round_trip() {
+        let name: pumpkin_util::text::TextComponent =
+            serde_json::from_str(r#"{"text":"Armaralis Egg","color":"yellow","italic":false}"#)
+                .unwrap();
+        let mut stack = ItemStack::new(1, &Item::PLAYER_HEAD);
+        stack.set_data_component(CustomNameImpl { name: name.clone() });
+        let saved = stack.to_nbt().unwrap();
+        let loaded = ItemStack::read_item_stack(&saved).unwrap();
+        assert_eq!(
+            loaded.get_data_component::<CustomNameImpl>().unwrap().name,
+            name
+        );
+    }
+
+    #[test]
     fn lore_can_be_set_and_appended() {
         let mut stack = ItemStack::new(1, &Item::WOODEN_AXE);
         stack.set_lore(vec![pumpkin_util::text::TextComponent::text("First line")]);
