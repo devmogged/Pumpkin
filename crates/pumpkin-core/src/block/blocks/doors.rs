@@ -151,7 +151,7 @@ fn is_lower_door(state: &BlockState) -> bool {
     if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
         return false;
     }
-    if let Some(custom) = pumpkin_data::content::state(state.id.as_u16()) {
+    if let Some(custom) = pumpkin_data::content::state(state.id.as_u32()) {
         return custom
             .properties
             .get("half")
@@ -189,7 +189,7 @@ impl DoorBlock {
         if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
             return false;
         }
-        if let Some(custom) = pumpkin_data::content::state(block_state.as_u16()) {
+        if let Some(custom) = pumpkin_data::content::state(block_state.as_u32()) {
             return custom
                 .properties
                 .get("open")
@@ -203,7 +203,7 @@ impl DoorBlock {
         if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
             return;
         }
-        if pumpkin_data::content::state(block_state.as_u16()).is_some() {
+        if pumpkin_data::content::state(block_state.as_u32()).is_some() {
             if let Some(behaviour) = world.block_registry.get_pumpkin_block(block.id) {
                 behaviour.set_door_open(world, block_pos, block, open);
             }

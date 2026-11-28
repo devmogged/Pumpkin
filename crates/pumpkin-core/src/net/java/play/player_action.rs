@@ -46,7 +46,7 @@ impl JavaClient {
                         if interact_event.cancelled {
                             player.try_send_client_packet(&CBlockUpdate::new(
                                 position,
-                                VarInt(i32::from(state.id.as_u16())),
+                                VarInt(state.id.as_u32() as i32),
                             ));
                             self.update_sequence(player_action.sequence.0);
                             return;
@@ -73,7 +73,7 @@ impl JavaClient {
                     if cannot_mine {
                         player.try_send_client_packet(&CBlockUpdate::new(
                             position,
-                            VarInt(i32::from(state.id.as_u16())),
+                            VarInt(state.id.as_u32() as i32),
                         ));
                         self.update_sequence(player_action.sequence.0);
                         return;
@@ -312,7 +312,7 @@ impl JavaClient {
         let synced_state_id = world.get_block_state_id(&position);
         self.try_send_packet(&CBlockUpdate::new(
             position,
-            VarInt(i32::from(synced_state_id.as_u16())),
+            VarInt(synced_state_id.as_u32() as i32),
         ));
     }
 }

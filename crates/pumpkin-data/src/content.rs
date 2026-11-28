@@ -102,7 +102,7 @@ pub struct ItemEntry {
 pub struct Registry {
     blocks: HashMap<u16, &'static Block>,
     names: HashMap<&'static str, &'static Block>,
-    states: HashMap<u16, StateEntry>,
+    states: HashMap<u32, StateEntry>,
     items: HashMap<u16, ItemEntry>,
     item_names: HashMap<&'static str, &'static Item>,
     entity_names: HashMap<&'static str, &'static str>,
@@ -115,7 +115,7 @@ pub struct Registry {
 #[serde(deny_unknown_fields)]
 struct IdMap {
     blocks: BTreeMap<String, u16>,
-    states: BTreeMap<String, u16>,
+    states: BTreeMap<String, u32>,
     items: BTreeMap<String, u16>,
 }
 
@@ -183,7 +183,7 @@ impl Registry {
         };
         let mut registry = Self::default();
         let mut block_ids = IdAllocator::new(&mut ids.blocks, BlockId::COUNT)?;
-        let mut state_ids = IdAllocator::new(&mut ids.states, BlockStateId::COUNT)?;
+        let mut state_ids = IdAllocator::new(&mut ids.states, u32::from(BlockStateId::COUNT))?;
         let mut item_ids = IdAllocator::new(&mut ids.items, Item::VANILLA_COUNT)?;
 
         for def in definitions {
@@ -225,7 +225,7 @@ impl Registry {
                 if output.is_some_and(|strength| strength > 15) {
                     return Err(invalid("invalid comparator output"));
                 }
-                if state.carrier.as_u16() >= BlockStateId::COUNT {
+                if !state.carrier.is_vanilla() {
                     return Err(invalid("custom block carrier must be vanilla"));
                 }
                 if let Some(replacement) = state.carrier_replacement {
@@ -235,7 +235,7 @@ impl Registry {
                 let raw = state_ids.reserve(&format!("{}{suffix}", def.name))?;
                 if states
                     .iter()
-                    .any(|entry: &BlockState| entry.id.as_u16() == raw)
+                    .any(|entry: &BlockState| entry.id.as_u32() == raw)
                 {
                     return Err(invalid("duplicate custom block state"));
                 }
@@ -326,7 +326,7 @@ impl Registry {
                 states.iter().zip(&def.states).zip(outputs)
             {
                 registry.states.insert(
-                    state.id.as_u16(),
+                    state.id.as_u32(),
                     StateEntry {
                         state,
                         comparator_output,
@@ -453,7 +453,7 @@ impl Registry {
     }
 
     #[must_use]
-    pub fn state(&self, id: u16) -> Option<&StateEntry> {
+    pub fn state(&self, id: u32) -> Option<&StateEntry> {
         self.states.get(&id)
     }
 
@@ -501,7 +501,7 @@ impl Registry {
     ) -> io::Result<()> {
         let entry = self
             .states
-            .get_mut(&id.as_u16())
+            .get_mut(&id.as_u32())
             .filter(|entry| entry.block_display_carrier.is_none())
             .ok_or_else(|| invalid("invalid or duplicate block display state"))?;
         Self::reserve_carrier(&mut self.replacements, carrier, replacement)?;
@@ -514,8 +514,8 @@ impl Registry {
         carrier: BlockStateId,
         replacement: BlockStateId,
     ) -> io::Result<()> {
-        if carrier.as_u16() >= BlockStateId::COUNT
-            || replacement.as_u16() >= BlockStateId::COUNT
+        if !carrier.is_vanilla()
+            || !replacement.is_vanilla()
             || replacement == carrier
             || replacements
                 .get(&carrier)
@@ -528,29 +528,36 @@ impl Registry {
     }
 }
 
-struct IdAllocator<'a> {
-    ids: &'a mut BTreeMap<String, u16>,
-    next: u32,
+struct IdAllocator<'a, T> {
+    ids: &'a mut BTreeMap<String, T>,
+    next: u64,
 }
 
-impl<'a> IdAllocator<'a> {
-    fn new(ids: &'a mut BTreeMap<String, u16>, first: u16) -> io::Result<Self> {
+impl<'a, T> IdAllocator<'a, T>
+where
+    T: Copy + Ord + std::hash::Hash + Into<u64> + TryFrom<u64>,
+{
+    fn new(ids: &'a mut BTreeMap<String, T>, first: T) -> io::Result<Self> {
         let mut used = std::collections::HashSet::with_capacity(ids.len());
-        let mut next = u32::from(first);
+        let mut next = first.into();
         for &id in ids.values() {
-            if id < first || !used.insert(id) {
+            if id < first || id.into() == u64::from(u32::MAX) || !used.insert(id) {
                 return Err(invalid("invalid or duplicate saved registry id"));
             }
-            next = next.max(u32::from(id) + 1);
+            next = next.max(id.into() + 1);
         }
         Ok(Self { ids, next })
     }
 
-    fn reserve(&mut self, name: &str) -> io::Result<u16> {
+    fn reserve(&mut self, name: &str) -> io::Result<T> {
         if let Some(&id) = self.ids.get(name) {
             return Ok(id);
         }
-        let id = u16::try_from(self.next).map_err(|_| invalid("custom registry is full"))?;
+        // The native ABI reserves u32::MAX for unloaded cells.
+        if self.next >= u64::from(u32::MAX) {
+            return Err(invalid("custom registry is full"));
+        }
+        let id = T::try_from(self.next).map_err(|_| invalid("custom registry is full"))?;
         self.ids.insert(name.to_owned(), id);
         self.next += 1;
         Ok(id)
@@ -581,7 +588,7 @@ pub fn block(name: &str) -> Option<&'static Block> {
 }
 
 #[must_use]
-pub fn state(id: u16) -> Option<&'static StateEntry> {
+pub fn state(id: u32) -> Option<&'static StateEntry> {
     CONTENT.get()?.state(id)
 }
 
@@ -639,7 +646,7 @@ pub fn state_from_properties<'a>(
 ) -> Option<BlockStateId> {
     let properties: BTreeMap<_, _> = properties.into_iter().collect();
     block.states.iter().find_map(|candidate| {
-        let entry = state(candidate.id.as_u16())?;
+        let entry = state(candidate.id.as_u32())?;
         entry
             .properties
             .iter()
@@ -662,7 +669,7 @@ pub(crate) fn from_properties(block: &Block, props: &[Property]) -> Box<dyn Bloc
         .states
         .iter()
         .position(|candidate| {
-            state(candidate.id.as_u16()).is_some_and(|entry| {
+            state(candidate.id.as_u32()).is_some_and(|entry| {
                 props.iter().all(|prop| {
                     entry
                         .properties
@@ -709,7 +716,7 @@ impl BlockProperties for ContentProperties {
         Self(0, block.default_state.id)
     }
     fn to_props(&self) -> Vec<Property> {
-        state(self.1.as_u16())
+        state(self.1.as_u32())
             .into_iter()
             .flat_map(|entry| &entry.properties)
             .filter_map(|(k, v)| Property::from_str_pair(k, v))

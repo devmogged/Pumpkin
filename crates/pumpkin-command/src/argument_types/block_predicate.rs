@@ -83,7 +83,7 @@ impl BlockPredicate {
                 nbt,
             } => {
                 if block.id != expected.id
-                    || !content::state(state_id.as_u16()).is_some_and(|state| {
+                    || !content::state(state_id.as_u32()).is_some_and(|state| {
                         properties
                             .iter()
                             .all(|(key, value)| state.properties.get(key) == Some(value))
@@ -244,7 +244,7 @@ fn parse_concrete_predicate(
     reader: &mut StringReader,
 ) -> Result<BlockPredicate, CommandSyntaxError> {
     let (block, id) = read_block(reader)?;
-    if content::state(block.default_state.id.as_u16()).is_none() {
+    if content::state(block.default_state.id.as_u32()).is_none() {
         let input = read_block_input(reader, block, &id, true)?;
         return Ok(BlockPredicate::Block {
             block,
@@ -258,7 +258,7 @@ fn parse_concrete_predicate(
             block
                 .states
                 .iter()
-                .filter_map(|state| content::state(state.id.as_u16()))
+                .filter_map(|state| content::state(state.id.as_u32()))
         };
         read_block_properties(
             reader,

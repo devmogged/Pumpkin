@@ -619,8 +619,7 @@ impl Level {
                             let block_state_id = sections[i].get(x_offset, y_in_section, z_offset);
                             let tick_block = has_random_ticks(block_state_id);
                             let tick_fluid = has_random_ticking_fluid(block_state_id);
-                            let custom_block =
-                                tick_block && block_state_id.as_u16() >= BlockStateId::COUNT;
+                            let custom_block = tick_block && !block_state_id.is_vanilla();
                             let position = BlockPos::new(
                                 chunk_x_base + x_offset as i32,
                                 y_base + y_in_section as i32,

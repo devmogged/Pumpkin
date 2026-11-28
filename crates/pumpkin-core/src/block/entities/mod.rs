@@ -509,7 +509,7 @@ pub fn create_block_entity_for_state(
     use pumpkin_data::block_properties::StructureblockMode;
 
     let state = BlockState::from_id(state_id);
-    if let Some(entry) = pumpkin_data::content::state(state_id.as_u16()) {
+    if let Some(entry) = pumpkin_data::content::state(state_id.as_u32()) {
         return entry.entity.map(|id| {
             Arc::new(content::ContentBlockEntity::new(id, position)) as Arc<dyn BlockEntity>
         });

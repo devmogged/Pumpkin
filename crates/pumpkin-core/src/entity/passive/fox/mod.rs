@@ -359,7 +359,7 @@ impl FoxEntity {
                 world.sync_world_event(
                     WorldEvent::ParticlesAndSoundDestroyBlock,
                     pos,
-                    i32::from(state.as_u16()),
+                    i32::from(state.vanilla_view().as_u16()),
                 );
             }
         }

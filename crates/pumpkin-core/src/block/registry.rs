@@ -916,8 +916,8 @@ impl BlockRegistry {
         let state = BlockState::from_id(new_state);
         let mut buildable = true;
         let collision = placed_block != &Block::SCAFFOLDING
-            && (new_state.as_u16() < BlockStateId::COUNT
-                || pumpkin_data::content::state(new_state.as_u16())
+            && (new_state.is_vanilla()
+                || pumpkin_data::content::state(new_state.as_u32())
                     .and_then(|state| state.scaffolding.as_ref())
                     .is_none_or(|props| props.bottom));
         for shape in state

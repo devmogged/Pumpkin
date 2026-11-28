@@ -381,7 +381,7 @@ impl Mob for TurtleEntity {
                 world.sync_world_event(
                     WorldEvent::ParticlesAndSoundDestroyBlock,
                     pos,
-                    i32::from(below.as_u16()),
+                    i32::from(below.vanilla_view().as_u16()),
                 );
                 entity.emit_own_game_event(self, GameEvent::EntityAction);
             }

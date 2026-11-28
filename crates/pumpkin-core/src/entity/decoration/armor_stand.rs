@@ -241,7 +241,7 @@ impl ArmorStandEntity {
             Vector3::new(width / 4.0, height / 4.0, width / 4.0),
             0.05,
             10,
-            Block::OAK_PLANKS.default_state.id.as_u16(),
+            Block::OAK_PLANKS.default_state.id,
         );
     }
 }

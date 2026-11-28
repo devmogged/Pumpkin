@@ -122,7 +122,7 @@ impl FallingEntity {
         })?;
         entity
             .data
-            .store(i32::from(falling_state.as_u16()), Ordering::Relaxed);
+            .store(falling_state.as_u32() as i32, Ordering::Relaxed);
         let falling = Arc::new(Self::new(entity, falling_state));
         world.spawn_entity_non_save(falling.clone());
         Some(falling)
@@ -252,7 +252,7 @@ impl EntityBase for FallingEntity {
                         let placed = world.get_block_state_id(&landing_pos);
                         world.send_to_tracking_players_editioned(
                             entity,
-                            &CBlockUpdate::new(landing_pos, i32::from(placed.as_u16()).into()),
+                            &CBlockUpdate::new(landing_pos, (placed.as_u32() as i32).into()),
                             &CUpdateBlock::new(landing_pos, BlockState::to_be_network_id(placed)),
                         );
                     }
@@ -299,7 +299,7 @@ impl EntityBase for FallingEntity {
         self.block_state_id.store(state_id);
         self.entity
             .data
-            .store(i32::from(state_id.as_u16()), Ordering::Relaxed);
+            .store(state_id.as_u32() as i32, Ordering::Relaxed);
         self.time
             .store(nbt.get_numeric_int("Time").unwrap_or(0), Ordering::Relaxed);
         self.drop_item

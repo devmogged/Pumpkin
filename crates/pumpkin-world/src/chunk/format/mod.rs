@@ -109,34 +109,34 @@ fn lowest_biome_section_y(root_tag: &NbtCompound) -> Option<i32> {
         .map(|y| y.min(0))
 }
 
-fn extract_u16_array(
+fn extract_block_state_array(
     tag: &pumpkin_nbt::tag::NbtTag,
     removed: &mut bool,
 ) -> Option<Box<[BlockStateId]>> {
     match tag {
         pumpkin_nbt::tag::NbtTag::IntArray(arr) => Some(
             arr.iter()
-                .map(|&x| saved_block_state(x as u16, removed))
+                .map(|&x| saved_block_state(x as u32, removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::ByteArray(arr) => Some(
             arr.iter()
-                .map(|&x| saved_block_state(x as u16, removed))
+                .map(|&x| saved_block_state(u32::from(x as u16), removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::LongArray(arr) => Some(
             arr.iter()
-                .map(|&x| saved_block_state(x as u16, removed))
+                .map(|&x| saved_block_state(u32::try_from(x).unwrap_or(u32::MAX), removed))
                 .collect(),
         ),
         pumpkin_nbt::tag::NbtTag::List(list) => {
             let ids: Box<[BlockStateId]> = list
                 .iter()
                 .map(|t| match t {
-                    pumpkin_nbt::tag::NbtTag::Int(x) => saved_block_state(*x as u16, removed),
-                    pumpkin_nbt::tag::NbtTag::Short(x) => saved_block_state(*x as u16, removed),
-                    pumpkin_nbt::tag::NbtTag::Byte(x) => saved_block_state(*x as u16, removed),
-                    pumpkin_nbt::tag::NbtTag::Long(x) => saved_block_state(*x as u16, removed),
+                    pumpkin_nbt::tag::NbtTag::Int(x) => saved_block_state(*x as u32, removed),
+                    pumpkin_nbt::tag::NbtTag::Short(x) => saved_block_state(u32::from(*x as u16), removed),
+                    pumpkin_nbt::tag::NbtTag::Byte(x) => saved_block_state(u32::from(*x as u16), removed),
+                    pumpkin_nbt::tag::NbtTag::Long(x) => saved_block_state(u32::try_from(*x).unwrap_or(u32::MAX), removed),
                     pumpkin_nbt::tag::NbtTag::String(s) => {
                         if is_custom_id(s) {
                             return resolve_saved_custom_block(Block::from_name(s).map(|block| block.default_state.id), removed);
@@ -197,7 +197,7 @@ fn discard_removed_block_entities(
         !data.get_string("id").is_some_and(is_custom_id)
             || section
                 .get_block_absolute_y((pos.0.x & 15) as usize, pos.0.y, (pos.0.z & 15) as usize)
-                .is_some_and(|state| state.as_u16() >= BlockStateId::COUNT)
+                .is_some_and(|state| !state.is_vanilla())
     });
 }
 
@@ -378,7 +378,7 @@ impl ChunkData {
                             .map(|arr| arr.to_vec().into_boxed_slice());
                         let palette = bs_compound
                             .get("palette")
-                            .and_then(|tag| extract_u16_array(tag, &mut removed))
+                            .and_then(|tag| extract_block_state_array(tag, &mut removed))
                             .unwrap_or_else(|| vec![BlockStateId::AIR].into_boxed_slice());
 
                         block_palettes[index] =
@@ -1761,7 +1761,8 @@ mod tests {
         entry2.put_compound("Properties", props);
 
         let list_tag = NbtTag::List(vec![NbtTag::Compound(entry1), NbtTag::Compound(entry2)]);
-        let result = extract_u16_array(&list_tag, &mut false).expect("should extract palette");
+        let result =
+            extract_block_state_array(&list_tag, &mut false).expect("should extract palette");
 
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Block::STONE.default_state.id);

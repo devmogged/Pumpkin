@@ -4086,7 +4086,7 @@ impl Entity {
         let data = self.data.load(Relaxed);
         let data = if self.entity_type == &EntityType::FALLING_BLOCK {
             i32::from(
-                pumpkin_data::BlockStateId::runtime_or_air(data as u16)
+                pumpkin_data::BlockStateId::runtime_or_air(data as u32)
                     .vanilla_view()
                     .as_u16(),
             )

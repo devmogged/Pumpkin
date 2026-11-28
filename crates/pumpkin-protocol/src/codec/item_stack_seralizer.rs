@@ -918,9 +918,15 @@ mod content_tests {
     fn custom_ids_are_translated_at_the_java_wire_boundary()
     -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
+        let path = dir.path().join("registry.dat");
+        // Reserve the last narrow ID so the packet test cannot pass by truncation.
+        std::fs::write(
+            &path,
+            r#"{"blocks":{},"states":{"test:removed{}":65535},"items":{}}"#,
+        )?;
         let carrier = &Block::NOTE_BLOCK.states[0];
         let registry = Registry::open(
-            &dir.path().join("registry.dat"),
+            &path,
             &[BlockDefinition {
                 name: "test:machine".into(),
                 display_name: "Machine".into(),
@@ -951,6 +957,7 @@ mod content_tests {
             }],
         )?;
         let block = registry.block("test:machine").ok_or("missing definition")?;
+        assert_eq!(block.default_state.id.as_u32(), 65536);
         registry.install()?;
         let item = Item::from_id(block.item_id).ok_or("missing item")?;
         let stack = ItemStackSerializer::from(ItemStack::new(3, item));
@@ -993,7 +1000,7 @@ mod content_tests {
 
         bytes.clear();
         let pos = BlockPos::new(42, 3, 9);
-        CBlockUpdate::new(pos, VarInt::from(block.default_state.id.as_u16()))
+        CBlockUpdate::new(pos, VarInt(block.default_state.id.as_u32() as i32))
             .write_packet_data(&mut bytes, &version)?;
         let mut wire = bytes.as_slice();
         assert_eq!(wire.get_block_pos(&version)?, pos);

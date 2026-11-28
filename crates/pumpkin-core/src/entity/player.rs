@@ -2965,11 +2965,11 @@ impl Player {
         self.try_send_client_packet(&packet);
     }
 
-    pub fn send_block_change(&self, location: BlockPos, state_id: u16) {
+    pub fn send_block_change(&self, location: BlockPos, state_id: u32) {
         let je_packet = CBlockUpdate::new(location, (state_id as i32).into());
         let be_packet = pumpkin_protocol::bedrock::client::update_block::CUpdateBlock::new(
             location,
-            pumpkin_data::BlockState::to_be_network_id(pumpkin_data::BlockStateId::new_or_air(
+            pumpkin_data::BlockState::to_be_network_id(pumpkin_data::BlockStateId::runtime_or_air(
                 state_id,
             )),
         );
@@ -2978,7 +2978,7 @@ impl Player {
 
     pub fn reset_block_change(&self, location: BlockPos) {
         let state_id = self.world().get_block_state_id(&location);
-        self.send_block_change(location, state_id.as_u16());
+        self.send_block_change(location, state_id.as_u32());
     }
 
     pub fn send_hurt_animation(&self, yaw: f32) {
@@ -3646,7 +3646,7 @@ impl Player {
         );
         self.try_send_client_packet(&CBlockUpdate::new(
             position,
-            VarInt(i32::from(state.id.as_u16())),
+            VarInt(state.id.as_u32() as i32),
         ));
     }
 
@@ -3835,7 +3835,7 @@ impl Player {
                 Vector3::new(0.3, 0.3, 0.3),
                 0.15,
                 particles,
-                on_state.id.as_u16(),
+                on_state.id,
             );
             self.spawn_extra_particles_on_fall
                 .store(false, Ordering::Relaxed);
