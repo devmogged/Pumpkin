@@ -1622,6 +1622,10 @@ pub struct Entity {
     pub entity_dimension: AtomicCell<EntityDimensions>,
     /// Vanilla `getDefaultDimensions` when it differs from the type size (baby, slime, ...)
     default_dimensions: AtomicCell<Option<EntityDimensions>>,
+    /// Embedder collision overrides, restored from the registered type on load.
+    pub native_dimensions: AtomicCell<Option<EntityDimensions>>,
+    pub immovable: AtomicBool,
+    pub pass_through_block: AtomicCell<Option<u16>>,
     /// Vanilla `LivingEntity.getScale` (`Attributes.SCALE`). 1.0 for non-living.
     pub scale: AtomicCell<f32>,
     /// Whether this entity is invulnerable to all damage
@@ -1926,6 +1930,9 @@ impl Entity {
             bounding_box,
             entity_dimension: AtomicCell::new(bounding_box_size),
             default_dimensions: AtomicCell::new(None),
+            native_dimensions: AtomicCell::new(None),
+            immovable: AtomicBool::new(false),
+            pass_through_block: AtomicCell::new(None),
             scale: AtomicCell::new(1.0),
             invulnerable: AtomicBool::new(false),
             damage_immunities: std::sync::Mutex::new(Vec::new()),
@@ -2328,6 +2335,9 @@ impl Entity {
     /// Vanilla `LivingEntity.getDimensions`: the pose size from data, else the scaled default.
     #[must_use]
     pub fn get_dimensions(&self, pose: EntityPose) -> EntityDimensions {
+        if let Some(dimensions) = self.native_dimensions.load() {
+            return dimensions.scale(self.scale.load());
+        }
         let baby = self.age.load(Relaxed) < 0;
         if let Some(pose_dimensions) = self.entity_type.pose_dimensions(pose, baby) {
             // Vanilla `SLEEPING_DIMENSIONS` is fixed, so it ignores the scale
@@ -2774,6 +2784,9 @@ impl Entity {
     /// `combat::knockback_after_resistance` first; callers modelling vanilla's raw
     /// `Entity.push` (such as the ender dragon) pass `strength` unscaled.
     pub fn apply_knockback(&self, strength: f64, mut x: f64, mut z: f64, attacker: Option<&Self>) {
+        if self.immovable.load(Relaxed) {
+            return;
+        }
         if strength <= 0.0 {
             // No vanilla knockback, but plugins can still add one
             if let Some(knockback) =
@@ -2976,7 +2989,9 @@ impl Entity {
                 continue;
             }
 
-            let check_suffocation = !suffocating && state.is_suffocating();
+            let check_suffocation = !suffocating
+                && state.is_suffocating()
+                && self.pass_through_block.load() != Some(block.id.as_u16());
 
             World::check_collision(
                 &bounding_box,
@@ -3032,6 +3047,9 @@ impl Entity {
     /// Vanilla `Entity.push(Vec3)`. A player's pushes are also kept apart for Bedrock,
     /// whose client doesn't predict them.
     pub fn push_by(&self, impulse: Vector3<f64>) {
+        if self.immovable.load(Relaxed) {
+            return;
+        }
         self.velocity.store(self.velocity.load() + impulse);
         self.velocity_dirty.store(true, Ordering::SeqCst);
         if self.entity_type == &EntityType::PLAYER {
@@ -3041,6 +3059,9 @@ impl Entity {
 
     /// `push_by` on the pusher in its own `pushEntities`, which stays off the Bedrock impulse.
     pub fn push_back_by(&self, impulse: Vector3<f64>) {
+        if self.immovable.load(Relaxed) {
+            return;
+        }
         self.velocity.store(self.velocity.load() + impulse);
         self.velocity_dirty.store(true, Ordering::SeqCst);
     }
