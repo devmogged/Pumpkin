@@ -2,7 +2,7 @@ use crate::block::blocks::chests::chest_container;
 use crate::block::blocks::composter::ComposterBlock;
 use crate::block::entities::BlockEntity;
 use crate::block::entities::decorated_pot::DecoratedPotBlockEntity;
-use crate::block::{BlockBehaviour, ItemInputArgs};
+use crate::block::{BlockBehaviour, ItemInputArgs, ItemOutputArgs};
 use crate::entity::EntityBase;
 use crate::entity::item::ItemEntity;
 use crate::plugin::api::events::inventory::hopper_inventory_search::HopperInventorySearchEvent;
@@ -519,6 +519,62 @@ impl HopperBlockEntity {
             .all(|item| !item.is_empty() && item.item_count == item.get_max_stack_size())
     }
 
+    fn pull_content(
+        &self,
+        world: &World,
+        pos: BlockPos,
+        state: BlockStateId,
+        behaviour: &dyn BlockBehaviour,
+        slots: u32,
+    ) -> bool {
+        for slot in 0..slots {
+            let args = |expected| ItemOutputArgs {
+                world,
+                position: pos,
+                state,
+                face: BlockDirection::Down,
+                slot,
+                expected,
+            };
+            let Some(item) = behaviour.extract_item(args(None)) else {
+                continue;
+            };
+            if item.is_empty() || item.item_count != 1 {
+                continue;
+            }
+            if world.cancelled_by_plugin(|| {
+                InventoryMoveItemEvent::new(
+                    pos,
+                    self.position,
+                    item.item.registry_key.to_string(),
+                    1,
+                )
+            }) {
+                continue;
+            }
+            // A hopper slot must fit the exact candidate before the source is mutated.
+            let fits = self.read_items().iter().any(|dst| {
+                dst.is_empty()
+                    || (dst.are_items_and_components_equal(&item)
+                        && dst.item_count < item.get_max_stack_size())
+            });
+            if !fits {
+                continue;
+            }
+            let Some(taken) = behaviour.extract_item(args(Some(&item))) else {
+                continue;
+            };
+            let leftover = Self::add_item(None, self, taken, None);
+            if !leftover.is_empty() {
+                // A concurrent insertion filled the hopper. Never void the extracted item.
+                let center = pos.to_centered_f64();
+                world.scatter_stack(center.x, center.y, center.z, leftover);
+            }
+            return true;
+        }
+        false
+    }
+
     #[allow(clippy::too_many_lines)]
     fn suck_in_items(&self, world: &Arc<World>) -> bool {
         let pos_up = &self.position.up();
@@ -526,7 +582,19 @@ impl HopperBlockEntity {
             return false;
         }
 
-        if let Some(container) = Self::get_container_at(world, pos_up) {
+        let (block, state) = world.get_block_and_state(pos_up);
+        if block.id.as_u16() >= BlockId::COUNT
+            && let Some(behaviour) = world.block_registry.get_pumpkin_block(block.id)
+        {
+            let slots = behaviour.item_output_slots(block);
+            if slots != 0 {
+                return self.pull_content(world, *pos_up, state.id, behaviour.as_ref(), slots);
+            }
+        }
+        let center = pos_up.to_centered_f64();
+        if let Some(container) = Self::block_container(world, pos_up, block, state)
+            .or_else(|| Self::get_entity_container(world, center.x, center.y, center.z))
+        {
             // An empty container has nothing to take, skip reading every slot.
             if container.is_empty() {
                 return false;
@@ -579,7 +647,6 @@ impl HopperBlockEntity {
             }
             return false;
         }
-        let (block, state) = world.get_block_and_state(pos_up);
         if !state.is_full_cube() || block.has_tag(&tag::Block::MINECRAFT_DOES_NOT_BLOCK_HOPPERS) {
             let entities = world.get_entities_at_box(&SUCK_AABB.at_pos(self.position));
             for entity_base in entities {

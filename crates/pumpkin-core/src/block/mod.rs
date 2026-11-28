@@ -80,6 +80,16 @@ pub struct ItemInputArgs<'a> {
     pub simulate: bool,
 }
 
+/// A hopper peeks at a content slot, then takes the approved item if it is still present.
+pub struct ItemOutputArgs<'a> {
+    pub world: &'a World,
+    pub position: BlockPos,
+    pub state: BlockStateId,
+    pub face: BlockDirection,
+    pub slot: u32,
+    pub expected: Option<&'a ItemStack>,
+}
+
 pub trait BlockBehaviour: Send + Sync {
     fn has_item_input(&self, _block: &Block) -> bool {
         false
@@ -88,6 +98,15 @@ pub trait BlockBehaviour: Send + Sync {
     /// Returns the number of items accepted. Simulation leaves the target untouched.
     fn insert_item(&self, _args: ItemInputArgs<'_>) -> u8 {
         0
+    }
+
+    fn item_output_slots(&self, _block: &Block) -> u32 {
+        0
+    }
+
+    /// An empty expected stack is a read-only peek; otherwise take that exact item.
+    fn extract_item(&self, _args: ItemOutputArgs<'_>) -> Option<ItemStack> {
+        None
     }
 
     fn is_valid_bonemeal_target(&self, _args: BonemealArgs<'_>) -> bool {
