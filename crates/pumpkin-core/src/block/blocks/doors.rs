@@ -118,15 +118,8 @@ fn get_hinge(
     let top_right = top_pos.offset(right_dir.to_offset());
     let top_right_state = world.get_block_state(&top_right);
 
-    let has_left_door = world
-        .get_block(&left_pos)
-        .has_tag(&tag::Block::MINECRAFT_DOORS)
-        && DoorProperties::from_state_id(left_state.id).half == DoubleBlockHalf::Lower;
-
-    let has_right_door = world
-        .get_block(&right_pos)
-        .has_tag(&tag::Block::MINECRAFT_DOORS)
-        && DoorProperties::from_state_id(right_state.id).half == DoubleBlockHalf::Lower;
+    let has_left_door = is_lower_door(left_state);
+    let has_right_door = is_lower_door(right_state);
 
     let score = -(left_state.is_full_cube() as i32) - (top_state.is_full_cube() as i32)
         + right_state.is_full_cube() as i32
@@ -153,10 +146,37 @@ fn get_hinge(
     }
 }
 
+fn is_lower_door(state: &BlockState) -> bool {
+    let block = state.id.to_block();
+    if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
+        return false;
+    }
+    if let Some(custom) = pumpkin_data::content::state(state.id.as_u16()) {
+        return custom
+            .properties
+            .get("half")
+            .is_some_and(|half| half == "lower");
+    }
+    DoorProperties::from_state_id(state.id).half == DoubleBlockHalf::Lower
+}
+
 #[pumpkin_block_from_tag("minecraft:doors")]
 pub struct DoorBlock;
 
 impl DoorBlock {
+    /// Selects the facing and hinge shared by vanilla and custom door placement.
+    #[must_use]
+    pub fn placement_properties(args: &OnPlaceArgs<'_>) -> DoorProperties {
+        let facing = args.player.living_entity.entity.get_horizontal_facing();
+        DoorProperties {
+            facing,
+            half: DoubleBlockHalf::Lower,
+            hinge: get_hinge(args.world, args.position, args.use_item_on, facing),
+            open: false,
+            powered: false,
+        }
+    }
+
     #[must_use]
     pub fn is_wooden_door(world: &World, block_pos: &BlockPos) -> bool {
         let block = world.get_block(block_pos);
@@ -169,13 +189,24 @@ impl DoorBlock {
         if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
             return false;
         }
-        let door_props = DoorProperties::from_state_id(block_state);
-        door_props.open
+        if let Some(custom) = pumpkin_data::content::state(block_state.as_u16()) {
+            return custom
+                .properties
+                .get("open")
+                .is_some_and(|open| open == "true");
+        }
+        DoorProperties::from_state_id(block_state).open
     }
 
     pub fn set_open(world: &Arc<World>, block_pos: &BlockPos, open: bool) {
         let (block, block_state) = world.get_block_and_state_id(block_pos);
         if !block.has_tag(&tag::Block::MINECRAFT_DOORS) {
+            return;
+        }
+        if pumpkin_data::content::state(block_state.as_u16()).is_some() {
+            if let Some(behaviour) = world.block_registry.get_pumpkin_block(block.id) {
+                behaviour.set_door_open(world, block_pos, block, open);
+            }
             return;
         }
         let mut door_props = DoorProperties::from_state_id(block_state);
@@ -221,13 +252,9 @@ impl DoorBlock {
 
 impl BlockBehaviour for DoorBlock {
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let mut door_props = DoorProperties::default(args.block);
-        let facing = args.player.living_entity.entity.get_horizontal_facing();
+        let mut door_props = Self::placement_properties(&args);
         let powered = block_receives_redstone_power(args.world, args.position)
             || block_receives_redstone_power(args.world, &args.position.up());
-        door_props.facing = facing;
-        door_props.half = DoubleBlockHalf::Lower;
-        door_props.hinge = get_hinge(args.world, args.position, args.use_item_on, facing);
         door_props.open = powered;
         door_props.powered = powered;
         door_props.to_state_id(args.block)

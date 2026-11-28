@@ -223,6 +223,9 @@ pub trait BlockBehaviour: Send + Sync {
 
     fn on_scheduled_tick(&self, _args: OnScheduledTickArgs<'_>) {}
 
+    /// Applies an AI open or close request to a registered custom door.
+    fn set_door_open(&self, _world: &Arc<World>, _pos: &BlockPos, _block: &Block, _open: bool) {}
+
     fn on_state_replaced(&self, _args: OnStateReplacedArgs<'_>) {}
 
     // --- Redstone/Comparator Methods ---
