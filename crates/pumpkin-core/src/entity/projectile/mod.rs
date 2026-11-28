@@ -651,7 +651,7 @@ pub fn trace_projectile_ordered(
         .load()
         .expand_towards(delta.x, delta.y, delta.z)
         .expand_all(1.0);
-    if let Some((entity, hit_pos)) = nearest_entity_hit(
+    if let Some((entity, hit_pos, multiplier)) = nearest_entity_hit(
         entity,
         &world,
         &search_box,
@@ -664,6 +664,7 @@ pub fn trace_projectile_ordered(
             entity,
             hit_pos,
             normal,
+            multiplier,
         });
     }
     hit
@@ -672,6 +673,14 @@ pub fn trace_projectile_ordered(
 /// Every entity and player whose box touches `search_box`.
 fn entities_in(world: &World, search_box: &BoundingBox) -> Vec<Arc<dyn EntityBase>> {
     let mut candidates = world.get_entities_at_box(search_box);
+    for entity in world.multipart_entities_at_box(search_box) {
+        if !candidates
+            .iter()
+            .any(|candidate| candidate.get_entity().entity_id == entity.get_entity().entity_id)
+        {
+            candidates.push(entity);
+        }
+    }
     candidates.extend(
         world
             .get_players_at_box(search_box)
@@ -680,6 +689,30 @@ fn entities_in(world: &World, search_box: &BoundingBox) -> Vec<Arc<dyn EntityBas
     );
     candidates
 }
+
+/// Parent-relative parts replace the pick box of a multipart mob. Each projectile can
+/// hit its parent only once, even when several regions overlap.
+fn hit_boxes(entity: &Entity) -> Vec<(BoundingBox, f32)> {
+    let parts = entity
+        .multipart_regions
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if parts.is_empty() {
+        return vec![(entity.bounding_box.load(), 1.0)];
+    }
+    let pos = entity.pos.load();
+    parts
+        .iter()
+        .map(|(bounds, multiplier)| {
+            (
+                BoundingBox::new(bounds.min + pos, bounds.max + pos),
+                *multiplier,
+            )
+        })
+        .collect()
+}
+
+pub type EntityHit = (Arc<dyn EntityBase>, Vector3<f64>, f32);
 
 /// The entity in `search_box` the segment enters first, its box grown by the projectile's age.
 fn nearest_entity_hit(
@@ -690,7 +723,7 @@ fn nearest_entity_hit(
     to: Vector3<f64>,
     margin: f64,
     can_hit: impl Fn(&dyn EntityBase) -> bool,
-) -> Option<(Arc<dyn EntityBase>, Vector3<f64>)> {
+) -> Option<EntityHit> {
     let mut nearest = None;
     let mut nearest_distance = f64::MAX;
     for candidate in entities_in(world, search_box) {
@@ -698,16 +731,13 @@ fn nearest_entity_hit(
         {
             continue;
         }
-        let bounding_box = candidate
-            .get_entity()
-            .bounding_box
-            .load()
-            .expand_all(margin);
-        if let Some(location) = bounding_box.clip(from, to) {
-            let distance = from.squared_distance_to_vec(&location);
-            if distance < nearest_distance {
-                nearest_distance = distance;
-                nearest = Some((candidate, location));
+        for (bounds, multiplier) in hit_boxes(candidate.get_entity()) {
+            if let Some(location) = bounds.expand_all(margin).clip(from, to) {
+                let distance = from.squared_distance_to_vec(&location);
+                if distance < nearest_distance {
+                    nearest_distance = distance;
+                    nearest = Some((candidate.clone(), location, multiplier));
+                }
             }
         }
     }
@@ -749,6 +779,7 @@ pub enum ProjectileHit {
         entity: Arc<dyn EntityBase>,
         hit_pos: Vector3<f64>,
         normal: Vector3<f64>,
+        multiplier: f32,
     },
 }
 

@@ -141,6 +141,7 @@ impl EntityBase for WitherSkullEntity {
         if let ProjectileHit::Entity {
             ref entity,
             hit_pos,
+            multiplier,
             ..
         } = hit
         {
@@ -150,7 +151,7 @@ impl EntityBase for WitherSkullEntity {
             {
                 let hurt = entity.damage_with_context(
                     entity.as_ref(),
-                    8.0,
+                    8.0 * multiplier,
                     DamageType::WITHER_SKULL,
                     Some(hit_pos),
                     Some(self),
@@ -161,7 +162,7 @@ impl EntityBase for WitherSkullEntity {
                 }
                 hurt
             } else {
-                entity.damage(entity.as_ref(), 5.0, DamageType::MAGIC)
+                entity.damage(entity.as_ref(), 5.0 * multiplier, DamageType::MAGIC)
             };
 
             let duration_seconds = match world.level_info.load().difficulty {

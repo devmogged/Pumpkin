@@ -184,6 +184,7 @@ impl EntityBase for WindChargeEntity {
             ProjectileHit::Entity {
                 ref entity,
                 hit_pos,
+                multiplier,
                 ..
             } => {
                 let world = self.get_entity().world.load();
@@ -194,7 +195,7 @@ impl EntityBase for WindChargeEntity {
                     .filter(|owner| owner.get_living_entity().is_some());
                 entity.damage_with_context(
                     entity.as_ref(),
-                    1.0,
+                    multiplier,
                     DamageType::WIND_CHARGE,
                     Some(hit_pos),
                     Some(self),

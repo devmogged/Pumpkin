@@ -68,6 +68,7 @@ impl EntityBase for SnowballEntity {
         if let ProjectileHit::Entity {
             ref entity,
             hit_pos,
+            multiplier,
             ..
         } = hit
         {
@@ -76,7 +77,7 @@ impl EntityBase for SnowballEntity {
             let owner = self.thrown.owner.get(&world);
             entity.damage_with_context(
                 entity.as_ref(),
-                damage,
+                damage * multiplier,
                 DamageType::THROWN,
                 Some(hit_pos),
                 Some(self),

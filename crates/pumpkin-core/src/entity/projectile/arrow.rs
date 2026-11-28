@@ -549,8 +549,9 @@ impl EntityBase for ArrowEntity {
             ProjectileHit::Entity {
                 entity: target,
                 hit_pos,
+                multiplier,
                 ..
-            } => self.on_hit_entity(&target, hit_pos),
+            } => self.on_hit_entity(&target, hit_pos, multiplier),
         }
     }
 
@@ -635,7 +636,7 @@ impl ArrowEntity {
         self.set_pierce_level(0);
     }
 
-    fn on_hit_entity(&self, target: &Arc<dyn EntityBase>, hit_pos: Vector3<f64>) {
+    fn on_hit_entity(&self, target: &Arc<dyn EntityBase>, hit_pos: Vector3<f64>, multiplier: f32) {
         let entity = self.get_entity();
         let world = entity.world.load();
         let velocity = entity.velocity.load();
@@ -672,7 +673,7 @@ impl ArrowEntity {
         let owner = self.owner.get(&world);
         let hurt = target.damage_with_context(
             target.as_ref(),
-            damage as f32,
+            damage as f32 * multiplier,
             DamageType::ARROW,
             Some(hit_pos),
             Some(self),

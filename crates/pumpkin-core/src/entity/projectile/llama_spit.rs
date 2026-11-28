@@ -81,6 +81,7 @@ impl EntityBase for LlamaSpitEntity {
         if let ProjectileHit::Entity {
             ref entity,
             hit_pos,
+            multiplier,
             ..
         } = hit
         {
@@ -89,7 +90,7 @@ impl EntityBase for LlamaSpitEntity {
 
             let _ = entity.damage_with_context(
                 entity.as_ref(),
-                1.0,
+                multiplier,
                 DamageType::SPIT,
                 Some(hit_pos),
                 Some(self),

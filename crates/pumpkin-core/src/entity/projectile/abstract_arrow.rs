@@ -136,11 +136,7 @@ pub trait AbstractArrow: EntityBase {
     }
 
     /// Every entity on the segment the arrow can hit, nearest first is not guaranteed.
-    fn find_hit_entities(
-        &self,
-        from: Vector3<f64>,
-        to: Vector3<f64>,
-    ) -> Vec<(Arc<dyn EntityBase>, Vector3<f64>)> {
+    fn find_hit_entities(&self, from: Vector3<f64>, to: Vector3<f64>) -> Vec<super::EntityHit> {
         get_many_entity_hit_result(self.get_entity(), from, to, |other| {
             can_hit_entity(self, other)
         })
@@ -299,14 +295,27 @@ fn step_move_and_hit<A: AbstractArrow + ?Sized>(
     while entity.is_alive() {
         let initial = entity.pos.load();
         let mut hits = arrow.find_hit_entities(initial, block_hit.location);
-        hits.sort_by(|(a, _), (b, _)| {
-            let a = initial.squared_distance_to_vec(&a.get_entity().pos.load());
-            let b = initial.squared_distance_to_vec(&b.get_entity().pos.load());
+        hits.sort_by(|(a, a_hit, _), (b, b_hit, _)| {
+            let point = |e: &Arc<dyn EntityBase>, hit: &Vector3<f64>| {
+                let base = e.get_entity();
+                if base
+                    .multipart_regions
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_empty()
+                {
+                    base.pos.load()
+                } else {
+                    *hit
+                }
+            };
+            let a = initial.squared_distance_to_vec(&point(a, a_hit));
+            let b = initial.squared_distance_to_vec(&point(b, b_hit));
             a.total_cmp(&b)
         });
         let next = hits
             .first()
-            .map_or(block_hit.location, |(_, location)| *location);
+            .map_or(block_hit.location, |(_, location, _)| *location);
         entity.set_pos(next);
         entity.tick_block_collisions(caller);
 
@@ -335,11 +344,12 @@ fn step_move_and_hit<A: AbstractArrow + ?Sized>(
             break;
         }
         let mut deflected = false;
-        for (target, location) in hits {
+        for (target, location, multiplier) in hits {
             let hit = ProjectileHit::Entity {
                 entity: target,
                 hit_pos: location,
                 normal: entity.velocity.load().normalize() * -1.0,
+                multiplier,
             };
             if matches!(
                 hit_target_or_deflect_self(caller, hit, server),
@@ -390,7 +400,7 @@ pub fn get_many_entity_hit_result(
     from: Vector3<f64>,
     to: Vector3<f64>,
     can_hit: impl Fn(&dyn EntityBase) -> bool,
-) -> Vec<(Arc<dyn EntityBase>, Vector3<f64>)> {
+) -> Vec<super::EntityHit> {
     let world = projectile.world.load();
     let delta = projectile.velocity.load();
     let search_box = projectile
@@ -405,25 +415,34 @@ pub fn get_many_entity_hit_result(
         {
             continue;
         }
-        let bounding_box = candidate.get_entity().bounding_box.load();
-        if let Some(hit) = bounding_box.clip(from, to) {
-            hits.push((candidate, hit));
-        } else if margin > 0.0
-            && let Some(outside) = bounding_box.expand_all(margin).clip(from, to)
-        {
-            let mut towards = bounding_box.get_center();
-            let (block_hit, _) = world.clip_including_border(&ClipContext::new(
-                outside,
-                towards,
-                ClipBlock::Collider,
-                ClipFluid::None,
-            ));
-            if block_hit.is_hit() {
-                towards = block_hit.location;
-            }
-            if bounding_box.clip(outside, towards).is_some() {
-                hits.push((candidate, outside));
-            }
+        let nearest = super::hit_boxes(candidate.get_entity())
+            .into_iter()
+            .filter_map(|(bounds, multiplier)| {
+                if let Some(hit) = bounds.clip(from, to) {
+                    return Some((hit, multiplier));
+                }
+                if margin <= 0.0 {
+                    return None;
+                }
+                let outside = bounds.expand_all(margin).clip(from, to)?;
+                let mut towards = bounds.get_center();
+                let (block_hit, _) = world.clip_including_border(&ClipContext::new(
+                    outside,
+                    towards,
+                    ClipBlock::Collider,
+                    ClipFluid::None,
+                ));
+                if block_hit.is_hit() {
+                    towards = block_hit.location;
+                }
+                bounds.clip(outside, towards).map(|_| (outside, multiplier))
+            })
+            .min_by(|(a, _), (b, _)| {
+                from.squared_distance_to_vec(a)
+                    .total_cmp(&from.squared_distance_to_vec(b))
+            });
+        if let Some((hit, multiplier)) = nearest {
+            hits.push((candidate, hit, multiplier));
         }
     }
     hits
@@ -435,7 +454,7 @@ pub fn get_entity_hit_result(
     from: Vector3<f64>,
     to: Vector3<f64>,
     can_hit: impl Fn(&dyn EntityBase) -> bool,
-) -> Option<(Arc<dyn EntityBase>, Vector3<f64>)> {
+) -> Option<super::EntityHit> {
     let world = projectile.world.load();
     let delta = projectile.velocity.load();
     let search_box = projectile

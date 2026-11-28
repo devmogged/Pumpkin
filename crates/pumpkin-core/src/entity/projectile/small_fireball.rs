@@ -89,6 +89,7 @@ impl EntityBase for SmallFireballEntity {
             ProjectileHit::Entity {
                 ref entity,
                 hit_pos,
+                multiplier,
                 ..
             } => {
                 let target = entity.get_entity();
@@ -101,7 +102,7 @@ impl EntityBase for SmallFireballEntity {
                 };
                 if !entity.damage_with_context(
                     entity.as_ref(),
-                    5.0,
+                    5.0 * multiplier,
                     damage_type,
                     Some(hit_pos),
                     Some(self),

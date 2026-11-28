@@ -246,6 +246,7 @@ pub struct World {
     /// A map of active entities within the world, keyed by their unique UUID.
     /// This does not include players.
     pub entities: ArcSwap<Vec<Arc<dyn EntityBase>>>,
+    multipart_entities: DashMap<i32, Weak<dyn EntityBase>>,
     pub(crate) entity_index: Arc<EntityIndex>,
     island_schedule: std::sync::Mutex<entity_islands::Schedule>,
     /// The world's scoreboard, used for tracking scores, objectives, and display information.
@@ -443,6 +444,7 @@ impl World {
             level_info,
             players: ArcSwap::new(Arc::new(Vec::new())),
             entities: ArcSwap::new(Arc::new(Vec::new())),
+            multipart_entities: DashMap::new(),
             entity_index: Arc::default(),
             island_schedule: std::sync::Mutex::default(),
             scoreboard: std::sync::Mutex::new(Scoreboard::default()),
@@ -5106,6 +5108,46 @@ impl World {
             .collect()
     }
 
+    /// Multipart bounds are combat geometry only; keep them out of the physical entity index.
+    pub fn track_multipart_entity(&self, id: i32, active: bool) {
+        if active {
+            if !self.multipart_entities.contains_key(&id)
+                && let Some(entity) = self.get_entity_by_id(id)
+            {
+                self.multipart_entities.insert(id, Arc::downgrade(&entity));
+            }
+        } else {
+            self.multipart_entities.remove(&id);
+        }
+    }
+
+    pub(crate) fn multipart_entities_at_box(&self, area: &BoundingBox) -> Vec<Arc<dyn EntityBase>> {
+        let mut result = Vec::new();
+        for entry in &self.multipart_entities {
+            let Some(entity) = entry.value().upgrade() else {
+                continue;
+            };
+            let base = entity.get_entity();
+            if base.is_removed() || base.world.load().uuid != self.uuid {
+                continue;
+            }
+            let pos = base.pos.load();
+            let relative = BoundingBox::new(area.min - pos, area.max - pos);
+            if base
+                .multipart_regions
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .any(|(bounds, _)| bounds.intersects(&relative))
+            {
+                entity_islands::check_reached(base.entity_id);
+                result.push(entity);
+            }
+        }
+        result.sort_by_key(|entity| entity.get_entity().entity_id);
+        result
+    }
+
     /// Non-player entities at a box whose type passes `matches`, in list order.
     pub fn get_entities_of_type_at_box(
         &self,
@@ -5775,6 +5817,7 @@ impl World {
             return;
         }
         base_entity.removed.store(true, Ordering::Release);
+        self.multipart_entities.remove(&base_entity.entity_id);
 
         if let Some(vehicle) = base_entity.get_vehicle() {
             vehicle

@@ -310,10 +310,16 @@ impl EntityReach {
 
     #[must_use]
     pub fn of(entity: &dyn EntityBase, config: &EntityIslandsConfig) -> Self {
-        if let Some(reach) = entity.audited_reach() {
+        let base = entity.get_entity();
+        // Parts can be republished anywhere within the host's ±64 block bound during this tick.
+        let multipart = !base
+            .multipart_regions
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty();
+        if !multipart && let Some(reach) = entity.audited_reach() {
             return Self::Audited(reach);
         }
-        let base = entity.get_entity();
         let movement = base.velocity.load().length()
             + entity
                 .get_mob()
@@ -325,8 +331,12 @@ impl EntityReach {
                     .get_attribute_value(&Attributes::FOLLOW_RANGE)
                     .max(0.0)
             });
-        let mut reach =
-            TickReach::conservative(&base.bounding_box.load(), radius, links_of(entity));
+        let body = if multipart {
+            base.bounding_box.load().expand_all(64.0)
+        } else {
+            base.bounding_box.load()
+        };
+        let mut reach = TickReach::conservative(&body, radius, links_of(entity));
         if let Some(mob) = entity.get_mob() {
             let player_radius = radius.max(mob.player_tick_range() + movement);
             reach.players =

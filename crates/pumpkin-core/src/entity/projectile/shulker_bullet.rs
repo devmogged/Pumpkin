@@ -341,7 +341,9 @@ impl EntityBase for ShulkerBulletEntity {
         let world = entity.world.load();
         match hit {
             ProjectileHit::Entity {
-                entity: ref target, ..
+                entity: ref target,
+                multiplier,
+                ..
             } => {
                 let owner = self
                     .owner
@@ -349,7 +351,7 @@ impl EntityBase for ShulkerBulletEntity {
                     .filter(|owner| owner.get_living_entity().is_some());
                 let hurt = target.damage_with_context(
                     target.as_ref(),
-                    4.0,
+                    4.0 * multiplier,
                     DamageType::MOB_PROJECTILE,
                     None,
                     Some(self),

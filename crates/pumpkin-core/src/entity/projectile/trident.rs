@@ -363,7 +363,7 @@ impl TridentEntity {
         self.set_critical(false);
     }
 
-    fn on_hit_entity(&self, target: &Arc<dyn EntityBase>, hit_pos: Vector3<f64>) {
+    fn on_hit_entity(&self, target: &Arc<dyn EntityBase>, hit_pos: Vector3<f64>, multiplier: f32) {
         let world = self.entity.world.load();
         let weapon_stack = self.item();
         let damage = EnchantmentHelper::modify_damage_against(
@@ -377,7 +377,7 @@ impl TridentEntity {
         self.dealt_damage.store(true, Ordering::Relaxed);
         let hurt = target.damage_with_context(
             target.as_ref(),
-            damage as f32,
+            damage as f32 * multiplier,
             DamageType::TRIDENT,
             Some(hit_pos),
             Some(self),
@@ -453,11 +453,7 @@ impl AbstractArrow for TridentEntity {
         }
     }
 
-    fn find_hit_entities(
-        &self,
-        from: Vector3<f64>,
-        to: Vector3<f64>,
-    ) -> Vec<(Arc<dyn EntityBase>, Vector3<f64>)> {
+    fn find_hit_entities(&self, from: Vector3<f64>, to: Vector3<f64>) -> Vec<super::EntityHit> {
         if self.dealt_damage.load(Ordering::Relaxed) {
             return Vec::new();
         }
@@ -672,8 +668,9 @@ impl EntityBase for TridentEntity {
             ProjectileHit::Entity {
                 entity: target,
                 hit_pos,
+                multiplier,
                 ..
-            } => self.on_hit_entity(&target, hit_pos),
+            } => self.on_hit_entity(&target, hit_pos, multiplier),
         }
     }
 

@@ -165,6 +165,7 @@ impl EntityBase for FireballEntity {
         if let ProjectileHit::Entity {
             ref entity,
             hit_pos,
+            multiplier,
             ..
         } = hit
         {
@@ -176,7 +177,7 @@ impl EntityBase for FireballEntity {
             };
             entity.damage_with_context(
                 entity.as_ref(),
-                6.0,
+                6.0 * multiplier,
                 damage_type,
                 Some(hit_pos),
                 Some(self),
