@@ -334,7 +334,10 @@ fn step_move_and_hit<A: AbstractArrow + ?Sized>(
                 hit_pos: location,
                 normal: entity.velocity.load().normalize() * -1.0,
             };
-            if hit_target_or_deflect_self(caller, hit, server) == HitOutcome::Deflected {
+            if matches!(
+                hit_target_or_deflect_self(caller, hit, server),
+                HitOutcome::Deflected | HitOutcome::Canceled
+            ) {
                 deflected = true;
                 break;
             }
